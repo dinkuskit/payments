@@ -1,7 +1,8 @@
 # Security
 
-Please report suspected vulnerabilities through GitHub's private vulnerability
-reporting for this repository. Do not open a public issue containing exploit
+If GitHub shows private vulnerability reporting for this repository, use it.
+Until that channel is enabled, contact a DinkusKit maintainer through an
+existing private channel. Do not open a public issue containing exploit
 details, credentials, webhook secrets, payment details, customer data, or
 production configuration.
 
