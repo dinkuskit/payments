@@ -37,9 +37,9 @@ The public package and EmDash installation are `@dinkuskit/payments` and
 processor adapters over time, while each store selects exactly one active
 provider in server-owned configuration.
 
-For the demo, `stripe` is the only implemented and accepted provider ID.
-Unknown providers fail before transport. Checkout input cannot select a
-provider, and the plugin never retries through a different processor.
+For the demo, `stripe` is the only provider ID permitted for implementation and
+acceptance. Unknown providers fail before transport. Checkout input cannot
+select a provider, and the plugin never retries through a different processor.
 
 ## Amount and currency model
 

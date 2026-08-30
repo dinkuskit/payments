@@ -15,7 +15,7 @@ package release, or production compatibility promise yet.
 The demo direction is deliberately narrow:
 
 - one active payment provider per store;
-- Stripe as the only implemented and accepted demo provider;
+- Stripe as the only permitted demo provider, with implementation still ahead;
 - USD as the only accepted demo currency;
 - no automatic provider fallback or per-checkout provider selection;
 - no currency conversion.

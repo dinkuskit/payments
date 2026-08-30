@@ -32,8 +32,9 @@ public.
 - Exactly one payment provider is active per store. Selection is server-owned;
   checkout requests cannot select a provider. Unknown providers fail closed,
   and there is no automatic fallback between processors.
-- Stripe is the only implemented and supported demo provider. The plugin may
-  add isolated provider adapters later without changing Commerce's contract.
+- Stripe is the only provider permitted for demo implementation and support.
+  The plugin may add isolated provider adapters later without changing
+  Commerce's contract.
 - Demo amounts are USD only, represented as integer minor units plus an
   explicit currency code. Non-USD requests fail before provider contact. There
   is no currency conversion.
