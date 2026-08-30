@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+set -eu
+
+mode="${1:-quick}"
+
+case "$mode" in
+  quick)
+    npm test
+    npm run audit:repo
+    ;;
+  full)
+    "$0" quick
+    ;;
+  *)
+    echo "Usage: bin/verify-payments [quick|full]" >&2
+    exit 64
+    ;;
+esac

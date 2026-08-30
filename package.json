@@ -1,0 +1,33 @@
+{
+  "name": "@dinkuskit/payments",
+  "version": "0.0.0",
+  "description": "The open-source payment-provider plugin for EmDash commerce sites",
+  "type": "module",
+  "private": true,
+  "files": [
+    "dist"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dinkuskit/payments.git"
+  },
+  "dinkuskit": {
+    "pluginId": "dinkus-payments",
+    "providerSelection": "one-active-per-store",
+    "demoProviders": [
+      "stripe"
+    ],
+    "demoCurrencies": [
+      "USD"
+    ],
+    "providerFallback": false,
+    "currencyConversion": false
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "audit:repo": "node scripts/repo-contract.mjs",
+    "verify:quick": "bin/verify-payments quick",
+    "verify:full": "bin/verify-payments full"
+  }
+}
