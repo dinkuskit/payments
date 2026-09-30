@@ -7,15 +7,18 @@ churn outside Commerce core.
 
 ## Status
 
-Charter stage. The package name is reserved as `@dinkuskit/payments`, the
-EmDash plugin ID is `dinkus-payments`, and the manifest remains private at
-`0.0.0`. There is no installable provider, Stripe SDK, live payment path,
+Local hosted-connection implementation. The package name is reserved as
+`@dinkuskit/payments`, the EmDash plugin ID is `dinkus-payments`, and the
+manifest remains private at `0.0.0`. The service includes persistent account
+bindings, authenticated setup/status endpoints, a Stripe onboarding adapter,
+and a readiness gate for new checkout. Its Worker is limited to test mode.
+There is no registry-installable plugin, deployed service, live payment path,
 package release, or production compatibility promise yet.
 
 The demo direction is deliberately narrow:
 
 - one active payment provider per store;
-- Stripe as the only permitted demo provider, with implementation still ahead;
+- Stripe as the only permitted demo provider;
 - USD as the only accepted demo currency;
 - no automatic provider fallback or per-checkout provider selection;
 - no currency conversion.
@@ -43,7 +46,9 @@ will own server-side processor selection, Stripe transport, webhook
 verification, and normalized provider outcomes. Inventory, shipping,
 storefront UI, and secret storage remain outside this repository.
 
-See [the charter](docs/CHARTER.md) for the complete boundary.
+See [the charter](docs/CHARTER.md) for the complete boundary and
+[hosted connections](docs/hosted-connections.md) for the local implementation,
+account-service dependency, and remaining integration work.
 
 ## Development
 

@@ -55,7 +55,20 @@ and no component performs currency conversion. Additional currencies are a
 post-demo product decision; the explicit currency field prevents that future
 work from requiring an ambiguous amount migration.
 
-## Initial delivery boundary
+## Hosted connection experience
+
+DinkusKit operates the Stripe connection service by default. Merchants use
+their shared DinkusKit account to connect from the registry Payments plugin,
+complete Stripe-hosted setup, and return to verified readiness or a clear
+finish-setup action. The merchant owns the Stripe account receiving customer
+payments. Normal merchant setup requires no infrastructure or API-key entry.
+
+The service owns store-to-account bindings and processor transport, while
+Commerce keeps its existing authority over checkout, amounts, orders, and
+receipts. DinkusKit subscription pricing and transaction fees are undecided.
+The account identity service remains a separate shared dependency.
+
+## Initial delivery boundary and current local slice
 
 The initial repository is a non-operational scaffold. It establishes public
 ownership, safety rules, package identity, feature boundaries, verification,
@@ -63,5 +76,14 @@ and GrillTrack lineage. It includes no Stripe SDK, credentials, webhook
 endpoint, processor calls, Commerce modifications, template-store changes,
 package publication, deployment, or production mutation.
 
-Implementation begins only after Commerce exposes a grilled payment-provider
-contract and the corresponding Payments slice is locked.
+The current locked slice adds the hosted connection backend and a gate that
+resolves Commerce's immutable payment binding only when a new checkout may
+start. Commerce has an in-progress grilled provider contract; this slice does
+not implement its session creation, reconciliation, or order transitions.
+The former scaffold remains recorded as the initial delivery, not an ongoing
+ban on the now-confirmed local implementation.
+
+Registry admin wiring, the shared account-service deployment, Stripe platform
+activation, and real Stripe test-mode proof remain prerequisites for an
+installable end-to-end experience. The Worker has no live mode or public
+deployment configured. See [hosted connections](hosted-connections.md).

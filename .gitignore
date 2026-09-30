@@ -7,3 +7,7 @@ coverage/
 .grilltrack/work/
 runs/
 .tmp/
+
+.wrangler/
+.dev.vars
+.dev.vars.*

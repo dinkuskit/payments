@@ -79,9 +79,6 @@ export async function auditRepository(root = repositoryRoot) {
     if (forbiddenExtensions.has(extension)) {
       findings.push(`forbidden sensitive-data path: ${path}`);
     }
-    if (path.startsWith("src/")) {
-      findings.push(`implementation is outside the scaffold boundary: ${path}`);
-    }
   }
 
   const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
@@ -89,16 +86,13 @@ export async function auditRepository(root = repositoryRoot) {
     findings.push("package name must be @dinkuskit/payments");
   }
   if (manifest.version !== "0.0.0") findings.push("package version must start at 0.0.0");
-  if (manifest.private !== true) findings.push("package must remain private at scaffold stage");
+  if (manifest.private !== true) findings.push("package must remain private until approved release");
   if (manifest.license !== "MIT") findings.push("package license must be MIT");
   if (manifest.repository?.url !== "git+https://github.com/dinkuskit/payments.git") {
     findings.push("package repository must be dinkuskit/payments");
   }
   if (JSON.stringify(manifest.files) !== JSON.stringify(["dist"])) {
     findings.push("package files must contain only dist");
-  }
-  if (manifest.dependencies || manifest.devDependencies || manifest.peerDependencies) {
-    findings.push("scaffold must not declare implementation dependencies");
   }
 
   const expectedDinkusKit = {

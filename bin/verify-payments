@@ -6,10 +6,13 @@ mode="${1:-quick}"
 case "$mode" in
   quick)
     npm test
+    npm run typecheck
     npm run audit:repo
     ;;
   full)
     "$0" quick
+    npm run test:runtime
+    npm run build
     ;;
   *)
     echo "Usage: bin/verify-payments [quick|full]" >&2
