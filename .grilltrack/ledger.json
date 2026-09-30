@@ -533,19 +533,25 @@
     "reason": "First local backend slice is tested; registry/account integration and authorized review remain outstanding.",
     "resumed_at": "2026-09-30T13:04:18+00:00"
   },
-  "pause": null,
-  "recommendation": {
-    "alternatives": [
-      "Parent opens the one authorized draft PR from this worktree.",
-      "Attended Stripe test-mode proof after review authority; do not invent live behavior from synthetic probes."
+  "pause": {
+    "artifact_refs": [
+      "https://github.com/dinkuskit/payments/pull/5",
+      ".grilltrack/proof/checkout-sessions/PROOF.md",
+      "docs/checkout-sessions.md"
     ],
-    "reason": "Required acceptance fixes are locally implemented and verified. Formal review, commit, PR, and live Stripe remain parent-owned. Stripe created/expires_at is not documented as exact 1800, so an inconsistent provider window stays unknown.",
-    "recommended": "Parent authorizes formal review of this repaired uncommitted adapter against Commerce 1cb55c756ef746bcb042b9679dc43b57e67bcb0d. This owner does not dispatch review.",
-    "recorded_at": "2026-09-30T13:39:19+00:00"
+    "next_safe_action": "Use Payments PR #5 and its proof for the existing review rail; decide the smallest supported timing contract before actual Stripe qualification.",
+    "paused_at": "2026-09-30T13:56:34+00:00",
+    "reason": "Draft adapter delivered with synthetic/runtime proof; exact Stripe timing, integration dependencies and owner-controlled formal review remain."
+  },
+  "recommendation": {
+    "alternatives": [],
+    "reason": "The adapter preserves unknown on mismatched provider timestamps; actual Stripe timing and the Commerce wake consumer require their own admitted integration work. Inventory basket work remains queued, not dispatched.",
+    "recommended": "Resolve the exact Stripe 30-minute timestamp feasibility boundary against the existing Commerce port.",
+    "recorded_at": "2026-09-30T13:56:34+00:00"
   },
   "schema_version": "grilltrack/v0.1",
-  "status": "active",
+  "status": "paused",
   "title": "DinkusKit Payments public scaffold",
   "track_id": "gt-20260830202947-ccfe03",
-  "updated_at": "2026-09-30T13:51:48+00:00"
+  "updated_at": "2026-09-30T13:56:34+00:00"
 }
