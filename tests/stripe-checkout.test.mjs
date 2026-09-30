@@ -19,7 +19,7 @@ test("official Stripe checkout transport pins idempotency, connected account, ca
         amount_total: 1200,
         currency: "usd",
         created: 1800000000,
-        expires_at: 1800001800,
+        expires_at: 1800001860,
         livemode: false,
         payment_intent: null,
         metadata: { dinkus_attempt: "attempt-one", dinkus_binding: "bind-one", dinkus_site: "store-a" },
@@ -36,7 +36,7 @@ test("official Stripe checkout transport pins idempotency, connected account, ca
         amount_total: 1200,
         currency: "usd",
         created: 1800000000,
-        expires_at: 1800001800,
+        expires_at: 1800001860,
         livemode: false,
         payment_intent: "pi_fixture",
         metadata: { dinkus_attempt: "attempt-one", dinkus_binding: "bind-one", dinkus_site: "store-a" },
@@ -60,7 +60,7 @@ test("official Stripe checkout transport pins idempotency, connected account, ca
     stripeAccountId: "acct_one",
     lines: [{ catalogItemId: "sku-1", quantity: 1, name: "Hat", unitPrice: { currency: "USD", minor: "1200" } }],
     total: { currency: "USD", minor: "1200" },
-    expiresAtSeconds: 1800001800,
+    expiresAtSeconds: 1800001860,
     successUrl: "https://store.example.invalid/checkout/return",
     cancelUrl: "https://store.example.invalid/checkout/cancel",
     idempotencyKey: "dinkus-checkout:attempt-one",
@@ -70,7 +70,7 @@ test("official Stripe checkout transport pins idempotency, connected account, ca
   assert.equal(calls[0].headers.get("stripe-account"), "acct_one");
   const params = new URLSearchParams(calls[0].body);
   assert.equal(params.get("mode"), "payment");
-  assert.equal(params.get("expires_at"), "1800001800");
+  assert.equal(params.get("expires_at"), "1800001860");
   assert.equal(params.get("payment_method_types[0]"), "card");
   assert.equal(params.get("line_items[0][price_data][currency]"), "usd");
   assert.equal(params.get("line_items[0][price_data][unit_amount]"), "1200");
@@ -119,15 +119,15 @@ test("mode mismatch fails before checkout transport", () => {
 test("stored 1799-second remaining expiry is replayed on the official Stripe wire and never omitted or increased", async (t) => {
   const claimMs = 1_600_000_000_000;
   const claimBaseSeconds = Math.floor(claimMs / 1000);
-  const pinnedExpires = claimBaseSeconds + STRIPE_MIN_EXPIRES_AT_SECONDS;
-  const clocks = { provider: claimBaseSeconds + 1, service: claimMs + 5_000 };
+  const pinnedExpires = claimBaseSeconds + 1860;
+  const clocks = { provider: claimBaseSeconds + 61, service: claimMs + 65_000 };
   t.mock.method(Date, "now", () => clocks.provider * 1000);
   const payment = {
     attemptId: "attempt-short-deadline",
     bindingRef: "bind-short",
     lines: [{ catalogItemId: "sku-1", quantity: 1, name: "Hat", unitPrice: { currency: "USD", minor: "1200" } }],
     total: { currency: "USD", minor: "1200" },
-    paymentWindowSeconds: 1800,
+    paymentWindow: { minSeconds: 1800, maxSeconds: 1860 },
     paymentMethods: ["card"],
   };
   const owner = { accountId: "issuer:merchant-a", siteId: "store-a" };
@@ -153,6 +153,7 @@ test("stored 1799-second remaining expiry is replayed on the official Stripe wir
     cancelUrl,
     stripeSessionId: null,
     redirectUrl: null,
+    policyKind: "current-bounded-1800-1860",
   });
   let omissionTrapTaken = false;
   const creates = [];
@@ -252,8 +253,8 @@ test("stored 1799-second remaining expiry is replayed on the official Stripe wir
   assert.equal(creates[1].body, creates[0].body);
   assert.equal(creates[1].headers.get("idempotency-key"), creates[0].headers.get("idempotency-key"));
   assert.equal(creates[1].headers.get("stripe-account"), creates[0].headers.get("stripe-account"));
-  clocks.provider = claimBaseSeconds + 1800;
-  clocks.service = claimMs + 1_800_000;
+  clocks.provider = claimBaseSeconds + 1860;
+  clocks.service = claimMs + 1_860_000;
   const zero = await service.ensureSessionFor(owner, payment);
   assert.equal(zero.outcome, "unknown");
   assert.equal(creates.length, 3);

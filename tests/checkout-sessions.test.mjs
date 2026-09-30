@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CREATION_RETRY_WINDOW_MS, createCheckoutSessionService } from "../src/checkout/sessions.ts";
+import { CREATION_RETRY_WINDOW_MS, createCheckoutSessionService, requestFingerprint } from "../src/checkout/sessions.ts";
 import { createConnectionService } from "../src/hosted/connection.ts";
 import { createHostedHandler } from "../src/hosted/http.ts";
 
@@ -14,7 +14,7 @@ function request(overrides = {}) {
     bindingRef: "stripe_binding-one",
     lines: [{ catalogItemId: "sku-1", quantity: 2, name: "Hat", unitPrice: { currency: "USD", minor: "600" } }],
     total: { currency: "USD", minor: "1200" },
-    paymentWindowSeconds: 1800,
+    paymentWindow: { minSeconds: 1800, maxSeconds: 1860 },
     paymentMethods: ["card"],
     ...overrides,
   };
@@ -48,7 +48,7 @@ function fixture() {
         paymentStatus: "unpaid",
         amountTotal: Number(input.total.minor),
         currency: "usd",
-        created: input.expiresAtSeconds - 1800,
+        created: input.expiresAtSeconds - 1860,
         expiresAt: input.expiresAtSeconds,
         livemode: false,
         paymentIntentId: null,
@@ -100,7 +100,7 @@ test("lost creation response recovers the original session and window", async ()
   assert.equal(recovered.outcome, "open");
   assert.equal(recovered.session.sessionId, "cs_one");
   assert.equal(recovered.session.redirectUrl, "https://checkout.stripe.com/c/pay/cs_one");
-  assert.equal(recovered.session.expiresAt, recovered.session.createdAt + 1800);
+  assert.equal(recovered.session.expiresAt, recovered.session.createdAt + 1860);
   assert.equal(f.calls.filter(call => call[0] === "create").length, 2);
   assert.equal(f.calls[0][1].idempotencyKey, "dinkus-checkout:attempt-one");
   assert.equal(f.calls[0][1].expiresAtSeconds, recovered.session.expiresAt);
@@ -172,7 +172,7 @@ test("expired unpaid without a canceled PaymentIntent stays unknown", async () =
   const expired = await f.checkout().lookupFor(owner, request());
   assert.equal(expired.outcome, "expired-unpaid");
   assert.equal(expired.session.redirectUrl, "https://checkout.stripe.com/c/pay/cs_one");
-  assert.equal(expired.session.expiresAt, expired.session.createdAt + 1800);
+  assert.equal(expired.session.expiresAt, expired.session.createdAt + 1860);
 });
 
 test("paid requires a succeeded PaymentIntent and keeps the original session fields", async () => {
@@ -256,7 +256,7 @@ test("exact provider window is returned and later reads must agree", async () =>
   const f = fixture(); await f.ready();
   const created = await f.checkout().ensureSessionFor(owner, request());
   assert.equal(created.outcome, "open");
-  assert.equal(created.session.createdAt, created.session.expiresAt - 1800);
+  assert.equal(created.session.createdAt, created.session.expiresAt - 1860);
   assert.equal(created.session.createdAt, f.sessions.get("dinkus-checkout:attempt-one").created);
   assert.equal(created.session.expiresAt, f.sessions.get("dinkus-checkout:attempt-one").expiresAt);
   const looked = await f.checkout().lookupFor(owner, request());
@@ -306,7 +306,8 @@ test("pending charge cannot establish terminal unpaid even with canceled intent"
   const f = fixture(); await f.ready();
   await f.checkout().ensureSessionFor(owner, request());
   const mapped = f.sessions.get("dinkus-checkout:attempt-one");
-  mapped.status = "expired"; mapped.paymentStatus = "unpaid"; mapped.paymentIntentId = "pi_pending";
+  mapped.status = "expired"; mapped.paymentStatus = "unpaid"; mapped.url = null;
+  mapped.paymentIntentId = "pi_pending";
   f.provider.retrievePaymentIntent = async id => ({ id, status: "canceled", amount: 1200, currency: "usd", latestCharge: { state: "known", status: "pending" } });
   assert.equal((await f.checkout().lookupFor(owner, request())).outcome, "unknown");
 });
@@ -390,7 +391,7 @@ test("fingerprint compares canonical values and preserves Commerce line order", 
   await f.checkout().ensureSessionFor(owner, request());
   const reorderedProps = {
     paymentMethods: ["card"],
-    paymentWindowSeconds: 1800,
+    paymentWindow: { minSeconds: 1800, maxSeconds: 1860 },
     total: { minor: "1200", currency: "USD" },
     lines: [{ unitPrice: { minor: "600", currency: "USD" }, name: "Hat", quantity: 2, catalogItemId: "sku-1" }],
     bindingRef: "stripe_binding-one",
@@ -435,4 +436,570 @@ test("HTTP existing-binding bypasses readiness while checkout-binding does not",
   const existing = await handle(new Request("https://service.invalid/v1/existing-binding?bindingRef=stripe_binding-one", { headers }));
   assert.equal(existing.status, 200);
   assert.deepEqual(await existing.json(), { bindingRef: "stripe_binding-one", stripeAccountId: "acct_one", mode: "test", providerId: "stripe" });
+});
+
+function makeSyntheticProvider(initialEpoch = 1_800_000_000) {
+  let providerEpoch = initialEpoch;
+  let operations = 0;
+  const cache = new Map();
+  const calls = [];
+  return {
+    calls,
+    get operations() { return operations; },
+    getEpoch() { return providerEpoch; },
+    setEpoch(epoch) { providerEpoch = epoch; },
+    advance(seconds) { providerEpoch += seconds; },
+    async createSession(input) {
+      calls.push(["create", structuredClone(input)]);
+      const cached = cache.get(input.idempotencyKey);
+      if (cached) {
+        if (cached.body !== JSON.stringify(input)) throw Error("synthetic_parameter_mismatch");
+        return structuredClone(cached.session);
+      }
+      const remaining = input.expiresAtSeconds - providerEpoch;
+      if (remaining < 1800 || remaining > 86400) {
+        throw Error(`synthetic_invalid_expiry: remaining ${remaining}`);
+      }
+      operations++;
+      const session = {
+        id: `cs_test_${input.attemptId.replace(/[^A-Za-z0-9]/g, "")}`,
+        url: `https://checkout.stripe.com/c/pay/cs_${input.attemptId}`,
+        status: "open",
+        paymentStatus: "unpaid",
+        amountTotal: Number(input.total.minor),
+        currency: "usd",
+        created: providerEpoch,
+        expiresAt: input.expiresAtSeconds,
+        livemode: false,
+        paymentIntentId: null,
+        metadata: { dinkus_attempt: input.attemptId, dinkus_binding: input.bindingRef, dinkus_site: input.siteId },
+        paymentMethodTypes: ["card"],
+      };
+      cache.set(input.idempotencyKey, { body: JSON.stringify(input), session });
+      return structuredClone(session);
+    },
+    async retrieveSession(id) {
+      calls.push(["retrieve", id]);
+      const found = [...cache.values()].find(c => c.session.id === id)?.session;
+      if (!found) throw Error("missing");
+      return structuredClone(found);
+    },
+    async retrievePaymentIntent(id) {
+      calls.push(["pi", id]);
+      return { id, status: "canceled", amount: 1200, currency: "usd", latestCharge: { state: "absent" } };
+    },
+  };
+}
+
+test("independent provider clock delays 0/1/10/30/59/60 inclusive are valid and 61 is invalid", async () => {
+  const delays = [
+    { delay: 0, expectedDuration: 1860 },
+    { delay: 1, expectedDuration: 1859 },
+    { delay: 10, expectedDuration: 1850 },
+    { delay: 30, expectedDuration: 1830 },
+    { delay: 59, expectedDuration: 1801 },
+    { delay: 60, expectedDuration: 1800 },
+  ];
+
+  for (const { delay, expectedDuration } of delays) {
+    const f = fixture(); await f.ready();
+    const providerEpoch = 1_800_000_000 + delay;
+    const synth = makeSyntheticProvider(providerEpoch);
+    f.provider.createSession = synth.createSession;
+    f.provider.retrieveSession = synth.retrieveSession;
+
+    const req = request({ attemptId: `attempt-delay-${delay}` });
+    const res = await f.checkout().ensureSessionFor(owner, req);
+    assert.equal(res.outcome, "open");
+    assert.equal(res.session.createdAt, providerEpoch);
+    assert.equal(res.session.expiresAt - res.session.createdAt, expectedDuration);
+    assert.equal(synth.operations, 1);
+
+    const looked = await f.checkout().lookupFor(owner, req);
+    assert.equal(looked.outcome, "open");
+    assert.deepEqual(looked.session, res.session);
+  }
+
+  // Delay 61 yields unknown, unmapped claim, zero successful operations; later retry unchanged tuple/key/deadline and still unknown
+  {
+    const f61 = fixture(); await f61.ready();
+    const providerEpoch61 = 1_800_000_000 + 61;
+    const synth61 = makeSyntheticProvider(providerEpoch61);
+    f61.provider.createSession = synth61.createSession;
+    f61.provider.retrieveSession = synth61.retrieveSession;
+
+    const req61 = request({ attemptId: "attempt-delay-61" });
+    const res61 = await f61.checkout().ensureSessionFor(owner, req61);
+    assert.equal(res61.outcome, "unknown");
+    assert.equal(synth61.operations, 0);
+
+    // unmapped claim
+    const record61 = f61.attempts.get(req61.attemptId);
+    assert.ok(record61);
+    assert.equal(record61.stripeSessionId, null);
+    assert.equal(record61.redirectUrl, null);
+    assert.equal(record61.providerCreatedAtSeconds, null);
+    assert.equal(record61.providerExpiresAtSeconds, null);
+
+    // later retry unchanged tuple/key/deadline and still unknown
+    f61.advance(10_000);
+    synth61.advance(10);
+    const retry61 = await f61.checkout().ensureSessionFor(owner, req61);
+    assert.equal(retry61.outcome, "unknown");
+    assert.equal(synth61.operations, 0);
+    assert.equal((await f61.checkout().lookupFor(owner, req61)).outcome, "unknown");
+    assert.equal(f61.attempts.get(req61.attemptId).stripeSessionId, null);
+    assert.equal(f61.attempts.get(req61.attemptId).requestedExpiresAtSeconds, 1_800_001_860);
+  }
+});
+
+test("delayed lost-response at provider+1 then retry+180 recovers cached session with remaining 1680", async () => {
+  const f = fixture(); await f.ready();
+  const synth = makeSyntheticProvider(1_800_000_000 + 1); // provider+1
+  let shouldDropResponse = true;
+
+  f.provider.createSession = async input => {
+    const session = await synth.createSession(input);
+    if (shouldDropResponse) {
+      shouldDropResponse = false;
+      throw Error("lost_response_after_execution");
+    }
+    return session;
+  };
+  f.provider.retrieveSession = synth.retrieveSession;
+
+  const req = request({ attemptId: "attempt-delayed-lost" });
+  const firstRes = await f.checkout().ensureSessionFor(owner, req);
+  assert.equal(firstRes.outcome, "unknown");
+  assert.equal(synth.operations, 1);
+  const initialRecord = f.attempts.get(req.attemptId);
+  assert.equal(initialRecord.stripeSessionId, null);
+  assert.equal(initialRecord.requestedExpiresAtSeconds, 1_800_001_860);
+
+  // retry at +180: Payments client advances 180s, provider clock advances 180s
+  // new-create remaining would be 1800001860 - 1800000180 = 1680 < 1800
+  // But cached result replay happens before validating remaining
+  f.advance(180_000);
+  synth.setEpoch(1_800_000_000 + 180);
+  const retryRes = await f.checkout().ensureSessionFor(owner, req);
+  assert.equal(retryRes.outcome, "open");
+  assert.equal(synth.operations, 1); // exactly one successful operation
+  assert.equal(retryRes.session.createdAt, 1_800_000_001); // original provider timestamp unchanged
+  assert.equal(retryRes.session.expiresAt, 1_800_001_860); // original deadline unchanged
+  assert.equal(retryRes.session.sessionId, "cs_test_attemptdelayedlost");
+
+  const finalRecord = f.attempts.get(req.attemptId);
+  assert.equal(finalRecord.stripeAccountId, "acct_one"); // account unchanged
+  assert.equal(finalRecord.idempotencyKey, "dinkus-checkout:attempt-delayed-lost"); // key unchanged
+  assert.equal(finalRecord.requestedExpiresAtSeconds, 1_800_001_860); // params/deadline unchanged
+  assert.equal(finalRecord.providerCreatedAtSeconds, 1_800_000_001);
+  assert.equal(finalRecord.providerExpiresAtSeconds, 1_800_001_860);
+
+  const looked = await f.checkout().lookupFor(owner, req);
+  assert.equal(looked.outcome, "open");
+  assert.deepEqual(looked.session, retryRes.session);
+});
+
+test("separate upper duration 1861 returned-time defense uses independent clock base-1 and stays unknown", async () => {
+  const f = fixture(); await f.ready();
+  const providerEpoch = 1_800_000_000 - 1; // base - 1
+  f.provider.createSession = async input => {
+    const created = {
+      id: "cs_test_skew1861",
+      url: "https://checkout.stripe.com/c/pay/cs_test_skew1861",
+      status: "open",
+      paymentStatus: "unpaid",
+      amountTotal: 1200,
+      currency: "usd",
+      created: providerEpoch, // independent variable, 1799999999
+      expiresAt: input.expiresAtSeconds, // 1800001860, duration = 1861
+      livemode: false,
+      paymentIntentId: null,
+      metadata: { dinkus_attempt: input.attemptId, dinkus_binding: input.bindingRef, dinkus_site: input.siteId },
+      paymentMethodTypes: ["card"],
+    };
+    f.sessions.set(input.idempotencyKey, created);
+    return structuredClone(created);
+  };
+  const req = request({ attemptId: "attempt-skew-1861" });
+  const res = await f.checkout().ensureSessionFor(owner, req);
+  assert.equal(res.outcome, "unknown");
+  assert.equal((await f.checkout().lookupFor(owner, req)).outcome, "unknown");
+  assert.equal(f.attempts.get(req.attemptId).stripeSessionId, "cs_test_skew1861");
+});
+
+test("provider returned duration 1799 defense stays unknown", async () => {
+  const f = fixture(); await f.ready();
+  const providerEpoch = 1_800_000_000 + 61; // duration = 1860 - 61 = 1799
+  f.provider.createSession = async input => {
+    const created = {
+      id: "cs_test_submin1799",
+      url: "https://checkout.stripe.com/c/pay/cs_test_submin1799",
+      status: "open",
+      paymentStatus: "unpaid",
+      amountTotal: 1200,
+      currency: "usd",
+      created: providerEpoch,
+      expiresAt: input.expiresAtSeconds,
+      livemode: false,
+      paymentIntentId: null,
+      metadata: { dinkus_attempt: input.attemptId, dinkus_binding: input.bindingRef, dinkus_site: input.siteId },
+      paymentMethodTypes: ["card"],
+    };
+    f.sessions.set(input.idempotencyKey, created);
+    return structuredClone(created);
+  };
+  const req = request({ attemptId: "attempt-submin-1799" });
+  const res = await f.checkout().ensureSessionFor(owner, req);
+  assert.equal(res.outcome, "unknown");
+  assert.equal((await f.checkout().lookupFor(owner, req)).outcome, "unknown");
+});
+
+test("exact requested expiry drift is rejected even within duration bounds", async () => {
+  const f = fixture(); await f.ready();
+  f.provider.createSession = async input => ({
+    id: "cs_test_drift",
+    url: "https://checkout.stripe.com/c/pay/cs_test_drift",
+    status: "open",
+    paymentStatus: "unpaid",
+    amountTotal: 1200,
+    currency: "usd",
+    created: input.expiresAtSeconds - 1860,
+    expiresAt: input.expiresAtSeconds + 5,
+    livemode: false,
+    paymentIntentId: null,
+    metadata: { dinkus_attempt: input.attemptId, dinkus_binding: input.bindingRef, dinkus_site: input.siteId },
+    paymentMethodTypes: ["card"],
+  });
+  await assert.rejects(f.checkout().ensureSessionFor(owner, request()), /window_mismatch/);
+});
+
+test("missing, noninteger, or unsafe provider timestamps fail closed", async () => {
+  for (const bad of [
+    { created: null, expiresAt: 1800001860 },
+    { created: "1800000000", expiresAt: 1800001860 },
+    { created: 1800000000.5, expiresAt: 1800001860 },
+    { created: Number.MAX_SAFE_INTEGER + 100, expiresAt: 1800001860 },
+    { created: 1800000000, expiresAt: null },
+    { created: 1800000000, expiresAt: 1800001860.7 },
+  ]) {
+    const f = fixture(); await f.ready();
+    f.provider.createSession = async input => ({
+      id: "cs_test_badts",
+      url: "https://checkout.stripe.com/c/pay/cs_test_badts",
+      status: "open",
+      paymentStatus: "unpaid",
+      amountTotal: 1200,
+      currency: "usd",
+      ...bad,
+      livemode: false,
+      paymentIntentId: null,
+      metadata: { dinkus_attempt: input.attemptId, dinkus_binding: input.bindingRef, dinkus_site: input.siteId },
+      paymentMethodTypes: ["card"],
+    });
+    await assert.rejects(f.checkout().ensureSessionFor(owner, request()), /window_mismatch/);
+  }
+});
+
+test("unclaimed legacy request conservatively remains unknown with no provider contact", async () => {
+  const f = fixture(); await f.ready();
+  const legacy = {
+    attemptId: "attempt-unclaimed-legacy",
+    bindingRef: "stripe_binding-one",
+    lines: [{ catalogItemId: "sku-1", quantity: 2, name: "Hat", unitPrice: { currency: "USD", minor: "600" } }],
+    total: { currency: "USD", minor: "1200" },
+    paymentWindowSeconds: 1800,
+    paymentMethods: ["card"],
+  };
+  const result = await f.checkout().ensureSessionFor(owner, legacy);
+  assert.equal(result.outcome, "unknown");
+  assert.equal(f.calls.filter(c => c[0] === "create").length, 0);
+  assert.equal(f.attempts.has("attempt-unclaimed-legacy"), false);
+});
+
+test("assert legacy JSON fingerprint exact old byte ordering", () => {
+  const legacyReq = {
+    attemptId: "attempt-legacy-fp",
+    bindingRef: "stripe_binding-one",
+    lines: [{ catalogItemId: "sku-1", quantity: 2, name: "Hat", unitPrice: { currency: "USD", minor: "600" } }],
+    total: { currency: "USD", minor: "1200" },
+    paymentWindowSeconds: 1800,
+    paymentMethods: ["card"],
+  };
+  const expectedOrdering = JSON.stringify({
+    attemptId: "attempt-legacy-fp",
+    bindingRef: "stripe_binding-one",
+    lines: [{ catalogItemId: "sku-1", quantity: 2, name: "Hat", unitPrice: { currency: "USD", minor: "600" } }],
+    total: { currency: "USD", minor: "1200" },
+    paymentWindowSeconds: 1800,
+    paymentMethods: ["card"],
+  });
+  assert.equal(requestFingerprint(legacyReq), expectedOrdering);
+});
+
+test("two independently seeded historical cases accept exact 1800 and reject 1859 without reset", async () => {
+  const f = fixture(); await f.ready();
+  const claimBase = Math.floor(f.time() / 1000);
+
+  // Case 1: Seeded historical legacy claim with exact 1800
+  const req1800 = {
+    attemptId: "attempt-legacy-case-1800",
+    bindingRef: "stripe_binding-one",
+    lines: [{ catalogItemId: "sku-1", quantity: 1, name: "Hat", unitPrice: { currency: "USD", minor: "1200" } }],
+    total: { currency: "USD", minor: "1200" },
+    paymentWindowSeconds: 1800,
+    paymentMethods: ["card"],
+  };
+  const fp1800 = requestFingerprint(req1800);
+  const deadline1800 = claimBase + 1800;
+  const key1800 = "dinkus-checkout:attempt-legacy-case-1800";
+
+  f.attempts.set(req1800.attemptId, {
+    attemptId: req1800.attemptId,
+    bindingRef: req1800.bindingRef,
+    stripeAccountId: "acct_one",
+    mode: "test",
+    siteId: owner.siteId,
+    requestFingerprint: fp1800,
+    lines: req1800.lines,
+    amountMinor: "1200",
+    currency: "USD",
+    claimedAtMs: f.time(),
+    requestedExpiresAtSeconds: deadline1800,
+    providerCreatedAtSeconds: null,
+    providerExpiresAtSeconds: null,
+    idempotencyKey: key1800,
+    successUrl,
+    cancelUrl,
+    stripeSessionId: null,
+    redirectUrl: null,
+    // policyKind is deliberately absent
+  });
+
+  // Case 2: Independently seeded historical legacy claim for 1859
+  const req1859 = {
+    attemptId: "attempt-legacy-case-1859",
+    bindingRef: "stripe_binding-one",
+    lines: [{ catalogItemId: "sku-2", quantity: 1, name: "Cap", unitPrice: { currency: "USD", minor: "1200" } }],
+    total: { currency: "USD", minor: "1200" },
+    paymentWindowSeconds: 1800,
+    paymentMethods: ["card"],
+  };
+  const fp1859 = requestFingerprint(req1859);
+  const deadline1859 = claimBase + 1800;
+  const key1859 = "dinkus-checkout:attempt-legacy-case-1859";
+
+  f.attempts.set(req1859.attemptId, {
+    attemptId: req1859.attemptId,
+    bindingRef: req1859.bindingRef,
+    stripeAccountId: "acct_one",
+    mode: "test",
+    siteId: owner.siteId,
+    requestFingerprint: fp1859,
+    lines: req1859.lines,
+    amountMinor: "1200",
+    currency: "USD",
+    claimedAtMs: f.time(),
+    requestedExpiresAtSeconds: deadline1859,
+    providerCreatedAtSeconds: null,
+    providerExpiresAtSeconds: null,
+    idempotencyKey: key1859,
+    successUrl,
+    cancelUrl,
+    stripeSessionId: null,
+    redirectUrl: null,
+    // policyKind is deliberately absent
+  });
+
+  // Provider handler serving both without any store/mapping reset
+  f.provider.createSession = async input => {
+    const is1800 = input.attemptId === req1800.attemptId;
+    const duration = is1800 ? 1800 : 1859;
+    const session = {
+      id: `cs_test_${input.attemptId.replace(/[^A-Za-z0-9]/g, "")}`,
+      url: `https://checkout.stripe.com/c/pay/cs_${input.attemptId}`,
+      status: "open",
+      paymentStatus: "unpaid",
+      amountTotal: 1200,
+      currency: "usd",
+      created: input.expiresAtSeconds - duration,
+      expiresAt: input.expiresAtSeconds,
+      livemode: false,
+      paymentIntentId: null,
+      metadata: { dinkus_attempt: input.attemptId, dinkus_binding: input.bindingRef, dinkus_site: input.siteId },
+      paymentMethodTypes: ["card"],
+    };
+    f.sessions.set(input.idempotencyKey, session);
+    return structuredClone(session);
+  };
+
+  // Case 1: exact 1800 accepts
+  const res1800 = await f.checkout().ensureSessionFor(owner, req1800);
+  assert.equal(res1800.outcome, "open");
+  assert.equal(res1800.session.expiresAt - res1800.session.createdAt, 1800);
+
+  // Original pinned deadline, key, fingerprint unchanged; policyKind absent stays absent
+  const record1800 = f.attempts.get(req1800.attemptId);
+  assert.equal(record1800.requestedExpiresAtSeconds, deadline1800);
+  assert.equal(record1800.idempotencyKey, key1800);
+  assert.equal(record1800.requestFingerprint, fp1800);
+  assert.equal(record1800.policyKind, undefined);
+  assert.equal("policyKind" in record1800, false);
+
+  // Later ensure and lookup agree on same timestamp and session
+  const looked1800 = await f.checkout().lookupFor(owner, req1800);
+  assert.equal(looked1800.outcome, "open");
+  assert.deepEqual(looked1800.session, res1800.session);
+
+  const ensuredAgain1800 = await f.checkout().ensureSessionFor(owner, req1800);
+  assert.equal(ensuredAgain1800.outcome, "open");
+  assert.deepEqual(ensuredAgain1800.session, res1800.session);
+
+  // Case 2: 1859 remains unknown
+  const res1859 = await f.checkout().ensureSessionFor(owner, req1859);
+  assert.equal(res1859.outcome, "unknown");
+  assert.equal((await f.checkout().lookupFor(owner, req1859)).outcome, "unknown");
+
+  const record1859 = f.attempts.get(req1859.attemptId);
+  assert.equal(record1859.stripeSessionId, "cs_test_attemptlegacycase1859");
+  assert.equal(record1859.requestedExpiresAtSeconds, deadline1859);
+  assert.equal(record1859.idempotencyKey, key1859);
+  assert.equal(record1859.requestFingerprint, fp1859);
+  assert.equal(record1859.policyKind, undefined);
+  assert.equal("policyKind" in record1859, false);
+});
+
+test("request mutation between current and legacy shapes is rejected in both directions", async () => {
+  const f = fixture(); await f.ready();
+
+  // Direction 1: Current created -> Legacy mutation rejected
+  const cur = request({ attemptId: "attempt-cur-to-leg" });
+  await f.checkout().ensureSessionFor(owner, cur);
+  const curToLeg = {
+    attemptId: cur.attemptId,
+    bindingRef: cur.bindingRef,
+    lines: cur.lines,
+    total: cur.total,
+    paymentWindowSeconds: 1800,
+    paymentMethods: ["card"],
+  };
+  await assert.rejects(f.checkout().ensureSessionFor(owner, curToLeg), /request_mutation/);
+  await assert.rejects(f.checkout().lookupFor(owner, curToLeg), /request_mutation/);
+
+  // Direction 2: Legacy seeded -> Current mutation rejected
+  const leg = {
+    attemptId: "attempt-leg-to-cur",
+    bindingRef: "stripe_binding-one",
+    lines: [{ catalogItemId: "sku-1", quantity: 2, name: "Hat", unitPrice: { currency: "USD", minor: "600" } }],
+    total: { currency: "USD", minor: "1200" },
+    paymentWindowSeconds: 1800,
+    paymentMethods: ["card"],
+  };
+  const claimBase = Math.floor(f.time() / 1000);
+  f.attempts.set(leg.attemptId, {
+    attemptId: leg.attemptId,
+    bindingRef: leg.bindingRef,
+    stripeAccountId: "acct_one",
+    mode: "test",
+    siteId: owner.siteId,
+    requestFingerprint: requestFingerprint(leg),
+    lines: leg.lines,
+    amountMinor: "1200",
+    currency: "USD",
+    claimedAtMs: f.time(),
+    requestedExpiresAtSeconds: claimBase + 1800,
+    providerCreatedAtSeconds: claimBase,
+    providerExpiresAtSeconds: claimBase + 1800,
+    idempotencyKey: `dinkus-checkout:${leg.attemptId}`,
+    successUrl,
+    cancelUrl,
+    stripeSessionId: "cs_leg",
+    redirectUrl: "https://checkout.stripe.com/c/pay/cs_leg",
+  });
+  const legToCur = {
+    attemptId: leg.attemptId,
+    bindingRef: leg.bindingRef,
+    lines: leg.lines,
+    total: leg.total,
+    paymentWindow: { minSeconds: 1800, maxSeconds: 1860 },
+    paymentMethods: ["card"],
+  };
+  await assert.rejects(f.checkout().ensureSessionFor(owner, legToCur), /request_mutation/);
+  await assert.rejects(f.checkout().lookupFor(owner, legToCur), /request_mutation/);
+});
+
+test("paymentWindow validation rejects both, neither, altered window bounds, extra policykey, and both own fields even undefined", async () => {
+  const f = fixture(); await f.ready();
+  // both valid shapes
+  await assert.rejects(f.checkout().ensureSessionFor(owner, {
+    ...request(),
+    paymentWindow: { minSeconds: 1800, maxSeconds: 1860 },
+    paymentWindowSeconds: 1800,
+  }), /invalid_request/);
+
+  // neither field present
+  const neither = request();
+  delete neither.paymentWindow;
+  await assert.rejects(f.checkout().ensureSessionFor(owner, neither), /invalid_request/);
+
+  // altered bounds
+  await assert.rejects(f.checkout().ensureSessionFor(owner, request({
+    paymentWindow: { minSeconds: 1799, maxSeconds: 1860 },
+  })), /invalid_request/);
+  await assert.rejects(f.checkout().ensureSessionFor(owner, request({
+    paymentWindow: { minSeconds: 1800, maxSeconds: 1859 },
+  })), /invalid_request/);
+  await assert.rejects(f.checkout().ensureSessionFor(owner, request({
+    paymentWindow: { minSeconds: 1800, maxSeconds: 1861 },
+  })), /invalid_request/);
+
+  // legacy altered
+  await assert.rejects(f.checkout().ensureSessionFor(owner, {
+    ...request(),
+    paymentWindow: undefined,
+    paymentWindowSeconds: 1859,
+  }), /invalid_request/);
+
+  // extra policykey on paymentWindow
+  await assert.rejects(f.checkout().ensureSessionFor(owner, request({
+    paymentWindow: { minSeconds: 1800, maxSeconds: 1860, policyKey: "current-bounded-1800-1860" },
+  })), /invalid_request/);
+
+  // both own fields present even if one or both are undefined
+  // current request with own property paymentWindowSeconds: undefined
+  const curWithUndefinedLegacy = {
+    ...request(),
+    paymentWindowSeconds: undefined,
+  };
+  assert.equal(Object.prototype.hasOwnProperty.call(curWithUndefinedLegacy, "paymentWindow"), true);
+  assert.equal(Object.prototype.hasOwnProperty.call(curWithUndefinedLegacy, "paymentWindowSeconds"), true);
+  await assert.rejects(f.checkout().ensureSessionFor(owner, curWithUndefinedLegacy), /invalid_request/);
+
+  // legacy request with own property paymentWindow: undefined
+  const legWithUndefinedCurrent = {
+    attemptId: "attempt-leg-undef",
+    bindingRef: "stripe_binding-one",
+    lines: [{ catalogItemId: "sku-1", quantity: 2, name: "Hat", unitPrice: { currency: "USD", minor: "600" } }],
+    total: { currency: "USD", minor: "1200" },
+    paymentWindowSeconds: 1800,
+    paymentMethods: ["card"],
+    paymentWindow: undefined,
+  };
+  assert.equal(Object.prototype.hasOwnProperty.call(legWithUndefinedCurrent, "paymentWindow"), true);
+  assert.equal(Object.prototype.hasOwnProperty.call(legWithUndefinedCurrent, "paymentWindowSeconds"), true);
+  await assert.rejects(f.checkout().ensureSessionFor(owner, legWithUndefinedCurrent), /invalid_request/);
+
+  // both own fields explicitly undefined
+  const bothUndefined = {
+    attemptId: "attempt-both-undef",
+    bindingRef: "stripe_binding-one",
+    lines: [{ catalogItemId: "sku-1", quantity: 2, name: "Hat", unitPrice: { currency: "USD", minor: "600" } }],
+    total: { currency: "USD", minor: "1200" },
+    paymentMethods: ["card"],
+    paymentWindow: undefined,
+    paymentWindowSeconds: undefined,
+  };
+  assert.equal(Object.prototype.hasOwnProperty.call(bothUndefined, "paymentWindow"), true);
+  assert.equal(Object.prototype.hasOwnProperty.call(bothUndefined, "paymentWindowSeconds"), true);
+  await assert.rejects(f.checkout().ensureSessionFor(owner, bothUndefined), /invalid_request/);
 });

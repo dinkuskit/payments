@@ -1,11 +1,17 @@
 import {
-  PAYMENT_WINDOW_SECONDS,
+  CURRENT_PAYMENT_WINDOW_MAX_SECONDS,
+  CURRENT_PAYMENT_WINDOW_MIN_SECONDS,
+  LEGACY_EXACT_PAYMENT_WINDOW_SECONDS,
+  paymentRequestHandoff,
   type CheckoutLine,
   type CheckoutPaymentPort,
+  type CurrentPaymentRequest,
+  type LegacyExact1800PaymentRequest,
   type Money,
   type PaymentOutcome,
   type PaymentRequest,
   type PaymentSession,
+  type PaymentWindowPolicyKind,
 } from "../commerce/checkout-port.js";
 import type { CheckoutBinding, Mode, Principal } from "../hosted/connection.js";
 
@@ -44,6 +50,7 @@ export interface AttemptRecord {
   cancelUrl: string;
   stripeSessionId: string | null;
   redirectUrl: string | null;
+  policyKind?: PaymentWindowPolicyKind;
 }
 
 export interface AttemptStore {
@@ -109,19 +116,39 @@ function canonicalizeLine(line: CheckoutLine): CheckoutLine {
   };
 }
 
-export function canonicalizePaymentRequest(request: PaymentRequest): PaymentRequest {
+function canonicalizeLegacyRequest(request: LegacyExact1800PaymentRequest): LegacyExact1800PaymentRequest {
   return {
     attemptId: request.attemptId,
     bindingRef: request.bindingRef,
     lines: request.lines.map(canonicalizeLine),
     total: { currency: "USD", minor: request.total.minor },
-    paymentWindowSeconds: PAYMENT_WINDOW_SECONDS,
+    paymentWindowSeconds: LEGACY_EXACT_PAYMENT_WINDOW_SECONDS,
     paymentMethods: ["card"],
   };
 }
 
-export function requestFingerprint(request: PaymentRequest): string {
-  const canonical = canonicalizePaymentRequest(request);
+function canonicalizeCurrentRequest(request: CurrentPaymentRequest): CurrentPaymentRequest {
+  return {
+    attemptId: request.attemptId,
+    bindingRef: request.bindingRef,
+    lines: request.lines.map(canonicalizeLine),
+    total: { currency: "USD", minor: request.total.minor },
+    paymentWindow: {
+      minSeconds: CURRENT_PAYMENT_WINDOW_MIN_SECONDS,
+      maxSeconds: CURRENT_PAYMENT_WINDOW_MAX_SECONDS,
+    },
+    paymentMethods: ["card"],
+  };
+}
+
+export function canonicalizePaymentRequest(request: PaymentRequest): PaymentRequest {
+  const handoff = paymentRequestHandoff(request);
+  if (!handoff) throw new CheckoutError("invalid_request");
+  if (handoff.kind === "current-bounded-1800-1860") return canonicalizeCurrentRequest(handoff.request);
+  return canonicalizeLegacyRequest(handoff.request);
+}
+
+function legacyFingerprint(canonical: LegacyExact1800PaymentRequest): string {
   return JSON.stringify({
     attemptId: canonical.attemptId,
     bindingRef: canonical.bindingRef,
@@ -132,11 +159,34 @@ export function requestFingerprint(request: PaymentRequest): string {
   });
 }
 
+function currentFingerprint(canonical: CurrentPaymentRequest): string {
+  return JSON.stringify({
+    attemptId: canonical.attemptId,
+    bindingRef: canonical.bindingRef,
+    lines: canonical.lines,
+    total: canonical.total,
+    paymentWindow: {
+      minSeconds: canonical.paymentWindow.minSeconds,
+      maxSeconds: canonical.paymentWindow.maxSeconds,
+    },
+    paymentMethods: canonical.paymentMethods,
+  });
+}
+
+export function requestFingerprint(request: PaymentRequest): string {
+  const canonical = canonicalizePaymentRequest(request);
+  const handoff = paymentRequestHandoff(canonical);
+  if (!handoff) throw new CheckoutError("invalid_request");
+  if (handoff.kind === "current-bounded-1800-1860") return currentFingerprint(handoff.request);
+  return legacyFingerprint(handoff.request);
+}
+
 export function validatePaymentRequest(request: PaymentRequest): PaymentRequest {
   if (!request || typeof request !== "object") throw new CheckoutError("invalid_request");
   if (!request.attemptId || typeof request.attemptId !== "string" || request.attemptId.length > 200) throw new CheckoutError("invalid_request");
   if (!request.bindingRef || typeof request.bindingRef !== "string" || request.bindingRef.length > 200) throw new CheckoutError("invalid_request");
-  if (request.paymentWindowSeconds !== PAYMENT_WINDOW_SECONDS) throw new CheckoutError("invalid_request");
+  const handoff = paymentRequestHandoff(request);
+  if (!handoff) throw new CheckoutError("invalid_request");
   if (!Array.isArray(request.paymentMethods) || request.paymentMethods.length !== 1 || request.paymentMethods[0] !== "card") {
     throw new CheckoutError("invalid_request");
   }
@@ -181,7 +231,16 @@ function storedSession(record: AttemptRecord): PaymentSession | null {
   const expires = record.providerExpiresAtSeconds;
   if (created === null || expires === null) return null;
   if (!Number.isSafeInteger(created) || !Number.isSafeInteger(expires)) return null;
-  if (expires !== created + PAYMENT_WINDOW_SECONDS) return null;
+  const duration = expires - created;
+  if (!Number.isSafeInteger(duration)) return null;
+  const policy: PaymentWindowPolicyKind = record.policyKind ?? "legacy-exact-1800";
+  if (policy === "current-bounded-1800-1860") {
+    if (duration < CURRENT_PAYMENT_WINDOW_MIN_SECONDS || duration > CURRENT_PAYMENT_WINDOW_MAX_SECONDS) return null;
+  } else if (policy === "legacy-exact-1800") {
+    if (duration !== LEGACY_EXACT_PAYMENT_WINDOW_SECONDS) return null;
+  } else {
+    return null;
+  }
   return {
     sessionId: record.stripeSessionId,
     redirectUrl: record.redirectUrl,
@@ -290,6 +349,11 @@ export function createCheckoutSessionService(options: {
 
   async function claim(principal: Principal, request: PaymentRequest, binding: CheckoutBinding): Promise<AttemptRecord> {
     const claimedAtMs = now();
+    const handoff = paymentRequestHandoff(request);
+    if (!handoff) throw new CheckoutError("invalid_request");
+    const isCurrent = handoff.kind === "current-bounded-1800-1860";
+    const windowSeconds = isCurrent ? CURRENT_PAYMENT_WINDOW_MAX_SECONDS : LEGACY_EXACT_PAYMENT_WINDOW_SECONDS;
+    const policyKind: PaymentWindowPolicyKind = handoff.kind;
     const record: AttemptRecord = {
       attemptId: request.attemptId,
       bindingRef: request.bindingRef,
@@ -301,7 +365,7 @@ export function createCheckoutSessionService(options: {
       amountMinor: request.total.minor,
       currency: "USD",
       claimedAtMs,
-      requestedExpiresAtSeconds: Math.floor(claimedAtMs / 1000) + PAYMENT_WINDOW_SECONDS,
+      requestedExpiresAtSeconds: Math.floor(claimedAtMs / 1000) + windowSeconds,
       providerCreatedAtSeconds: null,
       providerExpiresAtSeconds: null,
       idempotencyKey: `dinkus-checkout:${request.attemptId}`,
@@ -309,6 +373,7 @@ export function createCheckoutSessionService(options: {
       cancelUrl,
       stripeSessionId: null,
       redirectUrl: null,
+      policyKind,
     };
     const currentBinding = await options.existingBinding(principal, request.bindingRef) ?? binding;
     return options.store.transaction(tx => {
@@ -417,6 +482,10 @@ export function createCheckoutSessionService(options: {
       if (!binding) throw new CheckoutError("binding_mismatch");
       assertBinding(existing, binding, request, principal);
       return createOrRecover(existing);
+    }
+    const handoff = paymentRequestHandoff(request);
+    if (handoff?.kind === "legacy-exact-1800") {
+      return unknown();
     }
     const ready = await options.readyBinding(principal, request.bindingRef);
     if (!ready) return unknown();

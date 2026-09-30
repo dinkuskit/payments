@@ -7,14 +7,13 @@ This slice does not edit Commerce.
 ## Contract fixture
 
 `@dinkuskit/commerce` is unpublished. Types are consumed through
-`src/commerce/checkout-port.ts`, a types-only fixture of
-`PaymentRequest`, `PaymentSession`, `PaymentOutcome`, and
-`CheckoutPaymentPort`.
+`src/commerce/checkout-port.ts`, a fixture of
+`CurrentPaymentRequest`, `LegacyExact1800PaymentRequest`, `PaymentRequest`,
+`PaymentSession`, `PaymentOutcome`, and `CheckoutPaymentPort`.
 
 Recorded Commerce source identity:
-`git:1cb55c756ef746bcb042b9679dc43b57e67bcb0d`
-(`github:dinkuskit/commerce/pull/29`, published head). Checkout port and
-Money types are unchanged from `7a054ea6e7a148dd0e1039ec138d967f02431ceb`.
+`git:ab37cd7f362f1c37cb1d321192abbbc48a623833`
+(`github:dinkuskit/commerce/pull/37`, merge commit).
 `PaymentSession.createdAt` and `expiresAt` are Unix epoch seconds.
 Existing onboarding times stay milliseconds.
 
@@ -22,16 +21,22 @@ Existing onboarding times stay milliseconds.
 
 - One immutable server-selected merchant Stripe binding. Direct charges use
   the connected-account `Stripe-Account` context.
-- USD only, positive safe-integer string minor units, card only, 1800-second
-  window. Returned session fields use provider `created` and `expires_at`
-  only when both are safe integers and `expires_at === created + 1800`.
-- `ensureSession` detaches a canonical validated request before the first
+- USD only, positive safe-integer string minor units, card only.
+- Current payment requests specify `paymentWindow: { minSeconds: 1800, maxSeconds: 1860 }`.
+  Legacy requests specify `paymentWindowSeconds: 1800`.
+- Returned session fields use provider `created` and `expires_at`
+  only when both are safe integers, `expires_at === requestedExpiresAtSeconds`,
+  and duration `expires_at - created` satisfies the frozen policy:
+  inclusive `1800..1860` for current requests, and exact `1800` for legacy requests.
+- For new current claims, `ensureSession` detaches a canonical validated request before the first
   await and persists exact transport params (lines in Commerce order, amount,
-  window, return URLs, site, account, idempotency key, and pinned
-  `expires_at`) **before** provider contact. Concurrent writers share that
-  claim. Replay reads the record, not the current caller object or current
-  service configuration. Fingerprints compare canonical values; line order
-  is significant.
+  window policy, return URLs, site, account, idempotency key, and pinned
+  `requestedExpiresAtSeconds = Math.floor(claimedAtMs / 1000) + 1860`) **before**
+  provider contact. Concurrent writers share that claim. Replay reads the record,
+  not the current caller object or current service configuration. Fingerprints compare
+  canonical values; line order is significant.
+- Unclaimed legacy requests return `unknown` immediately without contacting the provider.
+  Existing historical legacy claims safely default policy to exact 1800 and remain recoverable.
 - The same key is retried for at most 23 hours. After that, Payments does not
   create again. Stripe may prune idempotency results after 24 hours.
 - `lookup` never creates. Missing mappings and readiness denial return
@@ -56,12 +61,14 @@ Existing onboarding times stay milliseconds.
 These are tested conservative limits, not weakened contract outcomes.
 
 1. **Stripe `expires_at` is a requested timestamp; `created` is Stripe's
-   clock.** Commerce requires `expiresAt === createdAt + 1800`. Stripe
-   documents `expires_at` as 30 minutes to 24 hours after creation and does
-   not guarantee that pair. When the provider window is not exact 1800,
-   Payments persists session ID and URL so it will not create again, returns
-   `unknown`, and never substitutes claim time. Later retrieve drift from
-   the stored provider timestamps fails closed.
+   clock.** Commerce PR37 permits provider duration `1800..1860` seconds for current
+   requests, accommodating up to 60 seconds of provider clock delay or transport
+   latency while ensuring at least 30 minutes (1800s) of active window. Stripe
+   documents `expires_at` as 30 minutes to 24 hours after creation. When the provider
+   window is not within `1800..1860` (or exact 1800 for legacy), Payments persists
+   session ID and URL so it will not create again, returns `unknown`, and never
+   substitutes claim time. Later retrieve drift from the stored provider timestamps
+   fails closed.
 2. **Malformed session IDs and credentialed or non-`checkout.stripe.com`
    URLs fail closed.** A valid session ID is stored even when the URL is
    rejected, so a later retrieve can recover without a second create.
@@ -83,7 +90,6 @@ These are tested conservative limits, not weakened contract outcomes.
    creation fence. This adapter has no atomic permanent tombstone that
    excludes delayed or in-flight creates across readiness races and restart,
    so it returns `unknown` instead of inventing terminal certainty.
-
 7. **A lost response beyond the retry bound stays `unknown`.** Without a
    mapped session ID, lookup cannot prove absence or safely replay after
    idempotency retention. No replacement session is created.

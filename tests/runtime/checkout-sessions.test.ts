@@ -6,8 +6,8 @@ import { afterEach, expect, test, vi } from "vitest";
 afterEach(() => vi.restoreAllMocks());
 
 function sessionBody(readyUrl: string | null, extras: Record<string, unknown> = {}) {
-  const expiresAt = typeof extras.expires_at === "number" ? extras.expires_at : Math.floor(Date.now() / 1000) + 1800;
-  const created = typeof extras.created === "number" ? extras.created : expiresAt - 1800;
+  const expiresAt = typeof extras.expires_at === "number" ? extras.expires_at : Math.floor(Date.now() / 1000) + 1860;
+  const created = typeof extras.created === "number" ? extras.created : expiresAt - 1860;
   return {
     object: "checkout.session",
     id: "cs_fixture",
@@ -79,7 +79,7 @@ test("SQLite mapping survives eviction and lookup continues after readiness regr
     bindingRef: connected.bindingRef!,
     lines: [{ catalogItemId: "sku-1", quantity: 1, name: "Hat", unitPrice: { currency: "USD" as const, minor: "1200" } }],
     total: { currency: "USD" as const, minor: "1200" },
-    paymentWindowSeconds: 1800 as const,
+    paymentWindow: { minSeconds: 1800 as const, maxSeconds: 1860 as const },
     paymentMethods: ["card"] as const,
   };
   expect((await stub.ensureSession(principal, payment)).outcome).toBe("unknown");
@@ -92,7 +92,7 @@ test("SQLite mapping survives eviction and lookup continues after readiness regr
   expect(first.outcome).toBe("open");
   if (first.outcome === "open") {
     expect(first.session.redirectUrl).toBe("https://checkout.stripe.com/c/pay/cs_fixture");
-    expect(first.session.expiresAt).toBe(first.session.createdAt + 1800);
+    expect(first.session.expiresAt).toBe(first.session.createdAt + 1860);
   }
   await evictDurableObject(stub);
   const again = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", principal.siteId]));
@@ -106,6 +106,7 @@ test("SQLite mapping survives eviction and lookup continues after readiness regr
     }
     if (path === "/v1/checkout/sessions/cs_fixture") {
       return new Response(JSON.stringify(sessionBody(null, {
+        created: first.outcome === "open" ? first.session.createdAt : created.expires_at - 1860,
         expires_at: first.outcome === "open" ? first.session.expiresAt : created.expires_at,
         metadata: { dinkus_attempt: "attempt-one", dinkus_binding: connected.bindingRef!, dinkus_site: principal.siteId },
       })), { headers: { "content-type": "application/json" } });
@@ -124,6 +125,7 @@ test("SQLite mapping survives eviction and lookup continues after readiness regr
     const payload = JSON.stringify({
       id: "evt_fixture", object: "event", type, livemode: false, account: "acct_fixture",
       data: { object: sessionBody(null, {
+        created: first.outcome === "open" ? first.session.createdAt : created.expires_at - 1860,
         expires_at: created.expires_at,
         metadata: { dinkus_attempt: "attempt-one", dinkus_binding: connected.bindingRef!, dinkus_site: principal.siteId },
       }) },

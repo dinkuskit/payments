@@ -480,15 +480,31 @@
           "review_source_identity": null,
           "to": "verified",
           "verification_ref": ".grilltrack/proof/checkout-sessions/PROOF.md#verification"
+        },
+        {
+          "at": "2026-09-30T16:12:17+00:00",
+          "choice": "Implement Payments-owned Stripe hosted Checkout Sessions against Commerce CheckoutPaymentPort: immutable merchant binding, card-only USD integer minor units, one durable operation per attempt and original 30-minute window. ensureSession and authoritative read-only lookup preserve unknown after ambiguous responses or finite idempotency expiry; webhooks verify raw bytes before use and only wake reconciliation. Existing payment reconciliation bypasses new-checkout readiness. Test replay, mismatch, concurrency and restart. No Commerce/Inventory edits, live payments, account changes, deployment, merge, or duplicate review.",
+          "from": "verified",
+          "implementation_ref": ".grilltrack/proof/checkout-sessions/PROOF.md",
+          "note": "adjudicated review requires a fix",
+          "repair_required": false,
+          "review_classifications": [
+            "defer"
+          ],
+          "review_ref": ".grilltrack/proof/checkout-sessions/ACCEPTANCE.md",
+          "review_result": "findings",
+          "review_source_identity": "sha256:e38295effbb916a7f63947bc0ace7c0b3cc71fc1f8defe63500b9d007173405c",
+          "to": "needs_reverification",
+          "verification_ref": ".grilltrack/proof/checkout-sessions/PROOF.md#verification"
         }
       ],
       "id": "payments-checkout-sessions-001",
       "implementation_ref": ".grilltrack/proof/checkout-sessions/PROOF.md",
       "question": "How does Payments implement the accepted Commerce hosted payment port?",
       "rationale": "Explicit owner-admitted bounded adapter direction and existing settled Commerce behavior.",
-      "repair_required": false,
+      "repair_required": true,
       "review_classifications": [
-        "defer"
+        "required_fix"
       ],
       "review_history": [
         {
@@ -508,50 +524,121 @@
           "result": "findings",
           "reviewed_at": "2026-09-30T13:51:48+00:00",
           "source_identity": "sha256:e38295effbb916a7f63947bc0ace7c0b3cc71fc1f8defe63500b9d007173405c"
+        },
+        {
+          "classifications": [
+            "required_fix"
+          ],
+          "ref": ".grilltrack/proof/checkout-sessions/TIMING-PROOF.md",
+          "result": "findings",
+          "reviewed_at": "2026-09-30T16:12:17+00:00",
+          "source_identity": "git:920443ed02d1d3afc60cd2aa02882b9097dccc9b"
         }
       ],
-      "review_ref": ".grilltrack/proof/checkout-sessions/ACCEPTANCE.md",
+      "review_ref": ".grilltrack/proof/checkout-sessions/TIMING-PROOF.md",
       "review_result": "findings",
-      "review_source_identity": "sha256:e38295effbb916a7f63947bc0ace7c0b3cc71fc1f8defe63500b9d007173405c",
+      "review_source_identity": "git:920443ed02d1d3afc60cd2aa02882b9097dccc9b",
+      "status": "needs_reverification",
+      "superseded_by": null,
+      "updated_at": "2026-09-30T16:12:17+00:00",
+      "verification_ref": ".grilltrack/proof/checkout-sessions/PROOF.md#verification"
+    },
+    {
+      "baseline_ref": "git:920443ed02d1d3afc60cd2aa02882b9097dccc9b",
+      "candidate_refs": [
+        ".grilltrack/proof/checkout-sessions/timing-feasibility.test.mjs"
+      ],
+      "choice": "Approved provider-reported inclusive1800..1860-second window with one durable original claim, explicit claim-second+1860 expiry, one exact request/key and authoritative provider timestamps. Payments must consume the immutable Commerce-owned amended port before dependent implementation. Preserve unknown and stock-release safeguards; no default24h fallback or retry deadline reset.",
+      "context_ref": "docs/checkout-timing-decision.md",
+      "created_at": "2026-09-30T16:12:17+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [],
+      "domain": "Stripe hosted Checkout Sessions adapter for Commerce",
+      "history": [
+        {
+          "at": "2026-09-30T18:17:20+00:00",
+          "choice": "Recommend Commerce-owned paymentWindow minSeconds1800/maxSeconds1860 and Payments immutable claim+1860 expiry, contingent on explicit owner approval; no implementation or lock. Preserve authoritative provider times, same key and params, read-only lookup, terminal proof before stock release, and unknown after delayed/unacknowledged creation.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-09-30T22:13:22+00:00",
+          "choice": "Approved provider-reported inclusive1800..1860-second window with one durable original claim, explicit claim-second+1860 expiry, one exact request/key and authoritative provider timestamps. Payments must consume the immutable Commerce-owned amended port before dependent implementation. Preserve unknown and stock-release safeguards; no default24h fallback or retry deadline reset.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-09-30T22:26:44+00:00",
+          "choice": "Approved provider-reported inclusive1800..1860-second window with one durable original claim, explicit claim-second+1860 expiry, one exact request/key and authoritative provider timestamps. Payments must consume the immutable Commerce-owned amended port before dependent implementation. Preserve unknown and stock-release safeguards; no default24h fallback or retry deadline reset.",
+          "from": "implemented",
+          "implementation_ref": ".grilltrack/proof/checkout-window-repair/PROOF.md;git:dinkuskit/commerce@ab37cd7f362f1c37cb1d321192abbbc48a623833",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-checkout-window-proposal-002",
+      "implementation_ref": ".grilltrack/proof/checkout-window-repair/PROOF.md;git:dinkuskit/commerce@ab37cd7f362f1c37cb1d321192abbbc48a623833",
+      "question": "Should Payments adopt a bounded provider expiry only after Commerce approves 1800..1860 seconds?",
+      "rationale": "Explicit human approval of the30\u201331-minute policy and safeguards. Commerce owns its decision amendment and exact port. Current P1 remains required_fix until implementation and independent requalification.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
       "status": "verified",
       "superseded_by": null,
-      "updated_at": "2026-09-30T13:51:48+00:00",
-      "verification_ref": ".grilltrack/proof/checkout-sessions/PROOF.md#verification"
+      "updated_at": "2026-09-30T22:26:44+00:00",
+      "verification_ref": ".grilltrack/proof/checkout-window-repair/PROOF.md;55 Node tests;3 workerd tests;typecheck;audit;dry-run;Commerce ab37cd7 compatibility;formal P1 remains required_fix"
     }
   ],
   "last_activation": {
-    "at": "2026-09-30T13:04:18+00:00",
+    "at": "2026-09-30T21:50:35+00:00",
     "mechanism": "implicit"
   },
   "last_pause": {
     "artifact_refs": [
-      "docs/hosted-connections.md",
-      ".grilltrack/proof/hosted-connection/PROOF.md"
+      ".grilltrack/proof/checkout-sessions/COMMERCE37-CANDIDATE-HANDSHAKE.md",
+      ".grilltrack/proof/checkout-sessions/APPROVED-WINDOW-READINESS.md"
     ],
-    "next_safe_action": "Implement the shared DinkusKit account service and registry client against docs/hosted-connections.md; then complete Stripe test proof and verified-route review.",
-    "paused_at": "2026-09-30T01:13:52+00:00",
-    "reason": "First local backend slice is tested; registry/account integration and authorized review remain outstanding.",
-    "resumed_at": "2026-09-30T13:04:18+00:00"
+    "next_safe_action": "Coordinator supplies final Commerce commit/PR/source hashes and compatibility handoff; verify it once, then dispatch bounded native ACP without Cursor Grok4.6/4.7.",
+    "paused_at": "2026-09-30T19:07:23+00:00",
+    "reason": "Immutable candidate consumer handshake recorded; dependent source/test implementation awaits the core owner post-repair freeze and supported worker route.",
+    "resumed_at": "2026-09-30T21:50:35+00:00"
   },
-  "pause": {
-    "artifact_refs": [
-      "https://github.com/dinkuskit/payments/pull/5",
-      ".grilltrack/proof/checkout-sessions/PROOF.md",
-      "docs/checkout-sessions.md"
-    ],
-    "next_safe_action": "Use Payments PR #5 and its proof for the existing review rail; decide the smallest supported timing contract before actual Stripe qualification.",
-    "paused_at": "2026-09-30T13:56:34+00:00",
-    "reason": "Draft adapter delivered with synthetic/runtime proof; exact Stripe timing, integration dependencies and owner-controlled formal review remain."
-  },
+  "pause": null,
   "recommendation": {
     "alternatives": [],
-    "reason": "The adapter preserves unknown on mismatched provider timestamps; actual Stripe timing and the Commerce wake consumer require their own admitted integration work. Inventory basket work remains queued, not dispatched.",
-    "recommended": "Resolve the exact Stripe 30-minute timestamp feasibility boundary against the existing Commerce port.",
-    "recorded_at": "2026-09-30T13:56:34+00:00"
+    "reason": "Read-only candidate37 d2960fa has the approved current/legacy union but is not the final owner-certified pin. Payments e401e36 rejects the current shape and still pins/validates exact1800.",
+    "recommended": "Consume the core owner post-repair frozen Commerce37 replacement, verify source/port hashes and legacy no-claim readback, then admit one native ACP repair under the new worker model constraint.",
+    "recorded_at": "2026-09-30T19:07:22+00:00"
   },
   "schema_version": "grilltrack/v0.1",
-  "status": "paused",
+  "status": "active",
   "title": "DinkusKit Payments public scaffold",
   "track_id": "gt-20260830202947-ccfe03",
-  "updated_at": "2026-09-30T13:56:34+00:00"
+  "updated_at": "2026-09-30T22:26:44+00:00"
 }
