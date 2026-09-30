@@ -58,6 +58,15 @@ test('existing bindings cannot change merchant, site, or mode', async () => {
   assert.equal(f.calls.length, n);
 });
 
+test('existing bindings remain readable after readiness regresses', async () => {
+  const f = fixture(); await f.service().connect(owner); f.setReady(true);
+  assert.ok(await f.service().checkoutBinding(owner, 'stripe_binding-one'));
+  f.setReady(false);
+  assert.equal(await f.service().checkoutBinding(owner, 'stripe_binding-one'), null);
+  assert.deepEqual(await f.service().existingBinding(owner, 'stripe_binding-one'), { bindingRef: 'stripe_binding-one', stripeAccountId: 'acct_one', mode: 'test', providerId: 'stripe' });
+  assert.equal(await f.service().existingBinding(owner, 'stripe_replacement'), null);
+});
+
 test('checkout requires current provider readiness and the exact original binding', async () => {
   const f = fixture(); await f.service().connect(owner);
   assert.equal(await f.service().checkoutBinding(owner, 'stripe_binding-one'), null);

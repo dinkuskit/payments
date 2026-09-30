@@ -106,5 +106,12 @@ export function createConnectionService(options: {
     if ((await status(principal)).state !== "ready") return null;
     return { bindingRef, providerId: "stripe", stripeAccountId: record.stripeAccountId, mode };
   }
-  return { connect, status, checkoutBinding };
+  // Existing-attempt reads must keep the original recipient after readiness
+  // regresses. New checkout still uses checkoutBinding.
+  async function existingBinding(principal: Principal, bindingRef: string): Promise<CheckoutBinding | null> {
+    const record = read(principal);
+    if (!record || record.bindingRef !== bindingRef || !record.stripeAccountId) return null;
+    return { bindingRef, providerId: "stripe", stripeAccountId: record.stripeAccountId, mode };
+  }
+  return { connect, status, checkoutBinding, existingBinding };
 }

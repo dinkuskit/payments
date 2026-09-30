@@ -24,6 +24,7 @@ that claim. The backend cannot make an untrusted identity issuer safe.
 | `POST /v1/connect` with no body or query | `payments:admin` | Resume the existing account or persist a new binding before starting creation; optionally return a fresh Stripe onboarding URL |
 | `GET /v1/status` | `payments:admin` | Current provider-verified state; no cached ready fallback |
 | `GET /v1/checkout-binding?bindingRef=...` | `payments:checkout` | Exact immutable recipient binding for a new checkout, or `409 payments_not_ready` |
+| `GET /v1/existing-binding?bindingRef=...` | `payments:checkout` | Exact stored recipient for an existing attempt, even if new checkout is not ready |
 
 These are authenticated server-to-server endpoints. A browser landing on a
 Stripe return URL does not authenticate a merchant or mark setup complete.
@@ -86,8 +87,9 @@ it is never written to this repository or supplied to the registry plugin.
    sign-in reuse, and the two authenticated Stripe return/refresh pages.
 2. Implement and prove the EmDash 1.0 registry sandbox/Block Kit client using
    that service. Keep credentials server-side and declare network hosts.
-3. Connect the Commerce-owned payment contract to the Stripe session and
-   webhook adapter. This backend owns neither checkout amounts nor orders.
+3. Wire Commerce's reconcile caller to the Payments webhook wake and prove a
+   real Stripe test-mode purchase. This backend owns neither checkout amounts
+   nor orders.
 4. Verify real Stripe test-mode onboarding and a complete synthetic purchase,
    then review the exact resulting source before any live activation.
 

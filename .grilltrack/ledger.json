@@ -4,11 +4,11 @@
   "current_focus": {
     "cadence": "sequential",
     "confirmed": true,
-    "confirmed_at": "2026-09-30T01:11:24+00:00",
-    "domain": "Merchant-owned Stripe connection from the registry Payments plugin",
-    "started_at": "2026-09-30T01:08:44+00:00",
-    "status": "confirmed",
-    "summary": "Implement the first local hosted Payments connection slice: merchant-owned Stripe accounts, DinkusKit-hosted service and shared merchant identity, authenticated immutable store/account binding, resumable Stripe-hosted onboarding, authoritative readiness and a fail-closed checkout binding. Verify retries, interrupted setup, account isolation and readiness regression. Preserve Stripe-only, USD-only and Commerce ownership of checkout, attempts, orders and receipts. Consume the in-progress Commerce payment binding contract without editing its worktree. Registry installation remains the delivery target; public account sign-in, live credentials, deployment and live payment activation are not authorized by this local implementation."
+    "confirmed_at": "2026-09-30T13:04:18+00:00",
+    "domain": "Stripe hosted Checkout Sessions adapter for Commerce",
+    "started_at": "2026-09-30T13:04:18+00:00",
+    "status": "inspected",
+    "summary": "Implement Payments-owned Stripe hosted Checkout Sessions against Commerce CheckoutPaymentPort: immutable merchant binding, card-only USD integer minor units, one durable operation per attempt and original 30-minute window. ensureSession and authoritative read-only lookup preserve unknown after ambiguous responses or finite idempotency expiry; webhooks verify raw bytes before use and only wake reconciliation. Existing payment reconciliation bypasses new-checkout readiness. Test replay, mismatch, concurrency and restart. No Commerce/Inventory edits, live payments, account changes, deployment, merge, or duplicate review."
   },
   "decisions": [
     {
@@ -379,26 +379,173 @@
       "superseded_by": null,
       "updated_at": "2026-09-30T01:13:52+00:00",
       "verification_ref": null
+    },
+    {
+      "baseline_ref": "git:63d6f80e172f822bdf09ca0dc7cef9e0b420d073",
+      "candidate_refs": [],
+      "choice": "Implement Payments-owned Stripe hosted Checkout Sessions against Commerce CheckoutPaymentPort: immutable merchant binding, card-only USD integer minor units, one durable operation per attempt and original 30-minute window. ensureSession and authoritative read-only lookup preserve unknown after ambiguous responses or finite idempotency expiry; webhooks verify raw bytes before use and only wake reconciliation. Existing payment reconciliation bypasses new-checkout readiness. Test replay, mismatch, concurrency and restart. No Commerce/Inventory edits, live payments, account changes, deployment, merge, or duplicate review.",
+      "context_ref": "github:dinkuskit/commerce/pull/29",
+      "created_at": "2026-09-30T13:04:18+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-plugin-topology-001",
+        "payments-demo-currency-002",
+        "merchant-stripe-ownership-001"
+      ],
+      "domain": "Stripe hosted Checkout Sessions adapter for Commerce",
+      "history": [
+        {
+          "at": "2026-09-30T13:04:18+00:00",
+          "choice": "Implement Payments-owned Stripe hosted Checkout Sessions against Commerce CheckoutPaymentPort: immutable merchant binding, card-only USD integer minor units, one durable operation per attempt and original 30-minute window. ensureSession and authoritative read-only lookup preserve unknown after ambiguous responses or finite idempotency expiry; webhooks verify raw bytes before use and only wake reconciliation. Existing payment reconciliation bypasses new-checkout readiness. Test replay, mismatch, concurrency and restart. No Commerce/Inventory edits, live payments, account changes, deployment, merge, or duplicate review.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-09-30T13:27:15+00:00",
+          "choice": "Implement Payments-owned Stripe hosted Checkout Sessions against Commerce CheckoutPaymentPort: immutable merchant binding, card-only USD integer minor units, one durable operation per attempt and original 30-minute window. ensureSession and authoritative read-only lookup preserve unknown after ambiguous responses or finite idempotency expiry; webhooks verify raw bytes before use and only wake reconciliation. Existing payment reconciliation bypasses new-checkout readiness. Test replay, mismatch, concurrency and restart. No Commerce/Inventory edits, live payments, account changes, deployment, merge, or duplicate review.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-09-30T13:27:15+00:00",
+          "choice": "Implement Payments-owned Stripe hosted Checkout Sessions against Commerce CheckoutPaymentPort: immutable merchant binding, card-only USD integer minor units, one durable operation per attempt and original 30-minute window. ensureSession and authoritative read-only lookup preserve unknown after ambiguous responses or finite idempotency expiry; webhooks verify raw bytes before use and only wake reconciliation. Existing payment reconciliation bypasses new-checkout readiness. Test replay, mismatch, concurrency and restart. No Commerce/Inventory edits, live payments, account changes, deployment, merge, or duplicate review.",
+          "from": "implemented",
+          "implementation_ref": ".grilltrack/proof/checkout-sessions/PROOF.md",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-09-30T13:34:17+00:00",
+          "choice": "Implement Payments-owned Stripe hosted Checkout Sessions against Commerce CheckoutPaymentPort: immutable merchant binding, card-only USD integer minor units, one durable operation per attempt and original 30-minute window. ensureSession and authoritative read-only lookup preserve unknown after ambiguous responses or finite idempotency expiry; webhooks verify raw bytes before use and only wake reconciliation. Existing payment reconciliation bypasses new-checkout readiness. Test replay, mismatch, concurrency and restart. No Commerce/Inventory edits, live payments, account changes, deployment, merge, or duplicate review.",
+          "from": "verified",
+          "implementation_ref": ".grilltrack/proof/checkout-sessions/PROOF.md",
+          "note": "adjudicated review requires a fix",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "needs_reverification",
+          "verification_ref": ".grilltrack/proof/checkout-sessions/PROOF.md#verification"
+        },
+        {
+          "at": "2026-09-30T13:39:19+00:00",
+          "choice": "Implement Payments-owned Stripe hosted Checkout Sessions against Commerce CheckoutPaymentPort: immutable merchant binding, card-only USD integer minor units, one durable operation per attempt and original 30-minute window. ensureSession and authoritative read-only lookup preserve unknown after ambiguous responses or finite idempotency expiry; webhooks verify raw bytes before use and only wake reconciliation. Existing payment reconciliation bypasses new-checkout readiness. Test replay, mismatch, concurrency and restart. No Commerce/Inventory edits, live payments, account changes, deployment, merge, or duplicate review.",
+          "from": "needs_reverification",
+          "implementation_ref": ".grilltrack/proof/checkout-sessions/PROOF.md",
+          "note": "bounded implementation recorded",
+          "repair_required": true,
+          "review_classifications": [
+            "required_fix"
+          ],
+          "review_ref": ".grilltrack/work/checkout-sessions-20260930/parent-findings.md",
+          "review_result": "findings",
+          "review_source_identity": "sha256:63732d0ce20457375c8ef00f1003296cf5b354bd8812dfe9fde5b58090cb6d35",
+          "to": "implemented",
+          "verification_ref": ".grilltrack/proof/checkout-sessions/PROOF.md#verification"
+        },
+        {
+          "at": "2026-09-30T13:39:19+00:00",
+          "choice": "Implement Payments-owned Stripe hosted Checkout Sessions against Commerce CheckoutPaymentPort: immutable merchant binding, card-only USD integer minor units, one durable operation per attempt and original 30-minute window. ensureSession and authoritative read-only lookup preserve unknown after ambiguous responses or finite idempotency expiry; webhooks verify raw bytes before use and only wake reconciliation. Existing payment reconciliation bypasses new-checkout readiness. Test replay, mismatch, concurrency and restart. No Commerce/Inventory edits, live payments, account changes, deployment, merge, or duplicate review.",
+          "from": "implemented",
+          "implementation_ref": ".grilltrack/proof/checkout-sessions/PROOF.md",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": ".grilltrack/proof/checkout-sessions/PROOF.md#verification"
+        }
+      ],
+      "id": "payments-checkout-sessions-001",
+      "implementation_ref": ".grilltrack/proof/checkout-sessions/PROOF.md",
+      "question": "How does Payments implement the accepted Commerce hosted payment port?",
+      "rationale": "Explicit owner-admitted bounded adapter direction and existing settled Commerce behavior.",
+      "repair_required": false,
+      "review_classifications": [
+        "defer"
+      ],
+      "review_history": [
+        {
+          "classifications": [
+            "required_fix"
+          ],
+          "ref": ".grilltrack/work/checkout-sessions-20260930/parent-findings.md",
+          "result": "findings",
+          "reviewed_at": "2026-09-30T13:34:17+00:00",
+          "source_identity": "sha256:63732d0ce20457375c8ef00f1003296cf5b354bd8812dfe9fde5b58090cb6d35"
+        },
+        {
+          "classifications": [
+            "defer"
+          ],
+          "ref": ".grilltrack/proof/checkout-sessions/ACCEPTANCE.md",
+          "result": "findings",
+          "reviewed_at": "2026-09-30T13:51:48+00:00",
+          "source_identity": "sha256:e38295effbb916a7f63947bc0ace7c0b3cc71fc1f8defe63500b9d007173405c"
+        }
+      ],
+      "review_ref": ".grilltrack/proof/checkout-sessions/ACCEPTANCE.md",
+      "review_result": "findings",
+      "review_source_identity": "sha256:e38295effbb916a7f63947bc0ace7c0b3cc71fc1f8defe63500b9d007173405c",
+      "status": "verified",
+      "superseded_by": null,
+      "updated_at": "2026-09-30T13:51:48+00:00",
+      "verification_ref": ".grilltrack/proof/checkout-sessions/PROOF.md#verification"
     }
   ],
   "last_activation": {
-    "at": "2026-08-30T20:29:47+00:00",
+    "at": "2026-09-30T13:04:18+00:00",
     "mechanism": "implicit"
   },
-  "last_pause": null,
-  "pause": {
+  "last_pause": {
     "artifact_refs": [
       "docs/hosted-connections.md",
       ".grilltrack/proof/hosted-connection/PROOF.md"
     ],
     "next_safe_action": "Implement the shared DinkusKit account service and registry client against docs/hosted-connections.md; then complete Stripe test proof and verified-route review.",
     "paused_at": "2026-09-30T01:13:52+00:00",
-    "reason": "First local backend slice is tested; registry/account integration and authorized review remain outstanding."
+    "reason": "First local backend slice is tested; registry/account integration and authorized review remain outstanding.",
+    "resumed_at": "2026-09-30T13:04:18+00:00"
   },
-  "recommendation": null,
+  "pause": null,
+  "recommendation": {
+    "alternatives": [
+      "Parent opens the one authorized draft PR from this worktree.",
+      "Attended Stripe test-mode proof after review authority; do not invent live behavior from synthetic probes."
+    ],
+    "reason": "Required acceptance fixes are locally implemented and verified. Formal review, commit, PR, and live Stripe remain parent-owned. Stripe created/expires_at is not documented as exact 1800, so an inconsistent provider window stays unknown.",
+    "recommended": "Parent authorizes formal review of this repaired uncommitted adapter against Commerce 1cb55c756ef746bcb042b9679dc43b57e67bcb0d. This owner does not dispatch review.",
+    "recorded_at": "2026-09-30T13:39:19+00:00"
+  },
   "schema_version": "grilltrack/v0.1",
-  "status": "paused",
+  "status": "active",
   "title": "DinkusKit Payments public scaffold",
   "track_id": "gt-20260830202947-ccfe03",
-  "updated_at": "2026-09-30T01:13:52+00:00"
+  "updated_at": "2026-09-30T13:51:48+00:00"
 }

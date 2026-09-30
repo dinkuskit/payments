@@ -76,14 +76,15 @@ and GrillTrack lineage. It includes no Stripe SDK, credentials, webhook
 endpoint, processor calls, Commerce modifications, template-store changes,
 package publication, deployment, or production mutation.
 
-The current locked slice adds the hosted connection backend and a gate that
-resolves Commerce's immutable payment binding only when a new checkout may
-start. Commerce has an in-progress grilled provider contract; this slice does
-not implement its session creation, reconciliation, or order transitions.
-The former scaffold remains recorded as the initial delivery, not an ongoing
-ban on the now-confirmed local implementation.
+The current locked slice adds the hosted connection backend, a readiness gate
+for new checkout, and a Payments-owned Stripe Checkout Session adapter for
+Commerce `CheckoutPaymentPort`. Session creation, authoritative lookup, and
+raw-byte webhook verification that only wakes reconciliation are implemented
+locally. Commerce still owns attempts, orders, receipts, and reconciliation
+orchestration; this repository does not edit Commerce.
 
 Registry admin wiring, the shared account-service deployment, Stripe platform
 activation, and real Stripe test-mode proof remain prerequisites for an
 installable end-to-end experience. The Worker has no live mode or public
-deployment configured. See [hosted connections](hosted-connections.md).
+deployment configured. See [hosted connections](hosted-connections.md) and
+[checkout sessions](checkout-sessions.md).
