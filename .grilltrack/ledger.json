@@ -4,11 +4,11 @@
   "current_focus": {
     "cadence": "sequential",
     "confirmed": true,
-    "confirmed_at": "2026-09-30T13:04:18+00:00",
-    "domain": "Stripe hosted Checkout Sessions adapter for Commerce",
-    "started_at": "2026-09-30T13:04:18+00:00",
+    "confirmed_at": "2026-10-01T10:11:44+00:00",
+    "domain": "Payments TEST durable wake delivery to Commerce",
+    "started_at": "2026-10-01T10:05:13+00:00",
     "status": "inspected",
-    "summary": "Implement Payments-owned Stripe hosted Checkout Sessions against Commerce CheckoutPaymentPort: immutable merchant binding, card-only USD integer minor units, one durable operation per attempt and original 30-minute window. ensureSession and authoritative read-only lookup preserve unknown after ambiguous responses or finite idempotency expiry; webhooks verify raw bytes before use and only wake reconciliation. Existing payment reconciliation bypasses new-checkout readiness. Test replay, mismatch, concurrency and restart. No Commerce/Inventory edits, live payments, account changes, deployment, merge, or duplicate review."
+    "summary": "Implement only the independently authorized Payments canonical event queue and internal consume/ack safeguards through native Cursor ACP; preserve old pending work, original checkout attempts and timing. No HTTP or Commerce contract change until core immutable freeze. No actual provider traffic, secret permission changes, deployment or merge."
   },
   "decisions": [
     {
@@ -613,32 +613,109 @@
       "superseded_by": null,
       "updated_at": "2026-09-30T22:26:44+00:00",
       "verification_ref": ".grilltrack/proof/checkout-window-repair/PROOF.md;55 Node tests;3 workerd tests;typecheck;audit;dry-run;Commerce ab37cd7 compatibility;formal P1 remains required_fix"
+    },
+    {
+      "baseline_ref": "git:75e5d43acbc39deee3127f924866cb9098f789b0",
+      "candidate_refs": [],
+      "choice": "Retain canonical verified provider event identities and immutable site/binding/attempt context; implement internal bounded consumption and exact-event acknowledgement only following successful authoritative reconciliation. Preserve unresolved notifications and legacy pending work. Commerce owns order/result authority; HTTP and dependent adapter wiring await its immutable contract.",
+      "context_ref": ".grilltrack/work/test-wake-bridge-20261001/HANDOFF.md",
+      "created_at": "2026-10-01T10:11:43+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [],
+      "domain": "Payments TEST durable wake delivery to Commerce",
+      "history": [
+        {
+          "at": "2026-10-01T10:11:44+00:00",
+          "choice": "Retain canonical verified provider event identities and immutable site/binding/attempt context; implement internal bounded consumption and exact-event acknowledgement only following successful authoritative reconciliation. Preserve unresolved notifications and legacy pending work. Commerce owns order/result authority; HTTP and dependent adapter wiring await its immutable contract.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-01T10:30:01+00:00",
+          "choice": "Retain canonical verified provider event identities and immutable site/binding/attempt context; implement internal bounded consumption and exact-event acknowledgement only following successful authoritative reconciliation. Preserve unresolved notifications and legacy pending work. Commerce owns order/result authority; HTTP and dependent adapter wiring await its immutable contract.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-01T10:30:01+00:00",
+          "choice": "Retain canonical verified provider event identities and immutable site/binding/attempt context; implement internal bounded consumption and exact-event acknowledgement only following successful authoritative reconciliation. Preserve unresolved notifications and legacy pending work. Commerce owns order/result authority; HTTP and dependent adapter wiring await its immutable contract.",
+          "from": "implemented",
+          "implementation_ref": ".grilltrack/proof/test-event-wakes/PROOF.md",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-test-event-wakes-001",
+      "implementation_ref": ".grilltrack/proof/test-event-wakes/PROOF.md",
+      "question": "How should verified TEST provider notifications remain durable until Commerce reconciles?",
+      "rationale": "Existing source lane assignment authorizes independent durable wake/storage/auth work and requires canonical event retention with acknowledgement after reconciliation.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "verified",
+      "superseded_by": null,
+      "updated_at": "2026-10-01T10:30:01+00:00",
+      "verification_ref": ".grilltrack/proof/test-event-wakes/PROOF.md;bin/verify-payments full;59 Node tests;3 runtime tests;typecheck;audit;dry-run build;diff check"
     }
   ],
   "last_activation": {
-    "at": "2026-09-30T21:50:35+00:00",
+    "at": "2026-10-01T10:11:43+00:00",
     "mechanism": "implicit"
   },
   "last_pause": {
     "artifact_refs": [
-      ".grilltrack/proof/checkout-sessions/COMMERCE37-CANDIDATE-HANDSHAKE.md",
-      ".grilltrack/proof/checkout-sessions/APPROVED-WINDOW-READINESS.md"
+      ".grilltrack/work/test-wake-bridge-20261001/HANDOFF.md",
+      ".grilltrack/work/test-wake-bridge-20261001/SOURCE-IDENTITY.json",
+      ".grilltrack/work/test-wake-bridge-20261001/PROOF.md"
     ],
-    "next_safe_action": "Coordinator supplies final Commerce commit/PR/source hashes and compatibility handoff; verify it once, then dispatch bounded native ACP without Cursor Grok4.6/4.7.",
-    "paused_at": "2026-09-30T19:07:23+00:00",
-    "reason": "Immutable candidate consumer handshake recorded; dependent source/test implementation awaits the core owner post-repair freeze and supported worker route.",
-    "resumed_at": "2026-09-30T21:50:35+00:00"
+    "next_safe_action": "Reload the repaired native MCP inventory in this existing lane; verify exact-workspace readiness and cleanup admission, obtain the core owner immutable contract and approved credential consumption route, then confirm and delegate one bounded Payments-only source slice.",
+    "paused_at": "2026-10-01T10:05:14+00:00",
+    "reason": "Current chat has no native ACP tools despite Cursor package MCP_READY; Antigravity prepared runtime requires owner setup. Commerce immutable reconciliation contract and approved merchant binding handoff are not available.",
+    "resumed_at": "2026-10-01T10:11:43+00:00"
   },
-  "pause": null,
+  "pause": {
+    "artifact_refs": [
+      ".grilltrack/proof/test-event-wakes/PROOF.md"
+    ],
+    "next_safe_action": "Review the frozen Payments queue candidate, obtain Commerce contract hashes and authorized TEST binding handoff, then resume only the dependent Payments transport slice.",
+    "paused_at": "2026-10-01T10:30:01+00:00",
+    "reason": "Independent canonical event queue is verified; dependent hosted delivery awaits Commerce immutable reconciliation contract and authorized TEST service/binding."
+  },
   "recommendation": {
     "alternatives": [],
-    "reason": "Read-only candidate37 d2960fa has the approved current/legacy union but is not the final owner-certified pin. Payments e401e36 rejects the current shape and still pins/validates exact1800.",
-    "recommended": "Consume the core owner post-repair frozen Commerce37 replacement, verify source/port hashes and legacy no-claim readback, then admit one native ACP repair under the new worker model constraint.",
-    "recorded_at": "2026-09-30T19:07:22+00:00"
+    "reason": "Canonical event persistence and internal acknowledgement are verified. Hosted transport and real provider/closed-tab acceptance remain separate dependencies.",
+    "recommended": "Consume the immutable Commerce reconciliation handoff, then qualify trusted hosted delivery and TEST merchant binding.",
+    "recorded_at": "2026-10-01T10:30:01+00:00"
   },
   "schema_version": "grilltrack/v0.1",
-  "status": "active",
+  "status": "paused",
   "title": "DinkusKit Payments public scaffold",
   "track_id": "gt-20260830202947-ccfe03",
-  "updated_at": "2026-09-30T22:26:44+00:00"
+  "updated_at": "2026-10-01T10:30:01+00:00"
 }
