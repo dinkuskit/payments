@@ -41,6 +41,27 @@ false/pending/unknown/throwing reconciliation retention, failed enqueue
 handling, legacy-row preservation, tombstones across replay and Durable Object
 eviction, and callback mutation protection.
 
+## Review repair: accepted P2
+
+The comprehensive exact-tuple review accepted one `REQUIRED_FIX P2` against
+candidate `0aded231c1c5079ec83c3e41724ee70c3464a56f`: the retained legacy
+`checkout_wakes` upsert used `DO NOTHING`, so a later distinct canonical event
+did not refresh `woke_at`. No live consumer failure was observed; this was a
+compatibility defect established by runtime regression.
+
+The repair changes only the legacy upsert, after canonical event deduplication
+and event-reuse rejection, to `DO UPDATE SET woke_at=excluded.woke_at`.
+Canonical event rows remain immutable on replay, including `received_at`;
+acknowledgement tombstones and exact callback/ACK association behavior remain
+unchanged.
+
+The real Cloudflare SQLite runtime regression produced 1 failing test on the
+old candidate and 1 passing test after repair. It controlled enqueue times for
+`evt_old`, distinct `evt_new`, and replay, and preserved an unrelated
+historical attempt-only row and timestamp. Raw failure and passing evidence is
+retained in
+`.grilltrack/work/test-wake-bridge-20261001/p2-legacy-wake-refresh-20261001/`.
+
 ## Source references
 
 Implementation and tests are in:

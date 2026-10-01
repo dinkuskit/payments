@@ -121,6 +121,13 @@ test("SQLite mapping survives eviction and lookup continues after readiness regr
   expect(created.count).toBe(createRequestsBeforeLookup);
   expect(operations.size).toBe(1);
 
+  await runInDurableObject(again, instance => instance.ctx.storage.sql.exec(
+    "INSERT INTO checkout_wakes (attempt_id,woke_at) VALUES (?,?)",
+    "historical-attempt-only",
+    123,
+  ));
+  let enqueueNow = 1700000000100;
+  vi.spyOn(Date, "now").mockImplementation(() => enqueueNow);
   for (const [id, type] of [["evt_old", "checkout.session.expired"], ["evt_new", "checkout.session.completed"], ["evt_new", "checkout.session.completed"]] as const) {
     const payload = JSON.stringify({
       id, object: "event", type, livemode: false, account: "acct_fixture",
@@ -134,27 +141,24 @@ test("SQLite mapping survives eviction and lookup continues after readiness regr
       payload, secret: "whsec_synthetic_fixture", cryptoProvider: Stripe.createSubtleCryptoProvider(),
     });
     await again.receiveWebhook(new TextEncoder().encode(payload).buffer as ArrayBuffer, signature, null);
+    if (id === "evt_old") enqueueNow = 1700000000200;
+    if (id === "evt_new") enqueueNow = 1700000000300;
   }
   await evictDurableObject(again);
   const resumed = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", principal.siteId]));
-  await runInDurableObject(resumed, instance => instance.ctx.storage.sql.exec(
-    "INSERT INTO checkout_wakes (attempt_id,woke_at) VALUES (?,?)",
-    "historical-attempt-only",
-    123,
-  ));
-  const pending = await runInDurableObject(resumed, instance => instance.ctx.storage.sql.exec<{ attempt_id: string }>(
-    "SELECT attempt_id FROM checkout_wakes ORDER BY attempt_id",
+  const pending = await runInDurableObject(resumed, instance => instance.ctx.storage.sql.exec<{ attempt_id: string; woke_at: number }>(
+    "SELECT attempt_id, woke_at FROM checkout_wakes ORDER BY attempt_id",
   ).toArray());
   expect(pending).toEqual([
-    { attempt_id: "attempt-one" },
-    { attempt_id: "historical-attempt-only" },
+    { attempt_id: "attempt-one", woke_at: 1700000000200 },
+    { attempt_id: "historical-attempt-only", woke_at: 123 },
   ]);
-  const events = await runInDurableObject(resumed, instance => instance.ctx.storage.sql.exec<{ event_id: string; acknowledged_at: number | null }>(
-    "SELECT event_id, acknowledged_at FROM checkout_wake_events ORDER BY event_id",
+  const events = await runInDurableObject(resumed, instance => instance.ctx.storage.sql.exec<{ event_id: string; received_at: number; acknowledged_at: number | null }>(
+    "SELECT event_id, received_at, acknowledged_at FROM checkout_wake_events ORDER BY event_id",
   ).toArray());
   expect(events).toEqual([
-    { event_id: "evt_new", acknowledged_at: null },
-    { event_id: "evt_old", acknowledged_at: null },
+    { event_id: "evt_new", received_at: 1700000000200, acknowledged_at: null },
+    { event_id: "evt_old", received_at: 1700000000100, acknowledged_at: null },
   ]);
 
   const retained = await resumed.consumeWakes(async context => {
@@ -180,19 +184,23 @@ test("SQLite mapping survives eviction and lookup continues after readiness regr
   await resumed.receiveWebhook(new TextEncoder().encode(replayPayload).buffer as ArrayBuffer, replaySignature, null);
   await evictDurableObject(resumed);
   const afterReplay = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", principal.siteId]));
-  const tombstones = await runInDurableObject(resumed, instance => instance.ctx.storage.sql.exec<{ event_id: string; acknowledged_at: number | null }>(
-    "SELECT event_id, acknowledged_at FROM checkout_wake_events ORDER BY event_id",
+  const tombstones = await runInDurableObject(resumed, instance => instance.ctx.storage.sql.exec<{ event_id: string; received_at: number; acknowledged_at: number | null }>(
+    "SELECT event_id, received_at, acknowledged_at FROM checkout_wake_events ORDER BY event_id",
   ).toArray());
   expect(tombstones.every(event => event.acknowledged_at !== null)).toBe(true);
-  const replayed = await runInDurableObject(afterReplay, instance => instance.ctx.storage.sql.exec<{ event_id: string; acknowledged_at: number | null }>(
-    "SELECT event_id, acknowledged_at FROM checkout_wake_events ORDER BY event_id",
+  expect(tombstones).toEqual([
+    { event_id: "evt_new", received_at: 1700000000200, acknowledged_at: expect.any(Number) },
+    { event_id: "evt_old", received_at: 1700000000100, acknowledged_at: expect.any(Number) },
+  ]);
+  const replayed = await runInDurableObject(afterReplay, instance => instance.ctx.storage.sql.exec<{ event_id: string; received_at: number; acknowledged_at: number | null }>(
+    "SELECT event_id, received_at, acknowledged_at FROM checkout_wake_events ORDER BY event_id",
   ).toArray());
   expect(replayed).toEqual(tombstones);
-  const legacyRows = await runInDurableObject(afterReplay, instance => instance.ctx.storage.sql.exec<{ attempt_id: string }>(
-    "SELECT attempt_id FROM checkout_wakes ORDER BY attempt_id",
+  const legacyRows = await runInDurableObject(afterReplay, instance => instance.ctx.storage.sql.exec<{ attempt_id: string; woke_at: number }>(
+    "SELECT attempt_id, woke_at FROM checkout_wakes ORDER BY attempt_id",
   ).toArray());
   expect(legacyRows).toEqual([
-    { attempt_id: "attempt-one" },
-    { attempt_id: "historical-attempt-only" },
+    { attempt_id: "attempt-one", woke_at: 1700000000200 },
+    { attempt_id: "historical-attempt-only", woke_at: 123 },
   ]);
 });

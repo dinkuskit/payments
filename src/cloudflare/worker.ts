@@ -102,7 +102,7 @@ export class PaymentConnection extends DurableObject<Env> {
           sql.exec("INSERT INTO checkout_wake_events (event_id,attempt_id,site_id,binding_ref,stripe_account_id,mode,received_at,acknowledged_at) VALUES (?,?,?,?,?,?,?,NULL)",
             context.eventId, context.attemptId, context.siteId, context.bindingRef, context.stripeAccountId, context.mode, Date.now());
           // Keep the original attempt-only queue populated for legacy consumers.
-          sql.exec("INSERT INTO checkout_wakes (attempt_id,woke_at) VALUES (?,?) ON CONFLICT(attempt_id) DO NOTHING", context.attemptId, Date.now());
+          sql.exec("INSERT INTO checkout_wakes (attempt_id,woke_at) VALUES (?,?) ON CONFLICT(attempt_id) DO UPDATE SET woke_at=excluded.woke_at", context.attemptId, Date.now());
         },
       },
       mode: "test",
