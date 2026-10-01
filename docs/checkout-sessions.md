@@ -55,8 +55,12 @@ Existing onboarding times stay milliseconds.
  SQLite wake table remains for historical/legacy work. An internal bounded
  consumer acknowledges only the exact event after an explicit authoritative
  reconciliation success; false, unknown, pending, or thrown results remain
- retryable. Its Commerce consumer is a later integration dependency, with no
- hosted consume endpoint. Paid is never
+  retryable. Overlapping consumers for one live Durable Object/store are
+  serialized around the whole batch, including the awaited reconciliation
+  callback; the conditional ACK reports success only when one SQLite row
+  changes. This is an in-memory live-object guard, not exactly-once delivery
+  across a crash, restart, or separate host. Its Commerce consumer is a later
+  integration dependency, with no hosted consume endpoint. Paid is never
   taken from the event. Failed durable wake is not HTTP 200. Raw event,
   customer, and payment payloads are not stored.
 

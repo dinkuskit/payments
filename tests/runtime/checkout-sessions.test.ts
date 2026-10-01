@@ -204,3 +204,40 @@ test("SQLite mapping survives eviction and lookup continues after readiness regr
     { attempt_id: "historical-attempt-only", woke_at: 123 },
   ]);
 });
+
+test("Durable Object wake consumers serialize callbacks and avoid ACK overcounting", async () => {
+  const siteId = crypto.randomUUID();
+  const stub = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", siteId]));
+  await runInDurableObject(stub, instance => instance.ctx.storage.sql.exec(
+    "INSERT INTO checkout_wake_events (event_id,attempt_id,site_id,binding_ref,stripe_account_id,mode,received_at,acknowledged_at) VALUES (?,?,?,?,?,?,?,NULL)",
+    "evt_concurrent", "attempt-concurrent", siteId, "binding-concurrent", "acct_concurrent", "test", 1700000000400,
+  ));
+
+  let callbackCalls = 0;
+  let releaseCallback!: () => void;
+  let callbackStarted!: () => void;
+  const started = new Promise<void>(resolve => { callbackStarted = resolve; });
+  const gate = new Promise<void>(resolve => { releaseCallback = resolve; });
+  const reconcile = async (context: Readonly<{ eventId: string }>) => {
+    callbackCalls++;
+    expect(context.eventId).toBe("evt_concurrent");
+    callbackStarted();
+    await gate;
+    return true as const;
+  };
+
+  const first = stub.consumeWakes(reconcile);
+  await started;
+  const second = stub.consumeWakes(reconcile);
+  releaseCallback();
+
+  await expect(first).resolves.toEqual({ inspected: 1, acknowledged: 1 });
+  await expect(second).resolves.toEqual({ inspected: 0, acknowledged: 0 });
+  expect(callbackCalls).toBe(1);
+
+  const state = await runInDurableObject(stub, instance => instance.ctx.storage.sql.exec<{ acknowledged_at: number | null }>(
+    "SELECT acknowledged_at FROM checkout_wake_events WHERE event_id=?",
+    "evt_concurrent",
+  ).toArray());
+  expect(state).toEqual([{ acknowledged_at: expect.any(Number) }]);
+});

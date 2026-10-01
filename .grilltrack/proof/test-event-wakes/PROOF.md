@@ -87,3 +87,35 @@ acceptance, closed-tab end-to-end completion, deployment, publishing, live
 traffic, account or security changes, or secret changes. No provider
 credentials, customer or merchant data, or production configuration are part
 of this proof.
+
+## Concurrent consumption repair
+
+The accepted exact-head review found that two overlapping consumers could both
+read the same pending row before awaiting reconciliation, then both report an
+ACK even though the conditional SQLite update changed one row. The repair adds
+a `WeakMap` promise tail keyed by the stable wake-store object, so one live
+Durable Object/store runs one batch at a time through its awaited callback.
+The Durable Object now owns one stable store object, and its ACK returns
+`rowsWritten === 1`; only that result increments the batch count.
+
+Failing-first proof on the accepted head produced two callbacks and two reported
+ACKs for one state change. After repair, the unit regression produced one
+callback and results `{ inspected: 1, acknowledged: 1 }` followed by
+`{ inspected: 0, acknowledged: 0 }`. The conditional zero-row unit case
+reported `acknowledged: 0`; pending and thrown reconciliation both released
+the queue for a successful retry. The real Cloudflare SQLite Durable Object
+runtime regression passed with one callback, one ACK, and an acknowledged
+tombstone.
+
+Final verification used Node `v22.23.2`:
+
+- `bin/verify-payments full`: passed; 62 Node tests, 4 runtime tests,
+  typecheck, audit, and Wrangler dry-run build.
+- `npm run audit:repo`: `public_repository_contract=clean`.
+- `shasum -a 256 -c .grilltrack/proof/test-event-wakes/source-manifest.sha256`:
+  all entries OK.
+- `git diff --check`: passed.
+
+The in-memory serialization is intentionally limited to one live Durable
+Object/store identity. It does not claim exactly-once processing across crash,
+restart, separate hosts, or a future independently constructed store.

@@ -31,13 +31,34 @@ export function assertWakeContext(context: WakeContext): void {
 
 export interface WakeEventStore {
   pending(limit: number): WakeContext[];
-  acknowledge(context: WakeContext): void;
+  acknowledge(context: WakeContext): boolean;
 }
+
+const consumptionTails = new WeakMap<object, Promise<void>>();
 
 export async function consumeWakeBatch(
   store: WakeEventStore,
   reconcile: (context: Readonly<WakeContext>) => Promise<ReconciliationResult>,
   limit = 25,
+): Promise<{ inspected: number; acknowledged: number }> {
+  const previous = consumptionTails.get(store);
+  let release!: () => void;
+  const current = new Promise<void>(resolve => { release = resolve; });
+  const tail = (previous ?? Promise.resolve()).then(() => current);
+  consumptionTails.set(store, tail);
+  await previous;
+  try {
+    return await consumeWakeBatchSerial(store, reconcile, limit);
+  } finally {
+    release();
+    if (consumptionTails.get(store) === tail) consumptionTails.delete(store);
+  }
+}
+
+async function consumeWakeBatchSerial(
+  store: WakeEventStore,
+  reconcile: (context: Readonly<WakeContext>) => Promise<ReconciliationResult>,
+  limit: number,
 ): Promise<{ inspected: number; acknowledged: number }> {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new WakeError("invalid_batch_limit");
   const events = store.pending(limit);
@@ -49,8 +70,7 @@ export async function consumeWakeBatch(
     try {
       const result = await reconcile(callbackContext);
       if (result === true || result === "reconciled") {
-        store.acknowledge(acknowledgement);
-        acknowledged++;
+        if (store.acknowledge(acknowledgement)) acknowledged++;
       }
     } catch {
       // A failed reconciliation is retryable; the event remains pending.

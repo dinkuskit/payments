@@ -20,7 +20,9 @@ function store(events) {
     acknowledge(context) {
       const event = events.find(candidate => candidate.eventId === context.eventId);
       if (!event || Object.keys(context).some(key => event[key] !== context[key])) throw new WakeError("wake_association_mismatch");
+      const alreadyAcknowledged = acknowledged.has(context.eventId);
       acknowledged.add(context.eventId);
+      return !alreadyAcknowledged;
     },
     acknowledged,
   };
@@ -92,4 +94,77 @@ test("all six wake fields are required before reconciliation is called", async (
     /invalid_wake_context/,
   );
   assert.equal(called, false);
+});
+
+test("overlapping consumers reconcile an event once and count only its ACK", async () => {
+  const durable = store([first]);
+  let callbackCalls = 0;
+  let release;
+  const callbackStarted = new Promise(resolve => { release = resolve; });
+  let allowCallback;
+  const callbackGate = new Promise(resolve => { allowCallback = resolve; });
+  const reconcile = async context => {
+    callbackCalls++;
+    release();
+    await callbackGate;
+    assert.equal(context.eventId, "evt_one");
+    return true;
+  };
+
+  const firstConsumer = consumeWakeBatch(durable, reconcile);
+  await callbackStarted;
+  const secondConsumer = consumeWakeBatch(durable, reconcile);
+  allowCallback();
+
+  assert.deepEqual(await Promise.all([firstConsumer, secondConsumer]), [
+    { inspected: 1, acknowledged: 1 },
+    { inspected: 0, acknowledged: 0 },
+  ]);
+  assert.equal(callbackCalls, 1);
+});
+
+test("a conditional ACK that changes zero rows is not counted", async () => {
+  const durable = store([first]);
+  durable.acknowledge(first);
+  assert.deepEqual(await consumeWakeBatch(durable, async () => true), {
+    inspected: 0,
+    acknowledged: 0,
+  });
+
+  const conditionalStore = {
+    pending: () => [first],
+    acknowledge: () => false,
+  };
+  assert.deepEqual(await consumeWakeBatch(conditionalStore, async () => true), {
+    inspected: 1,
+    acknowledged: 0,
+  });
+});
+
+test("pending and failed reconciliation release the store for retries", async () => {
+  const durable = store([first]);
+  let calls = 0;
+  const pendingThenRetry = [
+    consumeWakeBatch(durable, async () => {
+      calls++;
+      return "pending";
+    }),
+    consumeWakeBatch(durable, async () => {
+      calls++;
+      return true;
+    }),
+  ];
+  assert.deepEqual(await Promise.all(pendingThenRetry), [
+    { inspected: 1, acknowledged: 0 },
+    { inspected: 1, acknowledged: 1 },
+  ]);
+  assert.equal(calls, 2);
+
+  const failedStore = store([first]);
+  const failed = consumeWakeBatch(failedStore, async () => { throw new Error("temporary"); });
+  const retry = consumeWakeBatch(failedStore, async () => true);
+  assert.deepEqual(await Promise.all([failed, retry]), [
+    { inspected: 1, acknowledged: 0 },
+    { inspected: 1, acknowledged: 1 },
+  ]);
 });
