@@ -1,6 +1,6 @@
 # Payments TEST event wakes proof
 
-Decision: `payments-test-event-wakes-001`  
+Decision: `payments-test-event-wakes-001`
 Baseline: `75e5d43acbc39deee3127f924866cb9098f789b0`
 
 ## Accepted slice
