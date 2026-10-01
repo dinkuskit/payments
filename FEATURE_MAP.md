@@ -1,12 +1,13 @@
 # Feature ownership map
 
-The repository is at scaffold stage. No feature below has an implementation or
-public compatibility promise yet.
+The hosted connection backend is implemented locally. No feature has a
+released public compatibility promise yet.
 
 | Planned feature ID | Responsibility | Explicit exclusions | Status |
 | --- | --- | --- | --- |
-| `dinkus.payments-provider` | One server-owned active-provider selection and the adapter boundary that implements Commerce's payment-provider contract | Checkout totals, payment-attempt persistence, orders, receipts, browser provider selection, fallback routing | planned |
-| `dinkus.payments-stripe` | Stripe transport, idempotent processor operations, webhook signature verification, and normalized Stripe outcomes | Secret storage, Commerce state transitions, non-Stripe processors | planned demo provider |
+| `dinkus.payments-provider` | One server-owned active-provider selection and the adapter boundary that implements Commerce's payment-provider contract | Checkout totals, payment-attempt persistence, orders, receipts, browser provider selection, fallback routing | local CheckoutPaymentPort adapter |
+| `dinkus.payments-stripe` | Stripe Checkout Session transport, durable attempt mapping, webhook signature verification, and normalized outcomes | Secret storage, Commerce state transitions, marking paid from events, non-Stripe processors, live Stripe proof | local test-mode adapter |
+| `dinkus.payments-connection` | Shared-account authentication, persistent store binding, resumable Stripe onboarding, new-checkout readiness, and existing-binding reads | Login/account creation, registry admin rendering, account switching, live activation | local test-mode backend |
 
 ## Boundary rules
 

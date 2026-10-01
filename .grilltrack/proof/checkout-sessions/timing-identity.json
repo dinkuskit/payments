@@ -1,0 +1,26 @@
+{
+  "schema": "payments-timing-proposal/v1",
+  "status": "unapproved-proposal-formal-P1-unresolved",
+  "payments_source_identity": "git:920443ed02d1d3afc60cd2aa02882b9097dccc9b",
+  "commerce_source_identity": "git:791882e5c44069810de9017fca48383886e5a606",
+  "payments_files_sha256": {
+    "src/checkout/sessions.ts": "92e8b5b484e020ff0f6ce42f59141bf8eb34818705bcea0d17c3844df03de400",
+    "src/stripe/checkout.ts": "aebd79b922f8efe493d3116b2cebda77f6c6e29c7e8fe5a9e39ff0bafc996dec",
+    "src/commerce/checkout-port.ts": "0faac4692ea7d17160a42f5575f37e8c7dd6b1525f3cbda9d8bae5ccd50ade50",
+    ".grilltrack/proof/checkout-sessions/timing-feasibility.test.mjs": "056bc74a7aeadc3dc6beb737213aeeb4880f464760aa38c28124258ac7ebaa82",
+    "docs/checkout-timing-decision.md": "18035cb9c995a20eea7564d649df4d0072752c9270c9ac3b59e1871fa7b1f778"
+  },
+  "commerce_files_sha256": {
+    "src/features/checkout/types.ts": "b35334eb80d391d2b69c48553f8206c90de4dba11910ae857ae06bf82fb28d91",
+    "src/features/checkout/orchestrate.ts": "1437d2f7c30c72943f89834b7caf5a1ced5bf5f7510ad9bc86d39740004cbd95"
+  },
+  "checks": {
+    "synthetic_protocol": {
+      "passed": 7,
+      "failed": 0,
+      "exit_code": 0
+    },
+    "production_source_unchanged": true
+  },
+  "actual_stripe": "not-run"
+}

@@ -1,0 +1,88 @@
+import { CheckoutError } from "../checkout/sessions.js";
+import { WebhookError } from "../checkout/webhook.js";
+import type { PaymentOutcome, PaymentRequest } from "../commerce/checkout-port.js";
+import type { Principal, createConnectionService } from "./connection.js";
+
+type ConnectionApi = Pick<ReturnType<typeof createConnectionService>, "connect" | "status" | "checkoutBinding" | "existingBinding">;
+type CheckoutApi = {
+  ensureSession(request: PaymentRequest): Promise<PaymentOutcome>;
+  lookup(request: PaymentRequest): Promise<PaymentOutcome>;
+};
+
+function checkoutErrorStatus(error: unknown): number {
+  if (!(error instanceof Error)) return 503;
+  if (error.message === "connection_owner_mismatch") return 403;
+  if (error instanceof CheckoutError && (error.message === "invalid_request" || error.message === "invalid_amount")) return 400;
+  if (error instanceof CheckoutError) return 409;
+  return 503;
+}
+
+export function createHostedHandler(options: {
+  authenticate(request: Request, scope: "payments:admin" | "payments:checkout"): Promise<Principal>;
+  service(principal: Principal): ConnectionApi;
+  checkout?(principal: Principal): CheckoutApi;
+  webhook?(payload: Uint8Array, signature: string, stripeAccount: string | null): Promise<void>;
+}) {
+  const respond = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
+  return async (request: Request): Promise<Response> => {
+    const { pathname, searchParams } = new URL(request.url);
+    if (pathname === "/v1/webhooks/stripe") {
+      if (request.method !== "POST") return respond({ error: "method_not_allowed" }, 405);
+      if (!options.webhook) return respond({ error: "not_found" }, 404);
+      const signature = request.headers.get("stripe-signature");
+      if (!signature) return respond({ error: "missing_signature" }, 400);
+      try {
+        // Verify the original bytes. Do not JSON.parse before signature use.
+        await options.webhook(new Uint8Array(await request.arrayBuffer()), signature, request.headers.get("stripe-account"));
+        return respond({ received: true });
+      } catch (error) {
+        if (error instanceof WebhookError) return respond({ error: error.message }, error.message === "raw_payload_required" || error.message === "missing_signature" ? 400 : 409);
+        if (error instanceof CheckoutError) return respond({ error: error.message }, 409);
+        if (error instanceof Error && /signature/i.test(error.message)) return respond({ error: "invalid_signature" }, 400);
+        return respond({ error: "wake_failed" }, 500);
+      }
+    }
+    const methods: Record<string, string> = {
+      "/v1/connect": "POST",
+      "/v1/status": "GET",
+      "/v1/checkout-binding": "GET",
+      "/v1/existing-binding": "GET",
+      "/v1/checkout/session": "POST",
+      "/v1/checkout/lookup": "POST",
+    };
+    if (!methods[pathname]) return respond({ error: "not_found" }, 404);
+    if (request.method !== methods[pathname]) return respond({ error: "method_not_allowed" }, 405);
+    const checkoutScope = pathname !== "/v1/connect" && pathname !== "/v1/status";
+    let principal: Principal;
+    try { principal = await options.authenticate(request, checkoutScope ? "payments:checkout" : "payments:admin"); }
+    catch { return respond({ error: "unauthorized" }, 401); }
+    try {
+      const service = options.service(principal);
+      if (pathname === "/v1/connect") {
+        // No caller-controlled account, mode, return URL, or provider selection.
+        // This endpoint has no request body and therefore never buffers one.
+        if (request.body !== null || searchParams.size) return respond({ error: "unexpected_input" }, 400);
+        return respond(await service.connect(principal));
+      }
+      if (pathname === "/v1/status") {
+        if (searchParams.size) return respond({ error: "unexpected_input" }, 400);
+        return respond(await service.status(principal));
+      }
+      if (pathname === "/v1/checkout-binding" || pathname === "/v1/existing-binding") {
+        const refs = searchParams.getAll("bindingRef");
+        if (refs.length !== 1 || searchParams.size !== 1 || refs[0].length < 1 || refs[0].length > 200) return respond({ error: "invalid_binding" }, 400);
+        const binding = pathname === "/v1/existing-binding"
+          ? await service.existingBinding(principal, refs[0])
+          : await service.checkoutBinding(principal, refs[0]);
+        return binding ? respond(binding) : respond({ error: pathname === "/v1/existing-binding" ? "binding_not_found" : "payments_not_ready" }, 409);
+      }
+      if (!options.checkout) return respond({ error: "not_found" }, 404);
+      if (searchParams.size) return respond({ error: "unexpected_input" }, 400);
+      const requestBody = await request.json() as PaymentRequest;
+      const checkout = options.checkout(principal);
+      return respond(pathname === "/v1/checkout/session" ? await checkout.ensureSession(requestBody) : await checkout.lookup(requestBody));
+    } catch (error) {
+      return respond({ error: error instanceof Error ? error.message : "service_unavailable" }, checkoutErrorStatus(error));
+    }
+  };
+}

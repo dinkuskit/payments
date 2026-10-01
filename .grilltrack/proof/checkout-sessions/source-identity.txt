@@ -1,0 +1,5 @@
+commerce-checkout-payment-port git:1cb55c756ef746bcb042b9679dc43b57e67bcb0d
+commerce-checkout-payment-port-types-unchanged-from git:7a054ea6e7a148dd0e1039ec138d967f02431ceb
+payments-base git:63d6f80e172f822bdf09ca0dc7cef9e0b420d073
+otta-research-pin git:7c63e6c2b21927b4760d396cc79da321de131f15
+otta-code-copied none
