@@ -4,11 +4,11 @@
   "current_focus": {
     "cadence": "sequential",
     "confirmed": true,
-    "confirmed_at": "2026-10-01T10:11:44+00:00",
-    "domain": "Payments TEST durable wake delivery to Commerce",
-    "started_at": "2026-10-01T10:05:13+00:00",
-    "status": "inspected",
-    "summary": "Implement only the independently authorized Payments canonical event queue and internal consume/ack safeguards through native Cursor ACP; preserve old pending work, original checkout attempts and timing. No HTTP or Commerce contract change until core immutable freeze. No actual provider traffic, secret permission changes, deployment or merge."
+    "confirmed_at": "2026-10-01T13:43:33+00:00",
+    "domain": "Authenticated TEST canonical wake list and exact acknowledgement",
+    "started_at": "2026-10-01T13:43:33+00:00",
+    "status": "confirmed",
+    "summary": "Implement the admitted Payments-only authenticated canonical wake list/exact ACK with stable persisted generation1 and original millisecond timestamp, immutable tombstones and old attempt/legacy data. Prove existing JWT scope/site/owner binding checks, additive SQLite/reopen/concurrency/retry and immutable Commerce42 port compatibility. No actual provider calls, scheduler, new credential or permission, deployment, or new feature merge."
   },
   "decisions": [
     {
@@ -789,6 +789,77 @@
       "superseded_by": null,
       "updated_at": "2026-10-01T12:55:25+00:00",
       "verification_ref": ".grilltrack/proof/test-event-wakes/PROOF.md#concurrent-consumption-repair;62 Node tests;4 runtime tests;independent failing-old/passing-current proof;typecheck;audit;dry-run build;manifest;diffcheck"
+    },
+    {
+      "baseline_ref": "git:42c649c3fc4b08254460769b53c7509e219018df",
+      "candidate_refs": [],
+      "choice": "Add bounded non-destructive GET /v1/checkout/wakes and exact idempotent POST /v1/checkout/wakes/ack under existing payments:checkout JWT authorization and signed site/owner/binding/TEST context. Project canonical eventId,attemptId,bindingRef,persisted deliveryGeneration1,original received_at wokeAt; preserve legacy rows and tombstones, no same-event requeue, new scope or scheduler.",
+      "context_ref": "github:dinkuskit/payments/pull/10;git:dinkuskit/commerce@5710fc185645ed56098aff5727da03483be067ea",
+      "created_at": "2026-10-01T13:43:33+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-test-event-wakes-001"
+      ],
+      "domain": "Authenticated TEST canonical wake list and exact acknowledgement",
+      "history": [
+        {
+          "at": "2026-10-01T13:43:33+00:00",
+          "choice": "Add bounded non-destructive GET /v1/checkout/wakes and exact idempotent POST /v1/checkout/wakes/ack under existing payments:checkout JWT authorization and signed site/owner/binding/TEST context. Project canonical eventId,attemptId,bindingRef,persisted deliveryGeneration1,original received_at wokeAt; preserve legacy rows and tombstones, no same-event requeue, new scope or scheduler.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-01T14:49:57+00:00",
+          "choice": "Add bounded non-destructive GET /v1/checkout/wakes and exact idempotent POST /v1/checkout/wakes/ack under existing payments:checkout JWT authorization and signed site/owner/binding/TEST context. Project canonical eventId,attemptId,bindingRef,persisted deliveryGeneration1,original received_at wokeAt; preserve legacy rows and tombstones, no same-event requeue, new scope or scheduler.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-01T14:49:57+00:00",
+          "choice": "Add bounded non-destructive GET /v1/checkout/wakes and exact idempotent POST /v1/checkout/wakes/ack under existing payments:checkout JWT authorization and signed site/owner/binding/TEST context. Project canonical eventId,attemptId,bindingRef,persisted deliveryGeneration1,original received_at wokeAt; preserve legacy rows and tombstones, no same-event requeue, new scope or scheduler.",
+          "from": "implemented",
+          "implementation_ref": ".grilltrack/proof/wake-transport/PROOF.md",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-authenticated-wake-transport-001",
+      "implementation_ref": ".grilltrack/proof/wake-transport/PROOF.md",
+      "question": "How should the trusted Commerce host list and exactly acknowledge canonical Payments wakes?",
+      "rationale": "Admitted bounded continuation after canonical queue PR10 merged and immutable Commerce42 five-field contract verified.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "verified",
+      "superseded_by": null,
+      "updated_at": "2026-10-01T14:49:57+00:00",
+      "verification_ref": ".grilltrack/proof/wake-transport/PROOF.md;66Node/8runtime;oldschema upgrade;JWT subject rejection;exact atomic idempotent ACK;typecheck;audit;dryrunbuild;manifest;diff"
     }
   ],
   "last_activation": {
@@ -815,5 +886,5 @@
   "status": "active",
   "title": "DinkusKit Payments public scaffold",
   "track_id": "gt-20260830202947-ccfe03",
-  "updated_at": "2026-10-01T12:55:25+00:00"
+  "updated_at": "2026-10-01T14:49:57+00:00"
 }

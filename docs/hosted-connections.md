@@ -25,6 +25,8 @@ that claim. The backend cannot make an untrusted identity issuer safe.
 | `GET /v1/status` | `payments:admin` | Current provider-verified state; no cached ready fallback |
 | `GET /v1/checkout-binding?bindingRef=...` | `payments:checkout` | Exact immutable recipient binding for a new checkout, or `409 payments_not_ready` |
 | `GET /v1/existing-binding?bindingRef=...` | `payments:checkout` | Exact stored recipient for an existing attempt, even if new checkout is not ready |
+| `GET /v1/checkout/wakes?bindingRef=...&limit=...` | `payments:checkout` | Non-destructive JSON list of canonical five-field Commerce wake snapshots; `limit` is `1..100`, default `25` |
+| `POST /v1/checkout/wakes/ack` | `payments:checkout` | `{ "acknowledged": boolean }` for one exact `{ eventId, attemptId, bindingRef, deliveryGeneration, wokeAt }` snapshot |
 
 These are authenticated server-to-server endpoints. A browser landing on a
 Stripe return URL does not authenticate a merchant or mark setup complete.
@@ -41,6 +43,17 @@ The account service owns shared identity and site grants. Payments verifies
 them with `jose`; it does not create passwords or issue an alternative account
 token. Identity is the issuer/subject pair, matching Inventory's current
 identity boundary. Audience and scope remain specific to each service.
+
+Wake list and ACK authenticate before touching wake storage. Payments derives
+site, account, and `mode: "test"` from the verified principal and the existing
+stored connection. It compares the canonical event, its original attempt
+association, immutable merchant binding, connected account, mode, generation,
+and original `received_at` timestamp before projecting or acknowledging.
+Generation `1` is persisted once per canonical event; replay does not reopen or
+increment a tombstone. Historical attempt-only rows remain in the legacy queue
+and are not given synthetic event IDs. ACK uses an atomic conditional update,
+so a changed-row count is a new internal consumption, while an exact retry of
+an already acknowledged snapshot is idempotently true.
 
 ## Persistence and retries
 

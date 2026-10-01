@@ -1,15 +1,15 @@
 import { DurableObject } from "cloudflare:workers";
 import { createCheckoutSessionService, type AttemptRecord } from "../checkout/sessions.js";
 import { createStripeWebhookVerifier, createWebhookHandler, WebhookError } from "../checkout/webhook.js";
-import { assertWakeContext, consumeWakeBatch, WakeError, type ReconciliationResult, type WakeContext, type WakeEventStore } from "../checkout/wakes.js";
-import { createConnectionService, type Connection, type Principal } from "../hosted/connection.js";
+import { assertCommercePaymentWake, assertWakeContext, consumeWakeBatch, WakeError, type CommercePaymentWake, type ReconciliationResult, type WakeContext, type WakeEventStore } from "../checkout/wakes.js";
+import { createConnectionService, type CheckoutBinding, type Connection, type Principal } from "../hosted/connection.js";
 import { createAccountAuthenticator } from "../hosted/auth.js";
 import { createHostedHandler } from "../hosted/http.js";
 import { createStripeCheckout } from "../stripe/checkout.js";
 import { createStripeOnboarding } from "../stripe/onboarding.js";
 import type { PaymentRequest } from "../commerce/checkout-port.js";
 
-type WakeRow = Record<string, string> & WakeContext;
+type WakeRow = Record<string, string | number | null> & WakeContext & { deliveryGeneration: number; wokeAt: number; acknowledgedAt: number | null };
 
 export class PaymentConnection extends DurableObject<Env> {
   private readonly wakeEvents: WakeEventStore;
@@ -19,8 +19,11 @@ export class PaymentConnection extends DurableObject<Env> {
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS connection_state (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL)");
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS checkout_attempts (attempt_id TEXT PRIMARY KEY, value TEXT NOT NULL)");
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS checkout_wakes (attempt_id TEXT PRIMARY KEY, woke_at INTEGER NOT NULL)");
-    ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS checkout_wake_events (event_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL, site_id TEXT NOT NULL, binding_ref TEXT NOT NULL, stripe_account_id TEXT NOT NULL, mode TEXT NOT NULL, received_at INTEGER NOT NULL, acknowledged_at INTEGER)");
     const sql = ctx.storage.sql;
+    sql.exec("CREATE TABLE IF NOT EXISTS checkout_wake_events (event_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL, site_id TEXT NOT NULL, binding_ref TEXT NOT NULL, stripe_account_id TEXT NOT NULL, mode TEXT NOT NULL, received_at INTEGER NOT NULL, acknowledged_at INTEGER, delivery_generation INTEGER NOT NULL DEFAULT 1)");
+    if (!sql.exec<{ name: string }>("PRAGMA table_info(checkout_wake_events)").toArray().some(column => column.name === "delivery_generation")) {
+      sql.exec("ALTER TABLE checkout_wake_events ADD COLUMN delivery_generation INTEGER NOT NULL DEFAULT 1");
+    }
     this.wakeEvents = {
       pending: batchLimit => sql.exec<WakeRow>(
         "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, mode FROM checkout_wake_events WHERE acknowledged_at IS NULL ORDER BY received_at ASC LIMIT ?",
@@ -81,6 +84,63 @@ export class PaymentConnection extends DurableObject<Env> {
   async consumeWakes(reconcile: (context: WakeContext) => Promise<ReconciliationResult>, limit = 25) {
     return consumeWakeBatch(this.wakeEvents, reconcile, limit);
   }
+  async listWakes(principal: Principal, bindingRef: string, limit: number): Promise<readonly CommercePaymentWake[]> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new WakeError("invalid_batch_limit");
+    const binding = await this.connection().existingBinding(principal, bindingRef);
+    if (!binding) throw new WakeError("binding_not_found");
+    const rows = this.ctx.storage.sql.exec<WakeRow>(
+      "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, mode, delivery_generation AS deliveryGeneration, received_at AS wokeAt FROM checkout_wake_events WHERE binding_ref=? AND acknowledged_at IS NULL ORDER BY received_at ASC LIMIT ?",
+      bindingRef, limit,
+    ).toArray();
+    return rows.map(row => {
+      this.assertWakeAssociation(principal, binding, row);
+      return {
+        eventId: row.eventId,
+        attemptId: row.attemptId,
+        bindingRef: row.bindingRef,
+        deliveryGeneration: row.deliveryGeneration,
+        wokeAt: row.wokeAt,
+      };
+    });
+  }
+  async acknowledgeWake(principal: Principal, wake: CommercePaymentWake): Promise<boolean> {
+    assertCommercePaymentWake(wake);
+    const binding = await this.connection().existingBinding(principal, wake.bindingRef);
+    if (!binding) throw new WakeError("binding_not_found");
+    return this.ctx.storage.transactionSync(() => {
+      const sql = this.ctx.storage.sql;
+      const row = sql.exec<WakeRow>(
+        "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, mode, delivery_generation AS deliveryGeneration, received_at AS wokeAt, acknowledged_at AS acknowledgedAt FROM checkout_wake_events WHERE event_id=?",
+        wake.eventId,
+      ).toArray()[0];
+      if (!row) throw new WakeError("wake_not_found");
+      this.assertWakeAssociation(principal, binding, row);
+      if (row.attemptId !== wake.attemptId || row.bindingRef !== wake.bindingRef ||
+          row.deliveryGeneration !== wake.deliveryGeneration || row.wokeAt !== wake.wokeAt) {
+        throw new WakeError("wake_association_mismatch");
+      }
+      if (row.acknowledgedAt !== null) return true;
+      return sql.exec(
+        "UPDATE checkout_wake_events SET acknowledged_at=? WHERE event_id=? AND delivery_generation=? AND received_at=? AND acknowledged_at IS NULL",
+        Date.now(), wake.eventId, wake.deliveryGeneration, wake.wokeAt,
+      ).rowsWritten === 1;
+    });
+  }
+  private assertWakeAssociation(principal: Principal, binding: CheckoutBinding, row: WakeRow): void {
+    if (row.siteId !== principal.siteId || row.bindingRef !== binding.bindingRef ||
+        row.stripeAccountId !== binding.stripeAccountId || row.mode !== "test") {
+      throw new WakeError("wake_association_mismatch");
+    }
+    const attempt = this.ctx.storage.sql.exec<{ value: string }>(
+      "SELECT value FROM checkout_attempts WHERE attempt_id=?", row.attemptId,
+    ).toArray()[0];
+    if (!attempt) throw new WakeError("wake_association_mismatch");
+    let record: AttemptRecord;
+    try { record = JSON.parse(attempt.value) as AttemptRecord; } catch { throw new WakeError("wake_association_mismatch"); }
+    if (record.attemptId !== row.attemptId || record.siteId !== principal.siteId ||
+        record.bindingRef !== binding.bindingRef || record.stripeAccountId !== binding.stripeAccountId ||
+        record.mode !== "test") throw new WakeError("wake_association_mismatch");
+  }
   async receiveWebhook(payload: ArrayBuffer, signature: string, stripeAccount: string | null) {
     const checkout = this.checkout();
     const sql = this.ctx.storage.sql;
@@ -102,10 +162,11 @@ export class PaymentConnection extends DurableObject<Env> {
             }
             return;
           }
-          sql.exec("INSERT INTO checkout_wake_events (event_id,attempt_id,site_id,binding_ref,stripe_account_id,mode,received_at,acknowledged_at) VALUES (?,?,?,?,?,?,?,NULL)",
-            context.eventId, context.attemptId, context.siteId, context.bindingRef, context.stripeAccountId, context.mode, Date.now());
+          const receivedAt = Date.now();
+          sql.exec("INSERT INTO checkout_wake_events (event_id,attempt_id,site_id,binding_ref,stripe_account_id,mode,received_at,acknowledged_at,delivery_generation) VALUES (?,?,?,?,?,?,?,NULL,1)",
+            context.eventId, context.attemptId, context.siteId, context.bindingRef, context.stripeAccountId, context.mode, receivedAt);
           // Keep the original attempt-only queue populated for legacy consumers.
-          sql.exec("INSERT INTO checkout_wakes (attempt_id,woke_at) VALUES (?,?) ON CONFLICT(attempt_id) DO UPDATE SET woke_at=excluded.woke_at", context.attemptId, Date.now());
+          sql.exec("INSERT INTO checkout_wakes (attempt_id,woke_at) VALUES (?,?) ON CONFLICT(attempt_id) DO UPDATE SET woke_at=excluded.woke_at", context.attemptId, receivedAt);
         },
       },
       mode: "test",
@@ -139,6 +200,13 @@ export default {
         checkout: principal => {
           const stub = stubFor(env, principal.siteId);
           return { ensureSession: request => stub.ensureSession(principal, request), lookup: request => stub.lookup(principal, request) };
+        },
+        wakes: principal => {
+          const stub = stubFor(env, principal.siteId);
+          return {
+            list: (bindingRef, limit) => stub.listWakes(principal, bindingRef, limit),
+            acknowledge: wake => stub.acknowledgeWake(principal, wake),
+          };
         },
         webhook: async (payload, signature, stripeAccount) => {
           if (!env.STRIPE_WEBHOOK_SECRET || !env.CHECKOUT_SUCCESS_URL || !env.CHECKOUT_CANCEL_URL) throw new Error("webhook_unconfigured");
