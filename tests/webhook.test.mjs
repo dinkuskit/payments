@@ -10,6 +10,7 @@ const record = {
   bindingRef: "bind-one",
   stripeAccountId: "acct_one",
   mode: "test",
+  siteId: "store-a",
   requestFingerprint: "{}",
   amountMinor: "1200",
   currency: "USD",
@@ -63,11 +64,18 @@ test("signature is verified from original bytes before any event field is used",
     verify: wrapped,
     readAttempt: id => { order.push("read"); return { ...record, attemptId: id }; },
     retrieveAndMatch: async () => { order.push("retrieve"); },
-    wake: { async wake(id) { order.push("wake"); wakes.push(id); } },
+    wake: { async wake(context) { order.push("wake"); wakes.push(context); } },
     mode: "test",
   })(payload, signature, "acct_one");
   assert.deepEqual(order, ["verify", "fields", "read", "retrieve", "wake"]);
-  assert.deepEqual(wakes, ["attempt-one"]);
+  assert.deepEqual(wakes, [{
+    eventId: "evt_one",
+    attemptId: "attempt-one",
+    siteId: "store-a",
+    bindingRef: "bind-one",
+    stripeAccountId: "acct_one",
+    mode: "test",
+  }]);
   await assert.rejects(createWebhookHandler({
     verify: wrapped,
     readAttempt: () => record,
@@ -85,7 +93,7 @@ test("replay and out-of-order events only wake, never mark paid", async () => {
     verify: (bytes, header) => verifier.verify(bytes, header),
     readAttempt: () => record,
     retrieveAndMatch: async () => { retrieveCount++; },
-    wake: { async wake(id) { wakes.push(id); } },
+    wake: { async wake(context) { wakes.push(context.eventId); } },
     mode: "test",
   });
   const completed = signed(eventBody());
@@ -93,7 +101,7 @@ test("replay and out-of-order events only wake, never mark paid", async () => {
   await handle(expired.payload, expired.signature, "acct_one");
   await handle(completed.payload, completed.signature, "acct_one");
   await handle(completed.payload, completed.signature, "acct_one");
-  assert.deepEqual(wakes, ["attempt-one", "attempt-one", "attempt-one"]);
+  assert.deepEqual(wakes, ["evt_two", "evt_one", "evt_one"]);
   assert.equal(retrieveCount, 3);
 });
 

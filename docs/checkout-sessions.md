@@ -50,9 +50,17 @@ Existing onboarding times stay milliseconds.
   `constructEventAsync` (WebCrypto) before any event field is read. Connected
   account events require signed `event.account`. The `Stripe-Account` header
   is only an extra consistency check and cannot replace missing signed
-  identity. A verified event queues a durable wake for the matching attempt. The
-  SQLite wake queue is tested across replay and eviction; its Commerce
-  consumer is a later integration dependency. Paid is never
+ identity. A verified canonical event ID queues an immutable, event-keyed wake
+ with its matching site, binding, attempt, account, and mode. The attempt-only
+ SQLite wake table remains for historical/legacy work. An internal bounded
+ consumer acknowledges only the exact event after an explicit authoritative
+ reconciliation success; false, unknown, pending, or thrown results remain
+  retryable. Overlapping consumers for one live Durable Object/store are
+  serialized around the whole batch, including the awaited reconciliation
+  callback; the conditional ACK reports success only when one SQLite row
+  changes. This is an in-memory live-object guard, not exactly-once delivery
+  across a crash, restart, or separate host. Its Commerce consumer is a later
+  integration dependency, with no hosted consume endpoint. Paid is never
   taken from the event. Failed durable wake is not HTTP 200. Raw event,
   customer, and payment payloads are not stored.
 

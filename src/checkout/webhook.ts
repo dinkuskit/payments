@@ -1,12 +1,13 @@
 import Stripe from "stripe";
 import type { Mode } from "../hosted/connection.js";
 import type { AttemptRecord } from "./sessions.js";
+import type { WakeContext } from "./wakes.js";
 
 export class WebhookError extends Error {}
 
 export interface WakePort {
-  /** Durable wake of Commerce reconciliation for one attempt. Must not mark paid. */
-  wake(attemptId: string): Promise<void>;
+  /** Durable wake of Commerce reconciliation. Must not mark paid. */
+  wake(context: WakeContext): Promise<void>;
 }
 
 export function createStripeWebhookVerifier(options: {
@@ -46,17 +47,27 @@ export function createWebhookHandler(options: {
     const event = await options.verify(payload, signature);
     const session = sessionObject(event);
     if (!session) return;
+    if (typeof event.id !== "string" || !/^evt_[A-Za-z0-9]+$/.test(event.id)) throw new WebhookError("invalid_event_id");
     const attemptId = session.metadata?.dinkus_attempt;
     if (!attemptId) throw new WebhookError("missing_attempt");
     const record = options.readAttempt(attemptId);
     if (!record) throw new WebhookError("unknown_attempt");
     if (record.stripeSessionId && session.id !== record.stripeSessionId) throw new WebhookError("session_mismatch");
     if (session.metadata?.dinkus_binding !== record.bindingRef) throw new WebhookError("binding_mismatch");
+    if (session.metadata?.dinkus_site !== record.siteId) throw new WebhookError("site_mismatch");
     if (event.livemode !== (options.mode === "live") || session.livemode !== event.livemode) throw new WebhookError("mode_mismatch");
     if (!event.account) throw new WebhookError("account_unsigned");
     if (event.account !== record.stripeAccountId) throw new WebhookError("account_mismatch");
     if (stripeAccountHeader && stripeAccountHeader !== event.account) throw new WebhookError("account_mismatch");
     await options.retrieveAndMatch(record);
-    await options.wake.wake(record.attemptId);
+    const context: WakeContext = {
+      eventId: event.id,
+      attemptId: record.attemptId,
+      siteId: record.siteId,
+      bindingRef: record.bindingRef,
+      stripeAccountId: record.stripeAccountId,
+      mode: record.mode,
+    };
+    await options.wake.wake(context);
   };
 }
