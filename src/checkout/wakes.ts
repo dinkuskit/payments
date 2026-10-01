@@ -9,6 +9,14 @@ export interface WakeContext {
   readonly mode: Mode;
 }
 
+export interface CommercePaymentWake {
+  readonly eventId: string;
+  readonly attemptId: string;
+  readonly bindingRef: string;
+  readonly deliveryGeneration: number;
+  readonly wokeAt: number;
+}
+
 export type ReconciliationResult = true | "reconciled" | false | "pending" | "unknown";
 
 export class WakeError extends Error {}
@@ -27,6 +35,20 @@ export function assertWakeContext(context: WakeContext): void {
     }
   }
   if (context.mode !== "test" && context.mode !== "live") throw new WakeError("invalid_wake_context");
+}
+
+export function assertCommercePaymentWake(value: unknown): asserts value is CommercePaymentWake {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new WakeError("invalid_wake");
+  const wake = value as Record<string, unknown>;
+  const keys = Object.keys(wake).sort();
+  if (keys.join() !== "attemptId,bindingRef,deliveryGeneration,eventId,wokeAt") throw new WakeError("invalid_wake");
+  if (typeof wake.eventId !== "string" || !/^evt_[A-Za-z0-9]+$/.test(wake.eventId)) throw new WakeError("invalid_wake");
+  for (const key of ["attemptId", "bindingRef"]) {
+    const field = wake[key];
+    if (typeof field !== "string" || field.length === 0 || field.length > 200) throw new WakeError("invalid_wake");
+  }
+  if (typeof wake.deliveryGeneration !== "number" || !Number.isSafeInteger(wake.deliveryGeneration) || wake.deliveryGeneration <= 0) throw new WakeError("invalid_wake");
+  if (typeof wake.wokeAt !== "number" || !Number.isFinite(wake.wokeAt)) throw new WakeError("invalid_wake");
 }
 
 export interface WakeEventStore {

@@ -1,5 +1,6 @@
 import { CheckoutError } from "../checkout/sessions.js";
 import { WebhookError } from "../checkout/webhook.js";
+import { assertCommercePaymentWake, WakeError, type CommercePaymentWake } from "../checkout/wakes.js";
 import type { PaymentOutcome, PaymentRequest } from "../commerce/checkout-port.js";
 import type { Principal, createConnectionService } from "./connection.js";
 
@@ -8,10 +9,17 @@ type CheckoutApi = {
   ensureSession(request: PaymentRequest): Promise<PaymentOutcome>;
   lookup(request: PaymentRequest): Promise<PaymentOutcome>;
 };
+type WakeApi = {
+  list(bindingRef: string, limit: number): Promise<readonly CommercePaymentWake[]>;
+  acknowledge(wake: CommercePaymentWake): Promise<boolean>;
+};
 
 function checkoutErrorStatus(error: unknown): number {
   if (!(error instanceof Error)) return 503;
   if (error.message === "connection_owner_mismatch") return 403;
+  if (error instanceof WakeError && error.message === "invalid_wake") return 400;
+  if (error instanceof WakeError && error.message === "invalid_batch_limit") return 400;
+  if (error instanceof WakeError) return 409;
   if (error instanceof CheckoutError && (error.message === "invalid_request" || error.message === "invalid_amount")) return 400;
   if (error instanceof CheckoutError) return 409;
   return 503;
@@ -21,6 +29,7 @@ export function createHostedHandler(options: {
   authenticate(request: Request, scope: "payments:admin" | "payments:checkout"): Promise<Principal>;
   service(principal: Principal): ConnectionApi;
   checkout?(principal: Principal): CheckoutApi;
+  wakes?(principal: Principal): WakeApi;
   webhook?(payload: Uint8Array, signature: string, stripeAccount: string | null): Promise<void>;
 }) {
   const respond = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
@@ -49,6 +58,8 @@ export function createHostedHandler(options: {
       "/v1/existing-binding": "GET",
       "/v1/checkout/session": "POST",
       "/v1/checkout/lookup": "POST",
+      "/v1/checkout/wakes": "GET",
+      "/v1/checkout/wakes/ack": "POST",
     };
     if (!methods[pathname]) return respond({ error: "not_found" }, 404);
     if (request.method !== methods[pathname]) return respond({ error: "method_not_allowed" }, 405);
@@ -75,6 +86,31 @@ export function createHostedHandler(options: {
           ? await service.existingBinding(principal, refs[0])
           : await service.checkoutBinding(principal, refs[0]);
         return binding ? respond(binding) : respond({ error: pathname === "/v1/existing-binding" ? "binding_not_found" : "payments_not_ready" }, 409);
+      }
+      if (pathname === "/v1/checkout/wakes") {
+        if (!options.wakes) return respond({ error: "not_found" }, 404);
+        const refs = searchParams.getAll("bindingRef");
+        const limits = searchParams.getAll("limit");
+        const queryKeys = [...searchParams.keys()];
+        if (queryKeys.some(key => key !== "bindingRef" && key !== "limit") ||
+            refs.length !== 1 || refs[0].length < 1 || refs[0].length > 200 || limits.length > 1 ||
+            (searchParams.size !== 1 && searchParams.size !== 2)) {
+          return respond({ error: "invalid_wake_query" }, 400);
+        }
+        const limit = limits.length === 0 ? 25 : /^(?:[1-9][0-9]?|100)$/.test(limits[0]) ? Number(limits[0]) : NaN;
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) return respond({ error: "invalid_batch_limit" }, 400);
+        return respond(await options.wakes(principal).list(refs[0], limit));
+      }
+      if (pathname === "/v1/checkout/wakes/ack") {
+        if (!options.wakes || searchParams.size) return respond({ error: "unexpected_input" }, 400);
+        let wake: CommercePaymentWake;
+        try {
+          wake = await request.json() as CommercePaymentWake;
+          assertCommercePaymentWake(wake);
+        } catch {
+          return respond({ error: "invalid_wake" }, 400);
+        }
+        return respond({ acknowledged: await options.wakes(principal).acknowledge(wake) });
       }
       if (!options.checkout) return respond({ error: "not_found" }, 404);
       if (searchParams.size) return respond({ error: "unexpected_input" }, 400);
