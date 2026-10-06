@@ -1,0 +1,14 @@
+{
+  "source": "git:70419ae55c4f73354e3f0eda08b09bbc85368000",
+  "repository": "dinkuskit/commerce",
+  "pullRequest": "https://github.com/dinkuskit/commerce/pull/48",
+  "statusAtAdoption": "qualified pre-release, unmerged; not a published/signed release",
+  "schema": "dinkuskit.commerce.checkout-pricing/v1",
+  "npmSha256": "38c1c6b59ad37db506986dc9de72fa53f601f7c66d5df53a1c39e9ca3c351730",
+  "registrySha256": "269e64aefaa2708acfc10647d4425d46236df43eb7fb738ee09dbab722e6f932",
+  "npmRegistryBackendSha256": "25e1d25b146ceab8f35f6c818826aacd1bb4dd3220a48613f74871783af4830a",
+  "qualifiedOwnerHandoffSha256": "eb2681d0387cd6151062106d4e312b9623521e515c730099a96760e090d70291",
+  "commerceFullCI": "37545043968 passed",
+  "commerceLocalMacLimitation": "D1 error identity masking21/22; not declared local full pass",
+  "paymentsActualProviderAcceptance": false
+}

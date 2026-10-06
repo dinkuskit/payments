@@ -4,8 +4,8 @@
  * payment, order, or cart model.
  *
  * Recorded source identity:
- * git:ab37cd7f362f1c37cb1d321192abbbc48a623833
- * (github:dinkuskit/commerce/pull/37, merged).
+ * git:70419ae55c4f73354e3f0eda08b09bbc85368000
+ * (qualified pre-release Commerce pricing-v1 handoff; intentionally unmerged).
  * Port, Money types, and payment-window policy helpers consume the approved payment window.
  * Do not edit Commerce from this repository.
  *
@@ -15,7 +15,7 @@
  * times remain milliseconds.
  */
 export const COMMERCE_CHECKOUT_CONTRACT_SOURCE =
-  "git:ab37cd7f362f1c37cb1d321192abbbc48a623833" as const;
+  "git:70419ae55c4f73354e3f0eda08b09bbc85368000" as const;
 export const COMMERCE_CURRENCY_USD = "USD" as const;
 
 export const CURRENT_PAYMENT_WINDOW_MIN_SECONDS = 1800;
@@ -59,12 +59,58 @@ export interface CheckoutLine extends CartLine {
   unitPrice: Money;
 }
 
+export const CHECKOUT_PRICING_SCHEMA = "dinkuskit.commerce.checkout-pricing/v1" as const;
+export interface CheckoutPricingLine {
+  catalogItemId: string;
+  quantity: number;
+  unitPrice: Money;
+  lineSubtotal: Money;
+  discount: Money;
+  netAmount: Money;
+}
+export interface CouponQuoteLine {
+  productId: string;
+  quantity: number;
+  unitPrice: Money;
+  lineSubtotal: Money;
+  eligible: boolean;
+  discount: Money;
+}
+export interface CouponQuoteSnapshot {
+  quoteId: string;
+  couponId: string;
+  ruleId: string;
+  ruleVersion: number;
+  eligibleSubtotal: Money;
+  discount: Money;
+  payableMerchandiseTotal: Money;
+  lines: readonly CouponQuoteLine[];
+  merchandiseTotal: Money;
+  overallPayableTotal: Money;
+}
+export interface CheckoutPricingSnapshot {
+  schema: typeof CHECKOUT_PRICING_SCHEMA;
+  merchandiseSubtotal: Money;
+  couponDiscount: Money;
+  netMerchandise: Money;
+  shipping: {
+    configurationId: string;
+    revision: number;
+    mode: "free" | "flat";
+    charge: Money;
+  };
+  finalTotal: Money;
+  lines: readonly CheckoutPricingLine[];
+  coupon?: { code: string; quote: CouponQuoteSnapshot };
+}
+
 interface PaymentRequestBase {
   attemptId: string;
   bindingRef: string;
   lines: CheckoutLine[];
   total: Money;
   paymentMethods: readonly ["card"];
+  pricing?: CheckoutPricingSnapshot;
 }
 
 /** Current Commerce construction. New attempts use only this shape. */
@@ -80,6 +126,7 @@ export interface CurrentPaymentRequest extends PaymentRequestBase {
 export interface LegacyExact1800PaymentRequest extends PaymentRequestBase {
   paymentWindowSeconds: typeof LEGACY_EXACT_PAYMENT_WINDOW_SECONDS;
   paymentWindow?: never;
+  pricing?: never;
 }
 
 export type PaymentRequest = CurrentPaymentRequest | LegacyExact1800PaymentRequest;
@@ -103,6 +150,8 @@ export type PaymentOutcome =
   | { outcome: "not-created"; attemptId: string };
 
 export interface CheckoutPaymentPort {
+  /** Declared only by an adapter that fully supports the exact pricing schema. */
+  readonly pricingSchema?: typeof CHECKOUT_PRICING_SCHEMA;
   ensureSession(request: PaymentRequest): Promise<PaymentOutcome>;
   lookup(request: PaymentRequest): Promise<PaymentOutcome>;
 }

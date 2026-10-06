@@ -1,9 +1,11 @@
 import {
   CURRENT_PAYMENT_WINDOW_MAX_SECONDS,
   CURRENT_PAYMENT_WINDOW_MIN_SECONDS,
+  CHECKOUT_PRICING_SCHEMA,
   LEGACY_EXACT_PAYMENT_WINDOW_SECONDS,
   paymentRequestHandoff,
   type CheckoutLine,
+  type CheckoutPricingSnapshot,
   type CheckoutPaymentPort,
   type CurrentPaymentRequest,
   type LegacyExact1800PaymentRequest,
@@ -14,6 +16,7 @@ import {
   type PaymentWindowPolicyKind,
 } from "../commerce/checkout-port.js";
 import type { CheckoutBinding, Mode, Principal } from "../hosted/connection.js";
+import { createPricedChargeLines, type CheckoutChargeLine } from "./charge-lines.js";
 
 export class CheckoutError extends Error {}
 
@@ -51,6 +54,9 @@ export interface AttemptRecord {
   stripeSessionId: string | null;
   redirectUrl: string | null;
   policyKind?: PaymentWindowPolicyKind;
+  pricing?: CheckoutPricingSnapshot;
+  mappingVersion?: "stripe-whole-line-v1";
+  chargeLines?: CheckoutChargeLine[];
 }
 
 export interface AttemptStore {
@@ -91,6 +97,8 @@ export interface CheckoutProvider {
     stripeAccountId: string;
     lines: PaymentRequest["lines"];
     total: Money;
+    pricing?: CheckoutPricingSnapshot;
+    chargeLines?: CheckoutChargeLine[];
     expiresAtSeconds: number;
     successUrl: string;
     cancelUrl: string;
@@ -116,6 +124,52 @@ function canonicalizeLine(line: CheckoutLine): CheckoutLine {
   };
 }
 
+function canonicalizePricing(pricing: CheckoutPricingSnapshot): CheckoutPricingSnapshot {
+  return {
+    schema: CHECKOUT_PRICING_SCHEMA,
+    merchandiseSubtotal: { currency: "USD", minor: pricing.merchandiseSubtotal.minor },
+    couponDiscount: { currency: "USD", minor: pricing.couponDiscount.minor },
+    netMerchandise: { currency: "USD", minor: pricing.netMerchandise.minor },
+    shipping: {
+      configurationId: pricing.shipping.configurationId,
+      revision: pricing.shipping.revision,
+      mode: pricing.shipping.mode,
+      charge: { currency: "USD", minor: pricing.shipping.charge.minor },
+    },
+    finalTotal: { currency: "USD", minor: pricing.finalTotal.minor },
+    lines: pricing.lines.map(line => ({
+      catalogItemId: line.catalogItemId,
+      quantity: line.quantity,
+      unitPrice: { currency: "USD", minor: line.unitPrice.minor },
+      lineSubtotal: { currency: "USD", minor: line.lineSubtotal.minor },
+      discount: { currency: "USD", minor: line.discount.minor },
+      netAmount: { currency: "USD", minor: line.netAmount.minor },
+    })),
+    ...(pricing.coupon ? {
+      coupon: {
+        code: pricing.coupon.code,
+        quote: {
+          quoteId: pricing.coupon.quote.quoteId,
+          couponId: pricing.coupon.quote.couponId,
+          ruleId: pricing.coupon.quote.ruleId,
+          ruleVersion: pricing.coupon.quote.ruleVersion,
+          eligibleSubtotal: { currency: "USD", minor: pricing.coupon.quote.eligibleSubtotal.minor },
+          discount: { currency: "USD", minor: pricing.coupon.quote.discount.minor },
+          payableMerchandiseTotal: { currency: "USD", minor: pricing.coupon.quote.payableMerchandiseTotal.minor },
+          lines: pricing.coupon.quote.lines.map(line => ({
+            productId: line.productId, quantity: line.quantity,
+            unitPrice: { currency: "USD", minor: line.unitPrice.minor },
+            lineSubtotal: { currency: "USD", minor: line.lineSubtotal.minor },
+            eligible: line.eligible, discount: { currency: "USD", minor: line.discount.minor },
+          })),
+          merchandiseTotal: { currency: "USD", minor: pricing.coupon.quote.merchandiseTotal.minor },
+          overallPayableTotal: { currency: "USD", minor: pricing.coupon.quote.overallPayableTotal.minor },
+        },
+      },
+    } : {}),
+  };
+}
+
 function canonicalizeLegacyRequest(request: LegacyExact1800PaymentRequest): LegacyExact1800PaymentRequest {
   return {
     attemptId: request.attemptId,
@@ -133,6 +187,7 @@ function canonicalizeCurrentRequest(request: CurrentPaymentRequest): CurrentPaym
     bindingRef: request.bindingRef,
     lines: request.lines.map(canonicalizeLine),
     total: { currency: "USD", minor: request.total.minor },
+    ...(request.pricing ? { pricing: canonicalizePricing(request.pricing) } : {}),
     paymentWindow: {
       minSeconds: CURRENT_PAYMENT_WINDOW_MIN_SECONDS,
       maxSeconds: CURRENT_PAYMENT_WINDOW_MAX_SECONDS,
@@ -165,12 +220,113 @@ function currentFingerprint(canonical: CurrentPaymentRequest): string {
     bindingRef: canonical.bindingRef,
     lines: canonical.lines,
     total: canonical.total,
+    ...(canonical.pricing ? { pricing: canonical.pricing } : {}),
     paymentWindow: {
       minSeconds: canonical.paymentWindow.minSeconds,
       maxSeconds: canonical.paymentWindow.maxSeconds,
     },
     paymentMethods: canonical.paymentMethods,
   });
+}
+
+function exactKeys(value: object, keys: readonly string[]): boolean {
+  return Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
+}
+
+function text(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function pricingMoney(value: unknown): bigint {
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+      !exactKeys(value, ["currency", "minor"])) throw new CheckoutError("invalid_pricing");
+  const money = value as { currency: unknown; minor: unknown };
+  if (money.currency !== "USD" || typeof money.minor !== "string") throw new CheckoutError("invalid_pricing");
+  return parseMinorUnits(money.minor);
+}
+
+function validatePricing(pricing: CheckoutPricingSnapshot, originalLines: CheckoutLine[], requestTotal: Money): void {
+  if (!pricing || typeof pricing !== "object" || Array.isArray(pricing) ||
+      (!exactKeys(pricing, ["schema", "merchandiseSubtotal", "couponDiscount", "netMerchandise", "shipping", "finalTotal", "lines"]) &&
+       !exactKeys(pricing, ["schema", "merchandiseSubtotal", "couponDiscount", "netMerchandise", "shipping", "finalTotal", "lines", "coupon"]))) {
+    throw new CheckoutError("invalid_pricing");
+  }
+  if (pricing.schema !== CHECKOUT_PRICING_SCHEMA || !Array.isArray(pricing.lines) ||
+      pricing.lines.length !== originalLines.length) throw new CheckoutError("invalid_pricing");
+  const merchandise = pricingMoney(pricing.merchandiseSubtotal);
+  const couponDiscount = pricingMoney(pricing.couponDiscount);
+  const netMerchandise = pricingMoney(pricing.netMerchandise);
+  const finalTotal = pricingMoney(pricing.finalTotal);
+  if (pricing.finalTotal.minor !== requestTotal.minor || finalTotal === 0n) throw new CheckoutError("invalid_pricing");
+  if (!pricing.shipping || typeof pricing.shipping !== "object" || Array.isArray(pricing.shipping) ||
+      !exactKeys(pricing.shipping, ["configurationId", "revision", "mode", "charge"]) ||
+      !text(pricing.shipping.configurationId) || !Number.isSafeInteger(pricing.shipping.revision) ||
+      pricing.shipping.revision < 1 || (pricing.shipping.mode !== "free" && pricing.shipping.mode !== "flat")) {
+    throw new CheckoutError("invalid_pricing");
+  }
+  const shipping = pricingMoney(pricing.shipping.charge);
+  if (pricing.shipping.mode === "free" && shipping !== 0n) throw new CheckoutError("invalid_pricing");
+  let lineSubtotal = 0n, lineDiscount = 0n, lineNet = 0n;
+  for (let i = 0; i < originalLines.length; i++) {
+    const original = originalLines[i];
+    const line = pricing.lines[i];
+    if (!line || typeof line !== "object" || Array.isArray(line) ||
+        !exactKeys(line, ["catalogItemId", "quantity", "unitPrice", "lineSubtotal", "discount", "netAmount"]) ||
+        line.catalogItemId !== original.catalogItemId || line.quantity !== original.quantity ||
+        !Number.isSafeInteger(line.quantity) || line.quantity < 1 ||
+        !line.unitPrice || typeof line.unitPrice !== "object" ||
+        Array.isArray(line.unitPrice) ||
+        line.unitPrice.currency !== "USD" || line.unitPrice.minor !== original.unitPrice.minor) {
+      throw new CheckoutError("invalid_pricing");
+    }
+    const unit = pricingMoney(line.unitPrice);
+    const subtotal = pricingMoney(line.lineSubtotal);
+    const discount = pricingMoney(line.discount);
+    const net = pricingMoney(line.netAmount);
+    if (unit * BigInt(line.quantity) !== subtotal || discount > subtotal || subtotal - discount !== net) {
+      throw new CheckoutError("invalid_pricing");
+    }
+    lineSubtotal += subtotal; lineDiscount += discount; lineNet += net;
+  }
+  if (lineSubtotal !== merchandise || lineDiscount !== couponDiscount ||
+      merchandise < couponDiscount || merchandise - couponDiscount !== netMerchandise ||
+      netMerchandise + shipping !== finalTotal) throw new CheckoutError("invalid_pricing");
+  if (couponDiscount > 0n && !pricing.coupon) throw new CheckoutError("invalid_pricing");
+  if (Object.hasOwn(pricing, "coupon")) {
+    const coupon = pricing.coupon;
+    if (!coupon || typeof coupon !== "object" || Array.isArray(coupon) ||
+        !exactKeys(coupon, ["code", "quote"]) || !text(coupon.code) ||
+        coupon.code !== coupon.code.trim().toLocaleUpperCase("en-US")) throw new CheckoutError("invalid_pricing");
+    const quote = coupon.quote;
+    if (!quote || typeof quote !== "object" || Array.isArray(quote) ||
+        !exactKeys(quote, ["quoteId", "couponId", "ruleId", "ruleVersion", "eligibleSubtotal", "discount", "payableMerchandiseTotal", "lines", "merchandiseTotal", "overallPayableTotal"]) ||
+        !text(quote.quoteId) || !text(quote.couponId) || !text(quote.ruleId) ||
+        !Number.isSafeInteger(quote.ruleVersion) || quote.ruleVersion < 1 ||
+        !Array.isArray(quote.lines) || quote.lines.length !== originalLines.length) throw new CheckoutError("invalid_pricing");
+    const eligible = pricingMoney(quote.eligibleSubtotal), quoteDiscount = pricingMoney(quote.discount);
+    const quotePayable = pricingMoney(quote.payableMerchandiseTotal), quoteMerchandise = pricingMoney(quote.merchandiseTotal);
+    const quoteOverall = pricingMoney(quote.overallPayableTotal);
+    if (quoteMerchandise !== merchandise || quoteDiscount !== couponDiscount ||
+        quotePayable !== netMerchandise || quoteOverall !== finalTotal) throw new CheckoutError("invalid_pricing");
+    let eligibleSum = 0n, quoteDiscountSum = 0n;
+    for (let i = 0; i < originalLines.length; i++) {
+      const q = quote.lines[i], p = pricing.lines[i];
+      if (!q || typeof q !== "object" || Array.isArray(q) ||
+          !exactKeys(q, ["productId", "quantity", "unitPrice", "lineSubtotal", "eligible", "discount"]) ||
+          q.productId !== p.catalogItemId || q.quantity !== p.quantity ||
+          !q.unitPrice || typeof q.unitPrice !== "object" || Array.isArray(q.unitPrice) ||
+          !q.lineSubtotal || typeof q.lineSubtotal !== "object" || Array.isArray(q.lineSubtotal) ||
+          !q.discount || typeof q.discount !== "object" || Array.isArray(q.discount) ||
+          q.unitPrice.minor !== p.unitPrice.minor || q.lineSubtotal.minor !== p.lineSubtotal.minor ||
+          q.discount.minor !== p.discount.minor || typeof q.eligible !== "boolean") throw new CheckoutError("invalid_pricing");
+      const qs = pricingMoney(q.lineSubtotal), qd = pricingMoney(q.discount);
+      pricingMoney(q.unitPrice);
+      if (!q.eligible && qd !== 0n) throw new CheckoutError("invalid_pricing");
+      if (q.eligible) eligibleSum += qs;
+      quoteDiscountSum += qd;
+    }
+    if (eligibleSum !== eligible || quoteDiscountSum !== quoteDiscount) throw new CheckoutError("invalid_pricing");
+  }
 }
 
 export function requestFingerprint(request: PaymentRequest): string {
@@ -204,7 +360,18 @@ export function validatePaymentRequest(request: PaymentRequest): PaymentRequest 
     sum += parseMinorUnits(line.unitPrice.minor) * BigInt(line.quantity);
     if (sum > MAX_SAFE_MINOR) throw new CheckoutError("invalid_amount");
   }
-  if (sum !== totalMinor) throw new CheckoutError("invalid_amount");
+  if (!Object.hasOwn(request, "pricing") && sum !== totalMinor) throw new CheckoutError("invalid_amount");
+  if (handoff.kind === "legacy-exact-1800" && Object.hasOwn(request, "pricing")) throw new CheckoutError("invalid_request");
+  if (handoff.kind === "current-bounded-1800-1860" && Object.hasOwn(request, "pricing")) {
+    if (!request.pricing) throw new CheckoutError("invalid_pricing");
+    pricingMoney(request.total);
+    for (const line of request.lines) pricingMoney(line.unitPrice);
+    validatePricing(request.pricing, request.lines, request.total);
+    if (request.pricing.lines.filter(line => BigInt(line.netAmount.minor) > 0n).length +
+        (BigInt(request.pricing.shipping.charge.minor) > 0n ? 1 : 0) > 100) {
+      throw new CheckoutError("stripe_line_item_limit");
+    }
+  }
   return canonicalizePaymentRequest(request);
 }
 
@@ -254,6 +421,9 @@ function assertBinding(record: AttemptRecord, binding: CheckoutBinding, request:
   if (record.bindingRef !== request.bindingRef || binding.bindingRef !== request.bindingRef) throw new CheckoutError("binding_mismatch");
   if (record.stripeAccountId !== binding.stripeAccountId || record.mode !== binding.mode) throw new CheckoutError("binding_mismatch");
   if (record.requestFingerprint !== requestFingerprint(request)) throw new CheckoutError("request_mutation");
+  if ((record.pricing !== undefined) !== (request.pricing !== undefined)) throw new CheckoutError("request_mutation");
+  if (record.pricing && request.pricing &&
+      JSON.stringify(canonicalizePricing(record.pricing)) !== JSON.stringify(request.pricing)) throw new CheckoutError("request_mutation");
   if (record.amountMinor !== request.total.minor || record.currency !== request.total.currency) throw new CheckoutError("request_mutation");
 }
 
@@ -374,6 +544,10 @@ export function createCheckoutSessionService(options: {
       stripeSessionId: null,
       redirectUrl: null,
       policyKind,
+      ...(request.pricing ? {
+        pricing: canonicalizePricing(request.pricing), mappingVersion: "stripe-whole-line-v1" as const,
+        chargeLines: createPricedChargeLines(request.lines, request.pricing, request.total.minor),
+      } : {}),
     };
     const currentBinding = await options.existingBinding(principal, request.bindingRef) ?? binding;
     return options.store.transaction(tx => {
@@ -448,6 +622,19 @@ export function createCheckoutSessionService(options: {
   async function createOrRecover(record: AttemptRecord): Promise<PaymentOutcome> {
     if (record.stripeSessionId) return mappedOutcome(record);
     if (now() - record.claimedAtMs >= CREATION_RETRY_WINDOW_MS) return unknown();
+    if (record.pricing) {
+      // A partial or corrupted priced claim cannot authorize another create.
+      if (record.mappingVersion !== "stripe-whole-line-v1" || !Array.isArray(record.chargeLines)) return unknown();
+      try {
+        const original = validatePaymentRequest({
+          attemptId: record.attemptId, bindingRef: record.bindingRef, lines: record.lines,
+          total: { currency: record.currency, minor: record.amountMinor }, pricing: record.pricing,
+          paymentWindow: { minSeconds: 1800, maxSeconds: 1860 }, paymentMethods: ["card"],
+        });
+        if (record.policyKind !== "current-bounded-1800-1860" || requestFingerprint(original) !== record.requestFingerprint ||
+            JSON.stringify(record.chargeLines) !== JSON.stringify(createPricedChargeLines(record.lines, record.pricing, record.amountMinor))) return unknown();
+      } catch { return unknown(); }
+    } else if (record.mappingVersion !== undefined || record.chargeLines !== undefined) return unknown();
     // Retry the original pinned expires_at and persisted transport params.
     // Stripe will replay a completed create. If the first request never landed
     // and expires_at is now sooner than 30 minutes, Stripe rejects; we keep
@@ -461,6 +648,7 @@ export function createCheckoutSessionService(options: {
         stripeAccountId: record.stripeAccountId,
         lines: record.lines,
         total: { currency: "USD", minor: record.amountMinor },
+        ...(record.pricing ? { pricing: structuredClone(record.pricing), chargeLines: structuredClone(record.chargeLines) } : {}),
         expiresAtSeconds: record.requestedExpiresAtSeconds,
         successUrl: record.successUrl,
         cancelUrl: record.cancelUrl,
@@ -509,6 +697,7 @@ export function createCheckoutSessionService(options: {
     readAttempt: attemptId => options.store.transaction(tx => tx.read(attemptId)),
     retrieveAndMatch,
     forPrincipal: principal => ({
+      pricingSchema: CHECKOUT_PRICING_SCHEMA,
       ensureSession: request => ensureSessionFor(principal, request),
       lookup: request => lookupFor(principal, request),
     }),
