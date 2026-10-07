@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync, readFileSync, symlinkSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, symlinkSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -23,6 +23,28 @@ const peerPackage = JSON.parse(readFileSync(`${peer}/package.json`, 'utf8'));
 assert.equal(peerPackage.name, 'emdash');
 assert.equal(peerPackage.version, requestedPeerVersion);
 const peerPackageJsonSha256 = createHash('sha256').update(readFileSync(`${peer}/package.json`)).digest('hex');
+// Pin every published package file, including paths and source maps. Runtime
+// dependencies under root node_modules remain a separately qualified closure.
+const publishedPeerContentSha256 = {
+  '1.0.1': '578ed9c8df94b72b7404fa99fce24702c40683f8999f8e10e868e4bd0d19ce28',
+  '1.2.0': '17b41485d10c8a8040541fedf41ccb05543beae69d0a4d27a2f9063523f2a9ad',
+};
+const peerFiles = [];
+function collectPeerFiles(relative = '') {
+  for (const entry of readdirSync(`${peer}/${relative}`, {withFileTypes: true})) {
+    if (!relative && entry.name === 'node_modules') continue;
+    const path = relative ? `${relative}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) collectPeerFiles(path);
+    else {
+      assert.ok(entry.isFile(), `Non-regular EmDash package file: ${path}`);
+      peerFiles.push([path, createHash('sha256').update(readFileSync(`${peer}/${path}`)).digest('hex')]);
+    }
+  }
+}
+collectPeerFiles();
+peerFiles.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+const peerPackageContentSha256 = createHash('sha256').update(JSON.stringify(peerFiles)).digest('hex');
+assert.equal(peerPackageContentSha256, publishedPeerContentSha256[requestedPeerVersion], 'EmDash package content does not match the pinned published peer');
 const packageRoot = `${root}/.grilltrack/work/checkout-pricing-20261006/package-proof-${randomUUID()}`;
 mkdirSync(packageRoot, {recursive:true});
 // Extract only the hash-verified, source-owner-qualified public artifact.
@@ -113,5 +135,5 @@ for(const scenario of [
   }
   paymentDb.close();commerceDb.close();
 }
-const report={source:'70419ae55c4f73354e3f0eda08b09bbc85368000',npmSha256:'38c1c6b59ad37db506986dc9de72fa53f601f7c66d5df53a1c39e9ca3c351730',renderer:'Pinned compiled Commerce package -> trusted TEST HTTP adapter -> Payments hosted handler/service -> official Stripe SDK with wholly intercepted fetch -> authoritative lookup -> canonical Commerce order/coupon settlement; SQLite reopen',compatibility:{requestedPeerVersion,actualPeerVersion:peerPackage.version,peerPackageJsonSha256,commerceSource:'git:70419ae55c4f73354e3f0eda08b09bbc85368000',commerceArchiveSha256:'38c1c6b59ad37db506986dc9de72fa53f601f7c66d5df53a1c39e9ca3c351730',qualification:'Synthetic package compatibility only; no installed host, migrated Core, Registry installation, real identity, or scheduler/wake proof'},results,limits:['Synthetic principal and TEST token; JWT cryptography remains separate existing test proof','No actual host PluginContext/guest UI/Registry install/scheduler/wake delivery','No actual Stripe, credentials, real account/site or activation','Forthcoming qualified Commerce 1.2 archive plus Registry/backend/schema handoff and Template installed-context/HTTP/JWT/SQLite/wake proof are required for migration qualification'],actualNetworkCalls:0,credentialStoreReads:0,proofDirectory:directory};
+const report={source:'70419ae55c4f73354e3f0eda08b09bbc85368000',npmSha256:'38c1c6b59ad37db506986dc9de72fa53f601f7c66d5df53a1c39e9ca3c351730',renderer:'Pinned compiled Commerce package -> trusted TEST HTTP adapter -> Payments hosted handler/service -> official Stripe SDK with wholly intercepted fetch -> authoritative lookup -> canonical Commerce order/coupon settlement; SQLite reopen',compatibility:{requestedPeerVersion,actualPeerVersion:peerPackage.version,peerPackageJsonSha256,peerPackageContentSha256,commerceSource:'git:70419ae55c4f73354e3f0eda08b09bbc85368000',commerceArchiveSha256:'38c1c6b59ad37db506986dc9de72fa53f601f7c66d5df53a1c39e9ca3c351730',qualification:'Synthetic package compatibility only; no installed host, migrated Core, Registry installation, real identity, or scheduler/wake proof'},results,limits:['Synthetic principal and TEST token; JWT cryptography remains separate existing test proof','No actual host PluginContext/guest UI/Registry install/scheduler/wake delivery','No actual Stripe, credentials, real account/site or activation','Forthcoming qualified Commerce 1.2 archive plus Registry/backend/schema handoff and Template installed-context/HTTP/JWT/SQLite/wake proof are required for migration qualification'],actualNetworkCalls:0,credentialStoreReads:0,proofDirectory:directory};
 writeFileSync(`${directory}/RESULT.json`,JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report));

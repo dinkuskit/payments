@@ -160,8 +160,12 @@ The pinned compiled-package synthetic proof is reproducible with
 compatibility mode
 `node --import tsx scripts/verify-commerce-pricing-package.mjs <pinned-commerce.tgz> <emdash-1.2.0-package-directory> --emdash-peer=1.2.0`.
 Only `1.0.1` and `1.2.0` are accepted; the peer manifest version must match
-the selected mode before the Commerce archive is extracted or any provider
-fixture is created. When the selected peer's runtime closure is available,
+the selected mode, and the complete package file content must match the
+pinned published release before the Commerce archive is extracted or any provider
+fixture is created. The content digest covers sorted relative paths and each
+file SHA-256, including source maps; modified, missing, added, or symlinked
+package files fail closed. Root `node_modules` is excluded because dependencies
+are a separate runtime closure, which this digest does not qualify. When the selected peer's runtime closure is available,
 either mode verifies the same immutable qualified Commerce source
 `git:70419ae55c4f73354e3f0eda08b09bbc85368000` and npm archive SHA-256
 `38c1c6b59ad37db506986dc9de72fa53f601f7c66d5df53a1c39e9ca3c351730`,
