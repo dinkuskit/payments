@@ -9,11 +9,20 @@ import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
 import Stripe from 'stripe';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const [archiveArgument, peerArgument] = process.argv.slice(2);
-if (!archiveArgument || !peerArgument) throw new Error('Usage: node --import tsx scripts/verify-commerce-pricing-package.mjs <pinned-commerce.tgz> <emdash-1.0.1-package-directory>');
+const arguments_ = process.argv.slice(2);
+const [archiveArgument, peerArgument, peerModeArgument] = arguments_;
+const peerMode = peerModeArgument ?? '--emdash-peer=1.0.1';
+const peerModeMatch = /^--emdash-peer=(1\.0\.1|1\.2\.0)$/.exec(peerMode);
+if (!archiveArgument || !peerArgument || !peerModeMatch || arguments_.length > 3) {
+  throw new Error('Usage: node --import tsx scripts/verify-commerce-pricing-package.mjs <pinned-commerce.tgz> <emdash-package-directory> [--emdash-peer=1.0.1|--emdash-peer=1.2.0]');
+}
+const requestedPeerVersion = peerModeMatch[1];
 const archive = resolve(archiveArgument), peer = resolve(peerArgument);
 assert.equal(createHash('sha256').update(readFileSync(archive)).digest('hex'), '38c1c6b59ad37db506986dc9de72fa53f601f7c66d5df53a1c39e9ca3c351730');
-assert.equal(JSON.parse(readFileSync(`${peer}/package.json`, 'utf8')).version, '1.0.1');
+const peerPackage = JSON.parse(readFileSync(`${peer}/package.json`, 'utf8'));
+assert.equal(peerPackage.name, 'emdash');
+assert.equal(peerPackage.version, requestedPeerVersion);
+const peerPackageJsonSha256 = createHash('sha256').update(readFileSync(`${peer}/package.json`)).digest('hex');
 const packageRoot = `${root}/.grilltrack/work/checkout-pricing-20261006/package-proof-${randomUUID()}`;
 mkdirSync(packageRoot, {recursive:true});
 // Extract only the hash-verified, source-owner-qualified public artifact.
@@ -104,5 +113,5 @@ for(const scenario of [
   }
   paymentDb.close();commerceDb.close();
 }
-const report={source:'70419ae55c4f73354e3f0eda08b09bbc85368000',npmSha256:'38c1c6b59ad37db506986dc9de72fa53f601f7c66d5df53a1c39e9ca3c351730',renderer:'Pinned compiled Commerce package -> trusted TEST HTTP adapter -> Payments hosted handler/service -> official Stripe SDK with wholly intercepted fetch -> authoritative lookup -> canonical Commerce order/coupon settlement; SQLite reopen',results,limits:['Synthetic principal and TEST token; JWT cryptography remains separate existing test proof','No actual host PluginContext/guest UI/Registry install/scheduler/wake delivery','No actual Stripe, credentials, real account/site or activation'],actualNetworkCalls:0,credentialStoreReads:0,proofDirectory:directory};
+const report={source:'70419ae55c4f73354e3f0eda08b09bbc85368000',npmSha256:'38c1c6b59ad37db506986dc9de72fa53f601f7c66d5df53a1c39e9ca3c351730',renderer:'Pinned compiled Commerce package -> trusted TEST HTTP adapter -> Payments hosted handler/service -> official Stripe SDK with wholly intercepted fetch -> authoritative lookup -> canonical Commerce order/coupon settlement; SQLite reopen',compatibility:{requestedPeerVersion,actualPeerVersion:peerPackage.version,peerPackageJsonSha256,commerceSource:'git:70419ae55c4f73354e3f0eda08b09bbc85368000',commerceArchiveSha256:'38c1c6b59ad37db506986dc9de72fa53f601f7c66d5df53a1c39e9ca3c351730',qualification:'Synthetic package compatibility only; no installed host, migrated Core, Registry installation, real identity, or scheduler/wake proof'},results,limits:['Synthetic principal and TEST token; JWT cryptography remains separate existing test proof','No actual host PluginContext/guest UI/Registry install/scheduler/wake delivery','No actual Stripe, credentials, real account/site or activation','Forthcoming qualified Commerce 1.2 archive plus Registry/backend/schema handoff and Template installed-context/HTTP/JWT/SQLite/wake proof are required for migration qualification'],actualNetworkCalls:0,credentialStoreReads:0,proofDirectory:directory};
 writeFileSync(`${directory}/RESULT.json`,JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report));
