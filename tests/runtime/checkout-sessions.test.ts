@@ -28,7 +28,7 @@ function sessionBody(readyUrl: string | null, extras: Record<string, unknown> = 
   };
 }
 
-test("SQLite mapping survives eviction and lookup continues after readiness regression", async () => {
+test.each(["historical-unpriced", "priced-v1"])("SQLite mapping survives eviction and lookup continues after readiness regression (%s)", async kind => {
   let ready = false;
   const created = { expires_at: 0, count: 0 };
   const operations = new Map<string, { params: string; body: unknown }>();
@@ -77,12 +77,46 @@ test("SQLite mapping survives eviction and lookup continues after readiness regr
   const payment = {
     attemptId: "attempt-one",
     bindingRef: connected.bindingRef!,
-    lines: [{ catalogItemId: "sku-1", quantity: 1, name: "Hat", unitPrice: { currency: "USD" as const, minor: "1200" } }],
+    lines: [{ catalogItemId: "sku-1", quantity: kind === "priced-v1" ? 2 : 1, name: "Hat", unitPrice: { currency: "USD" as const, minor: "1200" } }],
     total: { currency: "USD" as const, minor: "1200" },
+    ...(kind === "priced-v1" ? { pricing: {
+      schema: "dinkuskit.commerce.checkout-pricing/v1" as const,
+      merchandiseSubtotal: { currency: "USD" as const, minor: "2400" },
+      couponDiscount: { currency: "USD" as const, minor: "1251" },
+      netMerchandise: { currency: "USD" as const, minor: "1149" },
+      shipping: { configurationId: "ship-runtime", revision: 1, mode: "flat" as const, charge: { currency: "USD" as const, minor: "51" } },
+      finalTotal: { currency: "USD" as const, minor: "1200" },
+      lines: [{
+        catalogItemId: "sku-1", quantity: 2,
+        unitPrice: { currency: "USD" as const, minor: "1200" },
+        lineSubtotal: { currency: "USD" as const, minor: "2400" },
+        discount: { currency: "USD" as const, minor: "1251" },
+        netAmount: { currency: "USD" as const, minor: "1149" },
+      }],
+      coupon: { code: "SAVE", quote: {
+        quoteId: "runtime-quote", couponId: "runtime-coupon", ruleId: "runtime-rule", ruleVersion: 1,
+        eligibleSubtotal: {currency:"USD" as const,minor:"2400"}, discount: {currency:"USD" as const,minor:"1251"},
+        payableMerchandiseTotal: {currency:"USD" as const,minor:"1149"}, merchandiseTotal: {currency:"USD" as const,minor:"2400"}, overallPayableTotal: {currency:"USD" as const,minor:"1200"},
+        lines: [{productId:"sku-1",quantity:2,unitPrice:{currency:"USD" as const,minor:"1200"},lineSubtotal:{currency:"USD" as const,minor:"2400"},eligible:true,discount:{currency:"USD" as const,minor:"1251"}}],
+      } },
+    } } : {}),
     paymentWindow: { minSeconds: 1800 as const, maxSeconds: 1860 as const },
     paymentMethods: ["card"] as const,
   };
   expect((await stub.ensureSession(principal, payment)).outcome).toBe("unknown");
+  if (kind === "priced-v1") {
+    await runInDurableObject(stub, instance => {
+      const row=instance.ctx.storage.sql.exec<{value:string}>("SELECT value FROM checkout_attempts WHERE attempt_id=?",payment.attemptId).one();
+      const record=JSON.parse(row.value);
+      expect(record.pricing).toEqual(payment.pricing);
+      expect(record.mappingVersion).toBe("stripe-whole-line-v1");
+      expect(record.chargeLines.map((line:{amountMinor:string})=>line.amountMinor)).toEqual(["1149","51"]);
+    });
+    const params=new URLSearchParams([...operations.values()][0].params);
+    expect(params.get("line_items[0][quantity]")).toBe("1");
+    expect(params.get("line_items[0][price_data][unit_amount]")).toBe("1149");
+    expect(params.get("line_items[1][price_data][unit_amount]")).toBe("51");
+  }
   await evictDurableObject(stub);
   const [first, concurrent] = await Promise.all([
     stub.ensureSession(principal, payment), stub.ensureSession(principal, payment),

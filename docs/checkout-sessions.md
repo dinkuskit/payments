@@ -12,8 +12,9 @@ This slice does not edit Commerce.
 `PaymentSession`, `PaymentOutcome`, and `CheckoutPaymentPort`.
 
 Recorded Commerce source identity:
-`git:ab37cd7f362f1c37cb1d321192abbbc48a623833`
-(`github:dinkuskit/commerce/pull/37`, merge commit).
+`git:70419ae55c4f73354e3f0eda08b09bbc85368000`
+(`checkout-pricing-payments-handoff.md`, qualified pre-release Commerce pin;
+not merged or published).
 `PaymentSession.createdAt` and `expiresAt` are Unix epoch seconds.
 Existing onboarding times stay milliseconds.
 
@@ -37,6 +38,17 @@ Existing onboarding times stay milliseconds.
   canonical values; line order is significant.
 - Unclaimed legacy requests return `unknown` immediately without contacting the provider.
   Existing historical legacy claims safely default policy to exact 1800 and remain recoverable.
+- Current requests may carry the exact
+  `dinkuskit.commerce.checkout-pricing/v1` snapshot. Payments validates the
+  complete USD arithmetic, ordered original lines, frozen shipping identity and
+  optional coupon quote, then stores and fingerprints the complete snapshot
+  before provider contact. Pricing-bearing legacy requests are rejected.
+- Priced Stripe charges use each positive merchandise whole-line net as one
+  quantity-one item, with the original catalog quantity retained in its
+  description, plus one frozen shipping item. Zero-net merchandise and free
+  shipping are omitted. More than 100 positive mapped items is rejected
+  before provider contact; this conservative Stripe item limit is not
+  truncation or fallback.
 - The same key is retried for at most 23 hours. After that, Payments does not
   create again. Stripe may prune idempotency results after 24 hours.
 - `lookup` never creates. Missing mappings and readiness denial return
@@ -66,7 +78,10 @@ Existing onboarding times stay milliseconds.
 
 ## Feasibility limits
 
-These are tested conservative limits, not weakened contract outcomes.
+These are tested conservative limits, not weakened contract outcomes. This
+pricing adoption used synthetic official-SDK transport only; it has no real
+Stripe, Registry installation, deployment, activation, publication, or
+production acceptance proof.
 
 1. **Stripe `expires_at` is a requested timestamp; `created` is Stripe's
    clock.** Commerce PR37 permits provider duration `1800..1860` seconds for current
@@ -132,3 +147,16 @@ Primary Stripe sources:
 | Domain + HTTP tests | Recovery, mismatch, webhook identity, unknown vs terminal | Durable Object restart |
 | Cloudflare workerd/SQLite | Mapping and binding survive eviction | Production deployment |
 | Actual Stripe | Not run | Test-mode or live charges |
+
+The complete priced claim also stores the versioned, exact whole-line transport
+input before the provider await. Missing or inconsistent mapping data cannot
+authorize another create. More than100 positive mapped items (including
+shipping) fails before storage/provider contact. Internal shipping configuration
+IDs/revisions stay in the durable snapshot and are not rendered on Stripe.
+
+The pinned compiled-package synthetic proof is reproducible with
+`node --import tsx scripts/verify-commerce-pricing-package.mjs <pinned-commerce.tgz> <emdash-package-directory>`.
+It verifies the exact Commerce archive and EmDash1.0.1 peer, intercepts every
+transport, and proves canonical order/coupon settlement after SQLite reopen.
+See `.grilltrack/proof/checkout-pricing/PACKAGED-BEHAVIOR.json` for outcomes and
+explicit host/auth/provider fidelity limits.

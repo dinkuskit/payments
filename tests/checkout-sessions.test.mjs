@@ -1003,3 +1003,146 @@ test("paymentWindow validation rejects both, neither, altered window bounds, ext
   assert.equal(Object.prototype.hasOwnProperty.call(bothUndefined, "paymentWindowSeconds"), true);
   await assert.rejects(f.checkout().ensureSessionFor(owner, bothUndefined), /invalid_request/);
 });
+
+function priced(overrides = {}) {
+  return request({
+    attemptId: "attempt-priced",
+    lines: [{ catalogItemId: "sku-1", quantity: 2, name: "Hat", unitPrice: { currency: "USD", minor: "600" } }],
+    total: { currency: "USD", minor: "1200" },
+    pricing: {
+      schema: "dinkuskit.commerce.checkout-pricing/v1",
+      merchandiseSubtotal: { currency: "USD", minor: "1200" },
+      couponDiscount: { currency: "USD", minor: "1200" },
+      netMerchandise: { currency: "USD", minor: "0" },
+      shipping: { configurationId: "ship-1", revision: 1, mode: "flat", charge: { currency: "USD", minor: "1200" } },
+      finalTotal: { currency: "USD", minor: "1200" },
+      lines: [{
+        catalogItemId: "sku-1", quantity: 2,
+        unitPrice: { currency: "USD", minor: "600" },
+        lineSubtotal: { currency: "USD", minor: "1200" },
+        discount: { currency: "USD", minor: "1200" },
+        netAmount: { currency: "USD", minor: "0" },
+      }],
+      coupon: {
+        code: "SAVE",
+        quote: {
+          quoteId: "quote-1", couponId: "coupon-1", ruleId: "rule-1", ruleVersion: 1,
+          eligibleSubtotal: { currency: "USD", minor: "1200" },
+          discount: { currency: "USD", minor: "1200" },
+          payableMerchandiseTotal: { currency: "USD", minor: "0" },
+          lines: [{ productId: "sku-1", quantity: 2, unitPrice: { currency: "USD", minor: "600" }, lineSubtotal: { currency: "USD", minor: "1200" }, eligible: true, discount: { currency: "USD", minor: "1200" } }],
+          merchandiseTotal: { currency: "USD", minor: "1200" },
+          overallPayableTotal: { currency: "USD", minor: "1200" },
+        },
+      },
+    },
+    ...overrides,
+  });
+}
+
+test("pricing snapshot survives coupon offset and mutations reject before provider contact", async () => {
+  const f = fixture(); await f.ready();
+  const payment = priced();
+  const result = await f.checkout().ensureSessionFor(owner, payment);
+  assert.equal(result.outcome, "open");
+  const record = f.attempts.get(payment.attemptId);
+  assert.equal(record.pricing.coupon.quote.overallPayableTotal.minor, "1200");
+  assert.equal(record.pricing.lines[0].netAmount.minor, "0");
+  const fingerprint = record.requestFingerprint;
+  assert.notEqual(fingerprint, requestFingerprint({ ...payment, pricing: { ...payment.pricing, finalTotal: { currency: "USD", minor: "1201" } } }));
+  const calls = f.calls.length;
+  await assert.rejects(f.checkout().lookupFor(owner, { ...payment, pricing: { ...payment.pricing, shipping: { ...payment.pricing.shipping, revision: 2 } } }), /request_mutation|invalid_pricing/);
+  assert.equal(f.calls.length, calls);
+});
+
+test("pricing nullish, malformed arithmetic, and legacy pricing fail closed", async () => {
+  const f = fixture(); await f.ready();
+  await assert.rejects(f.checkout().ensureSessionFor(owner, { ...request({ attemptId: "null-pricing" }), pricing: undefined }), /invalid_pricing/);
+  await assert.rejects(f.checkout().ensureSessionFor(owner, priced({ pricing: { schema: "unknown" } })), /invalid_pricing/);
+  await assert.rejects(f.checkout().ensureSessionFor(owner, {
+    ...request({ attemptId: "legacy-priced" }), paymentWindow: undefined, paymentWindowSeconds: 1800, pricing: undefined,
+  }), /invalid_request/);
+  assert.equal(f.calls.length, 0);
+});
+
+test("discounted and shipping-only pricing totals reach the provider unchanged", async () => {
+  for (const shipping of ["100", "0"]) {
+    const f = fixture(); await f.ready();
+    const payment = priced();
+    payment.total.minor = shipping === "100" ? "1100" : "1000";
+    payment.pricing.couponDiscount.minor = "200";
+    payment.pricing.netMerchandise.minor = "1000";
+    payment.pricing.shipping = {configurationId:"ship-1",revision:1,mode:shipping === "0" ? "free" : "flat",charge:{currency:"USD",minor:shipping}};
+    payment.pricing.finalTotal.minor = payment.total.minor;
+    payment.pricing.lines[0].discount.minor = "200";
+    payment.pricing.lines[0].netAmount.minor = "1000";
+    payment.pricing.coupon.quote.discount.minor = "200";
+    payment.pricing.coupon.quote.lines[0].discount.minor = "200";
+    payment.pricing.coupon.quote.payableMerchandiseTotal.minor = "1000";
+    payment.pricing.coupon.quote.overallPayableTotal.minor = payment.total.minor;
+    assert.equal((await f.checkout().ensureSessionFor(owner,payment)).outcome,"open");
+    assert.equal(f.calls[0][1].total.minor,payment.total.minor);
+    assert.deepEqual(f.attempts.get(payment.attemptId).pricing,payment.pricing);
+  }
+  const f=fixture();await f.ready();const payment=priced();
+  payment.total.minor="50";payment.pricing.shipping.charge.minor="50";payment.pricing.finalTotal.minor="50";payment.pricing.coupon.quote.overallPayableTotal.minor="50";
+  assert.equal((await f.checkout().ensureSessionFor(owner,payment)).outcome,"open");
+});
+
+test("101 mapped items reject before any attempt or provider operation", async () => {
+  const f=fixture();await f.ready();const payment=priced();const usd=minor=>({currency:"USD",minor});
+  payment.lines=Array.from({length:100},(_,i)=>({catalogItemId:`sku-${i}`,quantity:1,name:"Item",unitPrice:usd("2")}));
+  payment.total=usd("200");const p=payment.pricing;
+  p.merchandiseSubtotal=usd("200");p.couponDiscount=usd("100");p.netMerchandise=usd("100");p.shipping.charge=usd("100");p.finalTotal=usd("200");
+  p.lines=payment.lines.map(l=>({catalogItemId:l.catalogItemId,quantity:1,unitPrice:usd("2"),lineSubtotal:usd("2"),discount:usd("1"),netAmount:usd("1")}));
+  p.coupon.quote={quoteId:"many-quote",couponId:"coupon-1",ruleId:"rule-1",ruleVersion:1,eligibleSubtotal:usd("200"),discount:usd("100"),payableMerchandiseTotal:usd("100"),merchandiseTotal:usd("200"),overallPayableTotal:usd("200"),lines:payment.lines.map(l=>({productId:l.catalogItemId,quantity:1,unitPrice:usd("2"),lineSubtotal:usd("2"),eligible:true,discount:usd("1")}))};
+  await assert.rejects(f.checkout().ensureSessionFor(owner,payment),/invalid_pricing|line_item_limit/);
+  assert.equal(f.attempts.size,0);assert.equal(f.calls.length,0);
+});
+
+test("coupon code, whitespace identities and ineligible discounts fail before contact", async () => {
+  const mutations=[p=>{p.coupon.code="save";},p=>{p.shipping.configurationId=" ";},p=>{p.coupon.quote.ruleId=" ";},p=>{p.coupon.quote.lines[0].eligible=false;p.coupon.quote.eligibleSubtotal.minor="0";},p=>{p.coupon.quote.lines[0].unitPrice.currency="EUR";},p=>{p.coupon=undefined;}];
+  for(const mutate of mutations){const f=fixture();await f.ready();const payment=priced();mutate(payment.pricing);await assert.rejects(f.checkout().ensureSessionFor(owner,payment),/invalid_pricing|invalid_amount/);assert.equal(f.attempts.size,0);assert.equal(f.calls.length,0);}
+});
+
+test("complete pricing rejects malformed schema, line, quote and money fields before writes", async () => {
+  const mutations=[
+    p=>{p.schema="unsupported";}, p=>{p.shipping.mode="free";}, p=>{p.shipping.revision=0;},
+    p=>{p.lines[0].quantity=1;}, p=>{p.lines[0].catalogItemId="other";},
+    p=>{p.lines[0].netAmount.minor="1";}, p=>{p.lines[0].unitPrice.extra=true;},
+    p=>{p.couponDiscount.minor="01";}, p=>{p.coupon.quote.eligibleSubtotal.minor="1";},
+    p=>{p.coupon.quote.lines[0].unitPrice=null;}, p=>{p.coupon.quote.ruleVersion=0;},
+    p=>{p.coupon.quote.lines[0].discount.currency="EUR";},
+    p=>{p.shipping.charge.minor="9007199254740992";}, p=>{p.coupon.quote.overallPayableTotal.minor="1201";},
+    p=>{p.coupon.quote.lines[0].extra=true;}, p=>{p.coupon=null;}, p=>{p.lines=[];},
+    p=>{p.finalTotal.currency="EUR";},p=>{p.shipping.charge.minor="-1";},p=>{p.extra=true;},
+  ];
+  for(const mutate of mutations){const f=fixture();await f.ready();const payment=priced();mutate(payment.pricing);await assert.rejects(f.checkout().ensureSessionFor(owner,payment),/invalid_pricing|invalid_amount/);assert.equal(f.attempts.size,0);assert.equal(f.calls.length,0);}
+});
+
+test("claim snapshots transport mapping before await and retries original after caller mutation", async () => {
+  const f=fixture();await f.ready();f.setCreateDown(true);const payment=priced();const original=structuredClone(payment);
+  const pending=f.checkout().ensureSessionFor(owner,payment);
+  payment.pricing.shipping.revision=9;payment.pricing.coupon.quote.quoteId="changed";
+  assert.equal((await pending).outcome,"unknown");
+  const record=structuredClone(f.attempts.get(original.attemptId));
+  assert.deepEqual(record.pricing,original.pricing);assert.equal(record.mappingVersion,"stripe-whole-line-v1");
+  assert.deepEqual(record.chargeLines,[{quantity:1,amountMinor:"1200",name:"Shipping",description:"Flat shipping"}]);
+  assert.deepEqual(f.calls[0][1].chargeLines,record.chargeLines);
+  f.setCreateDown(false);
+  const [first,second]=await Promise.all([f.checkout().ensureSessionFor(owner,original),f.checkout().ensureSessionFor(owner,original)]);
+  assert.equal(first.outcome,"open");assert.equal(second.outcome,"open");
+  for(const [,params] of f.calls.filter(([kind])=>kind==="create")) {
+    assert.deepEqual(params.pricing,original.pricing);assert.deepEqual(params.chargeLines,record.chargeLines);
+    assert.equal(params.idempotencyKey,record.idempotencyKey);assert.equal(params.expiresAtSeconds,record.requestedExpiresAtSeconds);
+  }
+  const final=f.attempts.get(original.attemptId);assert.equal(final.requestFingerprint,record.requestFingerprint);assert.equal(final.requestedExpiresAtSeconds,record.requestedExpiresAtSeconds);
+});
+
+test("partial or corrupted priced mapping stays unknown without a second create", async () => {
+  for(const corrupt of [r=>{delete r.chargeLines;},r=>{r.mappingVersion="unsupported";},r=>{r.chargeLines[0].amountMinor="1";}]) {
+    const f=fixture();await f.ready();f.setCreateDown(true);const payment=priced();assert.equal((await f.checkout().ensureSessionFor(owner,payment)).outcome,"unknown");
+    corrupt(f.attempts.get(payment.attemptId));const calls=f.calls.length;f.setCreateDown(false);
+    assert.equal((await f.checkout().ensureSessionFor(owner,payment)).outcome,"unknown");assert.equal(f.calls.length,calls);
+  }
+});

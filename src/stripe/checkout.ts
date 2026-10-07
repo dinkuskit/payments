@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 import type { CheckoutProvider, LatestCharge, ProviderPaymentIntent, ProviderSession } from "../checkout/sessions.js";
+import { createPricedChargeLines } from "../checkout/charge-lines.js";
 import type { Mode } from "../hosted/connection.js";
 
 function asSession(session: Stripe.Checkout.Session): ProviderSession {
@@ -40,6 +41,21 @@ export function createStripeCheckout(options: {
   const stripe = new Stripe(options.apiKey, { httpClient: options.httpClient ?? Stripe.createFetchHttpClient(), timeout: 10000, maxNetworkRetries: 0 });
   return {
     async createSession(input) {
+      const priced = input.pricing ? createPricedChargeLines(input.lines, input.pricing, input.total.minor) : undefined;
+      if (input.chargeLines && JSON.stringify(input.chargeLines) !== JSON.stringify(priced)) throw new Error("invalid_pricing_mapping");
+      const lineItems = priced
+        ? (input.chargeLines ?? priced).map(line => ({ quantity: line.quantity, price_data: {
+          currency: "usd", unit_amount: Number(line.amountMinor), product_data: { name: line.name, description: line.description },
+        } }))
+        : input.lines.map(line => ({
+          quantity: line.quantity,
+          price_data: {
+            currency: "usd",
+            unit_amount: Number(line.unitPrice.minor),
+            product_data: { name: line.name },
+          },
+        }));
+      if (lineItems.length > 100) throw new Error("stripe_line_item_limit");
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
         payment_method_types: ["card"],
@@ -49,14 +65,7 @@ export function createStripeCheckout(options: {
         client_reference_id: input.attemptId,
         metadata: { dinkus_attempt: input.attemptId, dinkus_binding: input.bindingRef, dinkus_site: input.siteId },
         payment_intent_data: { metadata: { dinkus_attempt: input.attemptId, dinkus_binding: input.bindingRef, dinkus_site: input.siteId } },
-        line_items: input.lines.map(line => ({
-          quantity: line.quantity,
-          price_data: {
-            currency: "usd",
-            unit_amount: Number(line.unitPrice.minor),
-            product_data: { name: line.name },
-          },
-        })),
+        line_items: lineItems,
       }, { stripeAccount: input.stripeAccountId, idempotencyKey: input.idempotencyKey });
       return asSession(session);
     },

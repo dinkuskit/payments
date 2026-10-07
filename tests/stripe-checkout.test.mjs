@@ -116,6 +116,73 @@ test("mode mismatch fails before checkout transport", () => {
   assert.throws(() => createStripeCheckout({ apiKey: "sk_test_synthetic_fixture", mode: "live" }), /mode_mismatch/);
 });
 
+test("pricing maps whole-line net amounts, honest original quantity, and frozen shipping exactly", async () => {
+  const calls = [];
+  const httpClient = Stripe.createFetchHttpClient(async (url, init) => {
+    calls.push({ body: String(init.body ?? ""), headers: new Headers(init.headers) });
+    return new Response(JSON.stringify({
+      object: "checkout.session", id: "cs_priced", url: "https://checkout.stripe.com/c/pay/cs_priced",
+      status: "open", payment_status: "unpaid", amount_total: 200, currency: "usd",
+      created: 1800000000, expires_at: 1800001860, livemode: false, payment_intent: null,
+      metadata: { dinkus_attempt: "priced", dinkus_binding: "bind", dinkus_site: "site" }, payment_method_types: ["card"],
+    }), { headers: { "content-type": "application/json" } });
+  });
+  const provider = createStripeCheckout({ apiKey: "sk_test_priced", mode: "test", httpClient });
+  await provider.createSession({
+    attemptId: "priced", bindingRef: "bind", siteId: "site", stripeAccountId: "acct",
+    lines: [{ catalogItemId: "sku", quantity: 2, name: "Hat", unitPrice: { currency: "USD", minor: "125" } }],
+    total: { currency: "USD", minor: "200" }, expiresAtSeconds: 1800001860,
+    successUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel", idempotencyKey: "key",
+    pricing: {
+      schema: "dinkuskit.commerce.checkout-pricing/v1",
+      merchandiseSubtotal: { currency: "USD", minor: "250" }, couponDiscount: { currency: "USD", minor: "100" },
+      netMerchandise: { currency: "USD", minor: "150" },
+      shipping: { configurationId: "ship", revision: 4, mode: "flat", charge: { currency: "USD", minor: "50" } },
+      finalTotal: { currency: "USD", minor: "200" },
+      lines: [{ catalogItemId: "sku", quantity: 2, unitPrice: { currency: "USD", minor: "125" }, lineSubtotal: { currency: "USD", minor: "250" }, discount: { currency: "USD", minor: "100" }, netAmount: { currency: "USD", minor: "150" } }],
+    },
+  });
+  const params = new URLSearchParams(calls[0].body);
+  assert.equal(params.get("line_items[0][quantity]"), "1");
+  assert.equal(params.get("line_items[0][price_data][unit_amount]"), "150");
+  assert.equal(params.get("line_items[0][price_data][product_data][name]"), "Hat (quantity 2)");
+  assert.equal(params.get("line_items[1][price_data][unit_amount]"), "50");
+  assert.equal(params.get("line_items[1][price_data][product_data][name]"), "Shipping");
+});
+
+test("shipping-only priced carts work and 100 merchandise plus shipping rejects before contact", async () => {
+  let calls = 0;
+  const httpClient = Stripe.createFetchHttpClient(async () => {
+    calls++;
+    return new Response(JSON.stringify({
+      object: "checkout.session", id: "cs_shipping", url: "https://checkout.stripe.com/c/pay/cs_shipping",
+      status: "open", payment_status: "unpaid", amount_total: 500, currency: "usd",
+      created: 1800000000, expires_at: 1800001860, livemode: false, payment_intent: null,
+      metadata: { dinkus_attempt: "shipping-only", dinkus_binding: "bind", dinkus_site: "site" }, payment_method_types: ["card"],
+    }), { headers: { "content-type": "application/json" } });
+  });
+  const provider = createStripeCheckout({ apiKey: "sk_test_limits", mode: "test", httpClient });
+  const base = {
+    attemptId: "shipping-only", bindingRef: "bind", siteId: "site", stripeAccountId: "acct",
+    lines: [{ catalogItemId: "sku", quantity: 1, name: "Free", unitPrice: { currency: "USD", minor: "0" } }],
+    total: { currency: "USD", minor: "500" }, expiresAtSeconds: 1800001860,
+    successUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel", idempotencyKey: "shipping-key",
+  };
+  const pricing = (lines, total = "500") => ({
+    schema: "dinkuskit.commerce.checkout-pricing/v1", merchandiseSubtotal: { currency: "USD", minor: "0" },
+    couponDiscount: { currency: "USD", minor: "0" }, netMerchandise: { currency: "USD", minor: "0" },
+    shipping: { configurationId: "ship", revision: 1, mode: "flat", charge: { currency: "USD", minor: total } },
+    finalTotal: { currency: "USD", minor: total }, lines,
+  });
+  await provider.createSession({ ...base, pricing: pricing([{ catalogItemId: "sku", quantity: 1, unitPrice: { currency: "USD", minor: "0" }, lineSubtotal: { currency: "USD", minor: "0" }, discount: { currency: "USD", minor: "0" }, netAmount: { currency: "USD", minor: "0" } }]) });
+  assert.equal(calls, 1);
+  const many = Array.from({ length: 100 }, (_, i) => ({ catalogItemId: `sku-${i}`, quantity: 1, name: "Item", unitPrice: { currency: "USD", minor: "1" } }));
+  const manyPricing = pricing(many.map(line => ({ catalogItemId: line.catalogItemId, quantity: 1, unitPrice: line.unitPrice, lineSubtotal: { currency: "USD", minor: "1" }, discount: { currency: "USD", minor: "0" }, netAmount: { currency: "USD", minor: "1" } })), "500");
+  manyPricing.finalTotal = { currency: "USD", minor: "600" };
+  await assert.rejects(provider.createSession({ ...base, attemptId: "too-many", lines: many, total: { currency: "USD", minor: "600" }, pricing: manyPricing }), /stripe_line_item_limit/);
+  assert.equal(calls, 1);
+});
+
 test("stored 1799-second remaining expiry is replayed on the official Stripe wire and never omitted or increased", async (t) => {
   const claimMs = 1_600_000_000_000;
   const claimBaseSeconds = Math.floor(claimMs / 1000);

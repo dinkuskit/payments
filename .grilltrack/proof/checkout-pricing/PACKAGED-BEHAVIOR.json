@@ -1,0 +1,72 @@
+{
+  "source": "70419ae55c4f73354e3f0eda08b09bbc85368000",
+  "npmSha256": "38c1c6b59ad37db506986dc9de72fa53f601f7c66d5df53a1c39e9ca3c351730",
+  "renderer": "Pinned compiled Commerce package -> trusted TEST HTTP adapter -> Payments hosted handler/service -> official Stripe SDK with wholly intercepted fetch -> authoritative lookup -> canonical Commerce order/coupon settlement; SQLite reopen",
+  "results": [
+    {
+      "scenario": "flat-nondivisible",
+      "total": 199,
+      "originalQuantity": 2,
+      "snapshotRetained": true,
+      "sqliteReopen": true,
+      "replayFrozen": true,
+      "providerCreates": 1,
+      "canonicalOrders": 1,
+      "couponConsumed": 1,
+      "transportCalls": 6,
+      "syntheticResolutions": 6
+    },
+    {
+      "scenario": "free",
+      "total": 150,
+      "originalQuantity": 2,
+      "snapshotRetained": true,
+      "sqliteReopen": true,
+      "replayFrozen": true,
+      "providerCreates": 1,
+      "canonicalOrders": 1,
+      "couponConsumed": 1,
+      "transportCalls": 6,
+      "syntheticResolutions": 6
+    },
+    {
+      "scenario": "offset",
+      "total": 250,
+      "originalQuantity": 2,
+      "snapshotRetained": true,
+      "sqliteReopen": true,
+      "replayFrozen": true,
+      "providerCreates": 1,
+      "canonicalOrders": 1,
+      "couponConsumed": 1,
+      "transportCalls": 6,
+      "syntheticResolutions": 6
+    },
+    {
+      "scenario": "shipping-only",
+      "total": 50,
+      "originalQuantity": 2,
+      "snapshotRetained": true,
+      "sqliteReopen": true,
+      "replayFrozen": true,
+      "providerCreates": 1,
+      "canonicalOrders": 1,
+      "couponConsumed": 1,
+      "transportCalls": 6,
+      "syntheticResolutions": 6
+    },
+    {
+      "scenario": "zero-rejected",
+      "rejected": true,
+      "providerCreates": 0,
+      "transportCalls": 0
+    }
+  ],
+  "limits": [
+    "Synthetic principal and TEST token; JWT cryptography remains separate existing test proof",
+    "No actual host PluginContext/guest UI/Registry install/scheduler/wake delivery",
+    "No actual Stripe, credentials, real account/site or activation"
+  ],
+  "actualNetworkCalls": 0,
+  "credentialStoreReads": 0
+}
