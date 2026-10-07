@@ -155,8 +155,27 @@ shipping) fails before storage/provider contact. Internal shipping configuration
 IDs/revisions stay in the durable snapshot and are not rendered on Stripe.
 
 The pinned compiled-package synthetic proof is reproducible with
-`node --import tsx scripts/verify-commerce-pricing-package.mjs <pinned-commerce.tgz> <emdash-package-directory>`.
-It verifies the exact Commerce archive and EmDash1.0.1 peer, intercepts every
-transport, and proves canonical order/coupon settlement after SQLite reopen.
+`node --import tsx scripts/verify-commerce-pricing-package.mjs <pinned-commerce.tgz> <emdash-package-directory>`
+(the default exact historical EmDash `1.0.1` peer), or with the explicit
+compatibility mode
+`node --import tsx scripts/verify-commerce-pricing-package.mjs <pinned-commerce.tgz> <emdash-1.2.0-package-directory> --emdash-peer=1.2.0`.
+Only `1.0.1` and `1.2.0` are accepted; the peer manifest version must match
+the selected mode, and the complete package file content must match the
+pinned published release before the Commerce archive is extracted or any provider
+fixture is created. The content digest covers sorted relative paths and each
+file SHA-256, including source maps; modified, missing, added, or symlinked
+package files fail closed. Root `node_modules` is excluded because dependencies
+are a separate runtime closure, which this digest does not qualify. When the selected peer's runtime closure is available,
+either mode verifies the same immutable qualified Commerce source
+`git:70419ae55c4f73354e3f0eda08b09bbc85368000` and npm archive SHA-256
+`38c1c6b59ad37db506986dc9de72fa53f601f7c66d5df53a1c39e9ca3c351730`,
+intercepts every transport, and proves canonical order/coupon settlement after
+SQLite reopen.
+
+The `1.2.0` result is synthetic package compatibility only. It is not proof of
+an installed EmDash host, PluginContext, migrated Core, Registry/backend/schema
+handoff, Template HTTP/JWT/SQLite/wake behavior, deployment, or live provider
+traffic. Those require a forthcoming qualified Commerce 1.2 archive and the
+corresponding installed-host proof.
 See `.grilltrack/proof/checkout-pricing/PACKAGED-BEHAVIOR.json` for outcomes and
 explicit host/auth/provider fidelity limits.
