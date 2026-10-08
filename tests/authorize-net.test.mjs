@@ -46,8 +46,23 @@ test("transaction lookup is authoritative and unknown is distinct from unpaid", 
     ...credentials,
     transport: { request: async () => ({
       messages: { resultCode: "Ok" },
-      transaction: { transId: "unused" },
+      transactionResponse: {
+        transId: "123",
+        responseCode: 1,
+        transactionStatus: "settledSuccessfully",
+        settleAmount: "12.00",
+        currencyCode: "USD",
+      },
     }) },
+  });
+  assert.deepEqual(await gateway.getTransaction("123"), {
+    id: "123",
+    status: "settledSuccessfully",
+    responseCode: 1,
+    amountMinor: 1200,
+    currency: "USD",
+    invoiceNumber: null,
+    refId: null,
   });
   const paid = transactionOutcome({
     id: "123", responseCode: 1, status: "settledSuccessfully",
