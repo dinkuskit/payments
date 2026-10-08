@@ -17,6 +17,19 @@ test("Stripe proof is a non-contact dry-run by default", () => {
   assert.equal(runProof({ STRIPE_API_KEY: "" }), "stripe test mode dry-run: PASS\n");
 });
 
+test("explicit provider-contact modes fail without a Stripe key", () => {
+  for (const args of [["--run"], ["--lookup", "cs_test_abc"]]) {
+    assert.throws(
+      () => runProof({ STRIPE_API_KEY: "" }, ...args),
+      error => {
+        assert.equal(error.status, 1);
+        assert.equal(error.stdout, "stripe test key: FAIL (blocked: Stripe test key not present)\n");
+        return true;
+      },
+    );
+  }
+});
+
 test("Stripe proof rejects lookup mode without a session id", () => {
   assert.throws(
     () => runProof({ STRIPE_API_KEY: "" }, "--lookup"),

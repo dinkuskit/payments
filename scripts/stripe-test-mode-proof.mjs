@@ -34,7 +34,7 @@ if (hasLookupFlag && !lookupSessionId) {
 
 if (!key) {
   console.log("stripe test key: FAIL (blocked: Stripe test key not present)");
-  process.exit(0);
+  process.exit(1);
 }
 if (!key.startsWith("sk_test_")) {
   console.log("stripe test key: FAIL");
