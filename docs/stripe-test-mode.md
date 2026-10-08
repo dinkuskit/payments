@@ -35,18 +35,31 @@ Run the deterministic proof without provider contact:
 node --import tsx scripts/stripe-test-mode-proof.mjs
 ```
 
-Run the real test-mode proof only when an `sk_test_…` key and a test connected
-account are intentionally available:
+Run the real test-mode creation proof only when an `sk_test_…` key and a test
+connected account are intentionally available:
 
 ```sh
 STRIPE_API_KEY=… STRIPE_TEST_ACCOUNT_ID=acct_… \
   node --import tsx scripts/stripe-test-mode-proof.mjs --run
 ```
 
-The script creates one short-lived test Checkout Session, confirms its
-PaymentIntent with Stripe's `pm_card_visa` test payment method, and verifies
-that the Payments lookup returns `paid` with the expected USD amount. It does
-not use live mode, deploy, or mark a Commerce order paid.
+The creation proof prints the hosted URL and non-secret `cs_test_…` ID, then
+confirms the pre-payment authoritative lookup is `open`/unpaid. Stripe does
+not create or expose the Checkout Session's PaymentIntent until the hosted
+customer flow pays, so the script intentionally stops there.
+
+After paying that hosted URL with a Stripe test card, run the lookup-only proof
+with the printed ID:
+
+```sh
+STRIPE_API_KEY=… STRIPE_TEST_ACCOUNT_ID=acct_… \
+  node --import tsx scripts/stripe-test-mode-proof.mjs --lookup cs_test_…
+```
+
+Lookup-only retrieves the Session and PaymentIntent through the same
+authoritative Payments lookup path and passes only for paid USD 100. It
+reconstructs only this proof script's transient attempt; it does not mark a
+Commerce order paid. Neither mode uses live mode or deploys.
 
 ## Commerce follow-up (not in this repository)
 

@@ -27,3 +27,15 @@ test("Stripe proof refuses a live key before any provider contact", () => {
     },
   );
 });
+
+test("Stripe proof requires a connected test account without contacting Stripe", () => {
+  assert.throws(
+    () => runProof({ STRIPE_API_KEY: "sk_test_synthetic", STRIPE_TEST_ACCOUNT_ID: "" }, "--run"),
+    error => {
+      assert.equal(error.status, 1);
+      assert.equal(error.stdout, "stripe test connected account: FAIL (STRIPE_TEST_ACCOUNT_ID is required)\n");
+      assert.doesNotMatch(error.stdout, /sk_test/);
+      return true;
+    },
+  );
+});
