@@ -112,11 +112,19 @@ export class PaymentConnection extends DurableObject<Env> {
   async checkoutBinding(principal: Principal, bindingRef: string) { return this.connection().checkoutBinding(principal, bindingRef); }
   async existingBinding(principal: Principal, bindingRef: string) { return this.connection().existingBinding(principal, bindingRef); }
   async ensureSession(principal: Principal, request: PaymentRequest) {
-    if ((this.env.PAYMENT_PROVIDER as string) === "authorize_net") return this.authorizeNetCheckout(principal.siteId).ensureSession(request);
+    if ((this.env.PAYMENT_PROVIDER as string) === "authorize_net") {
+      const binding = await this.connection().checkoutBinding(principal, request.bindingRef);
+      if (!binding || binding.providerId !== "authorize_net") return { outcome: "unknown" as const };
+      return this.authorizeNetCheckout(principal.siteId).ensureSession(request);
+    }
     return this.checkout().ensureSessionFor(principal, request);
   }
   async lookup(principal: Principal, request: PaymentRequest) {
-    if ((this.env.PAYMENT_PROVIDER as string) === "authorize_net") return this.authorizeNetCheckout(principal.siteId).lookup(request);
+    if ((this.env.PAYMENT_PROVIDER as string) === "authorize_net") {
+      const binding = await this.connection().existingBinding(principal, request.bindingRef);
+      if (!binding || binding.providerId !== "authorize_net") return { outcome: "unknown" as const };
+      return this.authorizeNetCheckout(principal.siteId).lookup(request);
+    }
     return this.checkout().lookupFor(principal, request);
   }
   async consumeWakes(reconcile: (context: WakeContext) => Promise<ReconciliationResult>, limit = 25) {

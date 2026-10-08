@@ -154,6 +154,22 @@ test("webhooks verify raw bytes, reject tampering and replay, and wake only once
   await assert.rejects(handle(payload, `sha512=${"0".repeat(128)}`, "n-2"), /invalid_signature/);
 });
 
+test("signed Authorize.net transaction hints can wake a durable attempt without deciding payment", async () => {
+  const { payload, signature, key } = await signedAuthorizeNetWebhook({
+    notificationId: "n-transaction",
+    payload: { transaction: { transId: "123", order: { invoiceNumber: "attempt-one" } } },
+  });
+  let event;
+  await createAuthorizeNetWebhookHandler({
+    signatureKey: key,
+    seenEventIds: new Set(),
+    wake: async value => { event = value; },
+  })(payload, signature, "n-transaction");
+  assert.equal(event.attemptId, "attempt-one");
+  assert.equal(event.transactionId, "123");
+  assert.equal(event.transaction, null);
+});
+
 test("a failed wake stays retryable and a later success is replay-fenced", async () => {
   const { payload, signature, key } = await signedAuthorizeNetWebhook({
     notificationId: "n-retry",
@@ -257,6 +273,7 @@ test("wired payment port persists hosted session and reports authoritative paid,
   response = { ...response, transId: "123", authAmount: "9.00", settleAmount: "9.00" };
   records.get(payment.attemptId).transactionId = "123";
   await assert.rejects(port.lookup(payment), /amount_or_currency_mismatch/);
+  await assert.rejects(port.ensureSession({ ...payment, total: { currency: "USD", minor: "1300" } }), /attempt_mismatch/);
 });
 
 test("wired creation remains unknown after a lost response and can recover durably", async () => {

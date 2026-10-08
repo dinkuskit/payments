@@ -243,8 +243,8 @@ export function createAuthorizeNetPaymentPort(options: {
   siteId?: string;
   store: {
     transaction<T>(fn: (state: {
-      read(attemptId: string): { token: string; transactionId: string | null; createdAt: number; expiresAt: number; bindingRef?: string; siteId?: string } | null;
-      write(attemptId: string, value: { token: string; transactionId: string | null; createdAt: number; expiresAt: number; bindingRef?: string; siteId?: string }): void;
+      read(attemptId: string): { token: string; transactionId: string | null; createdAt: number; expiresAt: number; bindingRef?: string; siteId?: string; amountMinor?: string; currency?: string } | null;
+      write(attemptId: string, value: { token: string; transactionId: string | null; createdAt: number; expiresAt: number; bindingRef?: string; siteId?: string; amountMinor?: string; currency?: string }): void;
     }) => T): T;
   };
   now?: () => number;
@@ -261,12 +261,17 @@ export function createAuthorizeNetPaymentPort(options: {
     async ensureSession(request) {
       assertUsd(request);
       const existing = read(request.attemptId);
-      if (existing) return {
+      if (existing) {
+        if (existing.bindingRef !== request.bindingRef || existing.amountMinor !== request.total.minor || existing.currency !== request.total.currency) {
+          throw new AuthorizeNetError("attempt_mismatch");
+        }
+        return {
         outcome: "open",
         attemptId: request.attemptId,
         total: request.total,
         session: asSession(existing),
-      };
+        };
+      }
       try {
         const created = await options.gateway.createHostedPayment({
           attemptId: request.attemptId,
@@ -281,6 +286,7 @@ export function createAuthorizeNetPaymentPort(options: {
           if (!tx.read(request.attemptId)) tx.write(request.attemptId, {
             token: created.token, transactionId: null, createdAt, expiresAt,
             bindingRef: request.bindingRef, siteId: options.siteId,
+            amountMinor: request.total.minor, currency: request.total.currency,
           });
         });
         const saved = read(request.attemptId);

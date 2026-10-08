@@ -32,6 +32,19 @@ function signedNotificationId(parsed: unknown): string {
   return notificationId;
 }
 
+function nestedString(value: unknown, keys: readonly string[], pattern: RegExp): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const object = value as Record<string, unknown>;
+  for (const key of keys) {
+    if (typeof object[key] === "string" && pattern.test(object[key] as string)) return object[key] as string;
+  }
+  for (const child of Object.values(object)) {
+    const found = nestedString(child, keys, pattern);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 /**
  * Authorize.net documents X-ANET-Signature as sha512=<hex HMAC> over the
  * original request body using the account Signature Key. Replay and wake
@@ -60,10 +73,8 @@ export async function verifyAuthorizeNetWebhook(
   if (notificationId !== eventId) throw new AuthorizeNetWebhookError("notification_id_mismatch");
   if (seenEventIds.has(notificationId)) throw new AuthorizeNetWebhookError("replayed_event");
   const body = parsed as Record<string, unknown>;
-  const transactionId = typeof body.transactionId === "string" && /^[0-9]+$/.test(body.transactionId)
-    ? body.transactionId : undefined;
-  const attemptId = typeof body.attemptId === "string" && body.attemptId.length > 0
-    ? body.attemptId : undefined;
+  const transactionId = nestedString(body, ["transactionId", "transId"], /^[0-9]+$/);
+  const attemptId = nestedString(body, ["attemptId", "invoiceNumber"], /^[A-Za-z0-9._-]{1,20}$/);
   return { id: notificationId, payload: parsed, transaction: null, attemptId, transactionId };
 }
 
