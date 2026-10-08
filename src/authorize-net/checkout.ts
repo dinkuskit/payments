@@ -3,9 +3,18 @@ export { resolvePaymentProvider } from "../checkout/providers.js";
 
 export const AUTHORIZE_NET_SANDBOX_URL = "https://apitest.authorize.net/xml/v1/request.api";
 export const AUTHORIZE_NET_PRODUCTION_URL = "https://api2.authorize.net/xml/v1/request.api";
-export const AUTHORIZE_NET_HOSTED_SANDBOX_URL = "https://accept.authorize.net/payment/payment";
+export const AUTHORIZE_NET_HOSTED_SANDBOX_URL = "https://test.authorize.net/payment/payment";
 export const AUTHORIZE_NET_HOSTED_PRODUCTION_URL = "https://accept.authorize.net/payment/payment";
 export const AUTHORIZE_NET_DUPLICATE_WINDOW_SECONDS = 120;
+
+export function authorizeNetEndpoints(mode: "test" | "live"): {
+  api: string;
+  hosted: string;
+} {
+  if (mode === "test") return { api: AUTHORIZE_NET_SANDBOX_URL, hosted: AUTHORIZE_NET_HOSTED_SANDBOX_URL };
+  if (mode === "live") return { api: AUTHORIZE_NET_PRODUCTION_URL, hosted: AUTHORIZE_NET_HOSTED_PRODUCTION_URL };
+  throw new AuthorizeNetError("invalid_mode");
+}
 
 export interface AuthorizeNetTransport {
   request(body: unknown): Promise<unknown>;
@@ -95,10 +104,11 @@ export function createAuthorizeNetGateway(options: {
   }): Promise<{ token: string; identity: string }>;
   getTransaction(transactionId: string): Promise<AuthorizeNetTransaction>;
 } {
+  const endpoints = authorizeNetEndpoints(options.mode);
   if (!options.apiLoginId || !options.transactionKey) throw new AuthorizeNetError("missing_credentials");
   const transport = options.transport ?? {
     async request(body: unknown) {
-      const response = await fetch(options.mode === "test" ? AUTHORIZE_NET_SANDBOX_URL : AUTHORIZE_NET_PRODUCTION_URL, {
+      const response = await fetch(endpoints.api, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),

@@ -42,14 +42,19 @@ AUTHORIZE_NET_SIGNATURE_KEY
 The sandbox endpoint is
 `https://apitest.authorize.net/xml/v1/request.api`. No live endpoint,
 credentials, deployment, or live traffic is part of this change.
-The opt-in proof command is:
+The opt-in proof command runs on Node `22.23.2` from `.nvmrc`:
 
 ```bash
+npm ci
 node --import tsx scripts/authorize-net-sandbox-proof.mjs --run
 ```
 
-Without `--run`, the script only checks readiness. It never prints the
-credential values or the returned hosted token.
+`npm ci` must be run first. Without `--run`, the script prints a clear
+`DRY-RUN PASS` notice and exits 0 without contacting the sandbox. With
+`--run`, it prints only named PASS/FAIL checks and a non-secret transaction
+identifier; it never prints credential values or the hosted token. The
+script-only direct transaction uses the published sandbox test card solely to
+prove lookup; the adapter itself remains Accept Hosted-only.
 
 ## Open decisions
 

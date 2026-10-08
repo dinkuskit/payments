@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  AUTHORIZE_NET_HOSTED_PRODUCTION_URL,
+  AUTHORIZE_NET_HOSTED_SANDBOX_URL,
+  AUTHORIZE_NET_PRODUCTION_URL,
+  AUTHORIZE_NET_SANDBOX_URL,
+  authorizeNetEndpoints,
   createAuthorizeNetGateway,
   transactionOutcome,
 } from "../src/authorize-net/checkout.ts";
@@ -10,6 +15,19 @@ import {
 } from "../src/authorize-net/webhook.ts";
 
 const credentials = { apiLoginId: "synthetic-login", transactionKey: "synthetic-transaction-key", mode: "test" };
+
+test("mode pins API and hosted endpoints and unknown mode fails closed", () => {
+  assert.deepEqual(authorizeNetEndpoints("test"), {
+    api: AUTHORIZE_NET_SANDBOX_URL,
+    hosted: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
+  });
+  assert.deepEqual(authorizeNetEndpoints("live"), {
+    api: AUTHORIZE_NET_PRODUCTION_URL,
+    hosted: AUTHORIZE_NET_HOSTED_PRODUCTION_URL,
+  });
+  assert.throws(() => authorizeNetEndpoints("production"), /invalid_mode/);
+  assert.throws(() => createAuthorizeNetGateway({ ...credentials, mode: "production" }), /invalid_mode/);
+});
 
 test("Accept Hosted creation uses the official request shape and converts USD minor units only at transport", async () => {
   let request;
