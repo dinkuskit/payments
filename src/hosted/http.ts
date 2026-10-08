@@ -116,8 +116,9 @@ export function createHostedHandler(options: {
         await options.authorizeNetWebhook(new Uint8Array(await request.arrayBuffer()), signature, eventId, authorizeNetPath[1]);
         return respond({ received: true });
       } catch (error) {
-        if (error instanceof AuthorizeNetWebhookError || error instanceof WebhookError) {
-          return respond({ error: error.message }, 400);
+        if (error instanceof AuthorizeNetWebhookError || error instanceof WebhookError ||
+            (error instanceof Error && error.message === "site_mismatch")) {
+          return respond({ error: error instanceof Error ? error.message : "site_mismatch" }, 400);
         }
         if (error instanceof Error && /signature/i.test(error.message)) return respond({ error: "invalid_signature" }, 400);
         return respond({ error: "wake_failed" }, 500);

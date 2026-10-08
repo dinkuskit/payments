@@ -245,23 +245,25 @@ export class PaymentConnection extends DurableObject<Env> {
       signatureKey: this.env.AUTHORIZE_NET_SIGNATURE_KEY,
       seenEventIds: seen,
       wake: async event => {
-        if (event.attemptId && event.transactionId) this.authorizeNetCheckout(siteId).recordTransaction(event.attemptId, event.transactionId);
+        if (!event.attemptId) return;
+        const record = sql.exec<{ value: string }>("SELECT value FROM authorize_net_attempts WHERE attempt_id=?", event.attemptId).toArray()[0];
+        let stored: { bindingRef?: string; siteId?: string } | null = null;
+        try { stored = record ? JSON.parse(record.value) as { bindingRef?: string; siteId?: string } : null; }
+        catch { stored = null; }
+        if (!stored?.bindingRef || stored.siteId !== siteId) {
+          throw new AuthorizeNetWebhookError("site_mismatch");
+        }
+        if (event.transactionId) this.authorizeNetCheckout(siteId).recordTransaction(event.attemptId, event.transactionId);
         // Authorize.net notifications are only reconciliation hints. The
         // authoritative lookup remains the checkout port's getTransaction.
-        if (event.attemptId) {
-          const receivedAt = Date.now();
-          sql.exec("INSERT OR IGNORE INTO checkout_wakes (attempt_id,woke_at) VALUES (?,?)", event.attemptId, receivedAt);
-          const record = sql.exec<{ value: string }>("SELECT value FROM authorize_net_attempts WHERE attempt_id=?", event.attemptId).toArray()[0];
-          const stored = record ? JSON.parse(record.value) as { bindingRef?: string } : null;
-          if (stored?.bindingRef) {
-            const merchantId = (this.env.AUTHORIZE_NET_MERCHANT_ID as string) || this.env.AUTHORIZE_NET_API_LOGIN_ID;
-            const eventId = await authorizeNetWakeEventId(event.id);
-            sql.exec(
-              "INSERT OR IGNORE INTO checkout_wake_events (event_id,attempt_id,site_id,binding_ref,stripe_account_id,authorize_net_merchant_id,mode,received_at,acknowledged_at,delivery_generation) VALUES (?,?,?,?,?,?,?, ?,NULL,1)",
-              eventId, event.attemptId, siteId, stored.bindingRef, "", merchantId, "test", receivedAt,
-            );
-          }
-        }
+        const receivedAt = Date.now();
+        sql.exec("INSERT OR IGNORE INTO checkout_wakes (attempt_id,woke_at) VALUES (?,?)", event.attemptId, receivedAt);
+        const merchantId = (this.env.AUTHORIZE_NET_MERCHANT_ID as string) || this.env.AUTHORIZE_NET_API_LOGIN_ID;
+        const wakeEventId = await authorizeNetWakeEventId(event.id);
+        sql.exec(
+          "INSERT OR IGNORE INTO checkout_wake_events (event_id,attempt_id,site_id,binding_ref,stripe_account_id,authorize_net_merchant_id,mode,received_at,acknowledged_at,delivery_generation) VALUES (?,?,?,?,?,?,?, ?,NULL,1)",
+          wakeEventId, event.attemptId, stored.siteId, stored.bindingRef, "", merchantId, "test", receivedAt,
+        );
       },
     })(payload, signature, eventId);
     sql.exec("INSERT OR IGNORE INTO authorize_net_webhook_events (event_id) VALUES (?)", eventId);

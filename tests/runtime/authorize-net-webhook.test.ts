@@ -61,7 +61,7 @@ test("signed Authorize.net webhooks queue distinct consumable wakes and reject r
     (instance as { ctx: { storage: { sql: { exec: (query: string, ...binds: unknown[]) => void } } } }).ctx.storage.sql.exec(
       "INSERT INTO authorize_net_attempts (attempt_id,value) VALUES (?,?)",
       attemptId,
-      JSON.stringify({ attemptId, bindingRef }),
+      JSON.stringify({ attemptId, bindingRef, siteId }),
     );
   });
 
@@ -96,4 +96,38 @@ test("signed Authorize.net webhooks queue distinct consumable wakes and reject r
   expect(mismatched.status).toBe(400);
   expect(await mismatched.json()).toEqual({ error: "notification_id_mismatch" });
   expect(await wakeEventIds(stub)).toEqual(ids);
+});
+
+test("wrong-site Authorize.net webhooks are rejected before transaction or wake writes", async () => {
+  const siteId = crypto.randomUUID();
+  const otherSiteId = crypto.randomUUID();
+  const stub = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", siteId]));
+  const other = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", otherSiteId]));
+  await runInDurableObject(stub, instance => {
+    (instance as { ctx: { storage: { sql: { exec: (query: string, ...binds: unknown[]) => void } } } }).ctx.storage.sql.exec(
+      "INSERT INTO authorize_net_attempts (attempt_id,value) VALUES (?,?)",
+      attemptId,
+      JSON.stringify({ attemptId, bindingRef, siteId }),
+    );
+  });
+  await runInDurableObject(other, instance => {
+    (instance as { ctx: { storage: { sql: { exec: (query: string, ...binds: unknown[]) => void } } } }).ctx.storage.sql.exec(
+      "INSERT INTO authorize_net_attempts (attempt_id,value) VALUES (?,?)",
+      attemptId,
+      JSON.stringify({ attemptId, bindingRef, siteId }),
+    );
+  });
+
+  const forbidden = await postWebhook(otherSiteId, "site-bind-1");
+  expect(forbidden.status).toBe(400);
+  expect(await forbidden.json()).toEqual({ error: "site_mismatch" });
+  expect(await wakeEventIds(other)).toEqual([]);
+  const otherTxn = await runInDurableObject(other, instance => (instance as {
+    ctx: { storage: { sql: { exec: (query: string, ...binds: unknown[]) => { toArray: () => { value: string }[] } } } };
+  }).ctx.storage.sql.exec("SELECT value FROM authorize_net_attempts WHERE attempt_id=?", attemptId).toArray()[0]);
+  expect(JSON.parse(otherTxn.value).transactionId ?? null).toBeNull();
+
+  const allowed = await postWebhook(siteId, "site-bind-1");
+  expect(allowed.status).toBe(200);
+  expect(await wakeEventIds(stub)).toHaveLength(1);
 });
