@@ -134,12 +134,69 @@ function transactionFrom(body: unknown, merchantCurrency: string): AuthorizeNetT
   };
 }
 
-function identityFor(attemptId: string): string {
-  // Authorize.net limits refId and invoiceNumber to 20 characters. Preserve
-  // short Commerce identities verbatim; long identities are intentionally
-  // rejected rather than silently creating a collision-prone truncation.
-  if (!/^[A-Za-z0-9._-]{1,20}$/.test(attemptId)) throw new AuthorizeNetError("invalid_attempt_id");
-  return attemptId;
+/**
+ * Authorize.net invoiceNumber / refId format (max 20 characters).
+ *
+ *   {storeTag}.{attemptId}
+ *
+ * Length budget (20 total, fail closed — never truncate into ambiguity):
+ *   storeTag:  8 lowercase hex chars = first 4 bytes of SHA-256(UTF-8 siteId)
+ *   separator: 1 char "."
+ *   attemptId: 1..11 chars matching [A-Za-z0-9._-]
+ *
+ * Characters are limited to Authorize.net-safe [A-Za-z0-9._-]. The store tag
+ * binds the signed notification to a site so colliding Commerce attempt IDs
+ * across stores cannot be applied to the wrong Durable Object.
+ */
+export const AUTHORIZE_NET_INVOICE_MAX_LENGTH = 20;
+export const AUTHORIZE_NET_STORE_TAG_LENGTH = 8;
+export const AUTHORIZE_NET_INVOICE_SEPARATOR = ".";
+export const AUTHORIZE_NET_ATTEMPT_ID_MAX_LENGTH =
+  AUTHORIZE_NET_INVOICE_MAX_LENGTH - AUTHORIZE_NET_STORE_TAG_LENGTH - AUTHORIZE_NET_INVOICE_SEPARATOR.length;
+
+const ATTEMPT_ID_PATTERN = new RegExp(`^[A-Za-z0-9._-]{1,${AUTHORIZE_NET_ATTEMPT_ID_MAX_LENGTH}}$`);
+const STORE_TAG_PATTERN = new RegExp(`^[0-9a-f]{${AUTHORIZE_NET_STORE_TAG_LENGTH}}$`);
+const INVOICE_REFERENCE_PATTERN = /^[A-Za-z0-9._-]{1,20}$/;
+
+function hexDigest(bytes: ArrayBuffer): string {
+  return [...new Uint8Array(bytes)].map(value => value.toString(16).padStart(2, "0")).join("");
+}
+
+export async function authorizeNetStoreTag(siteId: string): Promise<string> {
+  if (typeof siteId !== "string" || siteId.length < 1 || siteId.length > 200) {
+    throw new AuthorizeNetError("invalid_site_id");
+  }
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(siteId));
+  return hexDigest(digest).slice(0, AUTHORIZE_NET_STORE_TAG_LENGTH);
+}
+
+export async function buildAuthorizeNetInvoiceReference(siteId: string, attemptId: string): Promise<string> {
+  if (!ATTEMPT_ID_PATTERN.test(attemptId)) throw new AuthorizeNetError("invalid_attempt_id");
+  const storeTag = await authorizeNetStoreTag(siteId);
+  const reference = `${storeTag}${AUTHORIZE_NET_INVOICE_SEPARATOR}${attemptId}`;
+  // Overflow must fail closed. Truncation would make two attempts share a ref.
+  if (reference.length > AUTHORIZE_NET_INVOICE_MAX_LENGTH) {
+    throw new AuthorizeNetError("invoice_reference_too_long");
+  }
+  if (!INVOICE_REFERENCE_PATTERN.test(reference)) throw new AuthorizeNetError("invalid_invoice_reference");
+  return reference;
+}
+
+export function parseAuthorizeNetInvoiceReference(reference: string): { storeTag: string; attemptId: string } | null {
+  if (typeof reference !== "string" || !INVOICE_REFERENCE_PATTERN.test(reference)) return null;
+  const separatorAt = reference.indexOf(AUTHORIZE_NET_INVOICE_SEPARATOR);
+  if (separatorAt !== AUTHORIZE_NET_STORE_TAG_LENGTH) return null;
+  const storeTag = reference.slice(0, separatorAt);
+  const attemptId = reference.slice(separatorAt + AUTHORIZE_NET_INVOICE_SEPARATOR.length);
+  if (!STORE_TAG_PATTERN.test(storeTag) || !ATTEMPT_ID_PATTERN.test(attemptId)) return null;
+  if (storeTag.length + AUTHORIZE_NET_INVOICE_SEPARATOR.length + attemptId.length > AUTHORIZE_NET_INVOICE_MAX_LENGTH) {
+    return null;
+  }
+  return { storeTag, attemptId };
+}
+
+async function identityFor(siteId: string, attemptId: string): Promise<string> {
+  return buildAuthorizeNetInvoiceReference(siteId, attemptId);
 }
 
 function assertUsd(request: Pick<PaymentRequest, "total" | "paymentMethods">): string {
@@ -159,6 +216,7 @@ export function createAuthorizeNetGateway(options: {
 }): {
   createHostedPayment(input: {
     attemptId: string;
+    siteId: string;
     total: { currency: "USD"; minor: string };
     returnUrl: string;
     cancelUrl: string;
@@ -172,7 +230,7 @@ export function createAuthorizeNetGateway(options: {
   const authentication = { name: options.apiLoginId, transactionKey: options.transactionKey };
   return {
     async createHostedPayment(input) {
-      const identity = identityFor(input.attemptId);
+      const identity = await identityFor(input.siteId, input.attemptId);
       const amount = minorToAmount(input.total.minor);
       for (const value of [input.returnUrl, input.cancelUrl]) {
         const url = new URL(value);
@@ -240,7 +298,7 @@ export function createAuthorizeNetPaymentPort(options: {
   returnUrl: string;
   cancelUrl: string;
   hostedUrl: string;
-  siteId?: string;
+  siteId: string;
   store: {
     transaction<T>(fn: (state: {
       read(attemptId: string): { token: string; transactionId: string | null; createdAt: number; expiresAt: number; bindingRef?: string; siteId?: string; amountMinor?: string; currency?: string } | null;
@@ -249,6 +307,7 @@ export function createAuthorizeNetPaymentPort(options: {
   };
   now?: () => number;
 }): CheckoutPaymentPort & { recordTransaction(attemptId: string, transactionId: string): void } {
+  if (!options.siteId) throw new AuthorizeNetError("missing_site_id");
   const now = options.now ?? (() => Date.now());
   const read = (attemptId: string) => options.store.transaction(tx => tx.read(attemptId));
   const asSession = (record: { token: string; createdAt: number; expiresAt: number }) => ({
@@ -275,6 +334,7 @@ export function createAuthorizeNetPaymentPort(options: {
       try {
         const created = await options.gateway.createHostedPayment({
           attemptId: request.attemptId,
+          siteId: options.siteId,
           total: request.total,
           returnUrl: options.returnUrl,
           cancelUrl: options.cancelUrl,
@@ -307,7 +367,7 @@ export function createAuthorizeNetPaymentPort(options: {
       if (!existing?.transactionId) return { outcome: "unknown" };
       try {
         const transaction = await options.gateway.getTransaction(existing.transactionId);
-        const identity = identityFor(request.attemptId);
+        const identity = await identityFor(options.siteId, request.attemptId);
         if (transaction.invoiceNumber !== identity && transaction.refId !== identity) {
           throw new AuthorizeNetError("identity_mismatch");
         }

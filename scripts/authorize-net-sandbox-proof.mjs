@@ -2,6 +2,7 @@
 import {
   AUTHORIZE_NET_SANDBOX_URL,
   authorizeNetEndpoints,
+  buildAuthorizeNetInvoiceReference,
   createAuthorizeNetGateway,
   transactionOutcome,
 } from "../src/authorize-net/checkout.ts";
@@ -94,7 +95,9 @@ async function authenticateTestRequest() {
 }
 
 let transactionId;
-const invoiceNumber = `proof${Date.now()}`.slice(-20);
+const proofSiteId = "sandbox-proof-site";
+const proofAttemptId = `p${String(Date.now()).slice(-10)}`;
+const invoiceNumber = await buildAuthorizeNetInvoiceReference(proofSiteId, proofAttemptId);
 
 await check("authenticateTestRequest", authenticateTestRequest);
 
@@ -107,12 +110,14 @@ const gateway = createAuthorizeNetGateway({
 
 await check("Accept Hosted token", async () => {
   const result = await gateway.createHostedPayment({
-    attemptId: invoiceNumber,
+    attemptId: proofAttemptId,
+    siteId: proofSiteId,
     total: { currency: "USD", minor: "100" },
     returnUrl: "https://example.com/checkout/success",
     cancelUrl: "https://example.com/checkout/cancel",
   });
   if (!result.token) throw new Error("missing_hosted_token");
+  if (result.identity !== invoiceNumber) throw new Error("invoice_reference_mismatch");
 });
 
 await check("sandbox transaction and authoritative lookup", async () => {

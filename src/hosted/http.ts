@@ -117,7 +117,7 @@ export function createHostedHandler(options: {
         return respond({ received: true });
       } catch (error) {
         if (error instanceof AuthorizeNetWebhookError || error instanceof WebhookError ||
-            (error instanceof Error && error.message === "site_mismatch")) {
+            (error instanceof Error && (error.message === "site_mismatch" || error.message === "invalid_invoice_reference"))) {
           return respond({ error: error instanceof Error ? error.message : "site_mismatch" }, 400);
         }
         if (error instanceof Error && /signature/i.test(error.message)) return respond({ error: "invalid_signature" }, 400);

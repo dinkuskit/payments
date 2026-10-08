@@ -7,7 +7,13 @@ import { createAccountAuthenticator } from "../hosted/auth.js";
 import { createHostedHandler } from "../hosted/http.js";
 import { createStripeCheckout } from "../stripe/checkout.js";
 import { createStripeOnboarding } from "../stripe/onboarding.js";
-import { authorizeNetEndpoints, createAuthorizeNetGateway, createAuthorizeNetPaymentPort } from "../authorize-net/checkout.js";
+import {
+  authorizeNetEndpoints,
+  authorizeNetStoreTag,
+  createAuthorizeNetGateway,
+  createAuthorizeNetPaymentPort,
+  parseAuthorizeNetInvoiceReference,
+} from "../authorize-net/checkout.js";
 import { AuthorizeNetWebhookError, createAuthorizeNetWebhookHandler } from "../authorize-net/webhook.js";
 import type { PaymentRequest } from "../commerce/checkout-port.js";
 
@@ -90,7 +96,7 @@ export class PaymentConnection extends DurableObject<Env> {
       provider: createStripeCheckout({ apiKey: this.env.STRIPE_API_KEY, mode: "test" }),
     });
   }
-  private authorizeNetCheckout(siteId?: string) {
+  private authorizeNetCheckout(siteId: string) {
     const sql = this.ctx.storage.sql;
     const gateway = createAuthorizeNetGateway({
       apiLoginId: this.env.AUTHORIZE_NET_API_LOGIN_ID,
@@ -245,24 +251,37 @@ export class PaymentConnection extends DurableObject<Env> {
       signatureKey: this.env.AUTHORIZE_NET_SIGNATURE_KEY,
       seenEventIds: seen,
       wake: async event => {
-        if (!event.attemptId) return;
-        const record = sql.exec<{ value: string }>("SELECT value FROM authorize_net_attempts WHERE attempt_id=?", event.attemptId).toArray()[0];
+        // After signature verification: parse the store-bound invoice reference
+        // and reject before any transactionId storage, wake insertion, or paid
+        // lookup. A signed webhook never marks paid by itself.
+        const parsed = event.invoiceReference
+          ? parseAuthorizeNetInvoiceReference(event.invoiceReference)
+          : null;
+        if (!parsed) throw new AuthorizeNetWebhookError("invalid_invoice_reference");
+        const expectedTag = await authorizeNetStoreTag(siteId);
+        if (parsed.storeTag !== expectedTag) {
+          throw new AuthorizeNetWebhookError("site_mismatch");
+        }
+        const record = sql.exec<{ value: string }>("SELECT value FROM authorize_net_attempts WHERE attempt_id=?", parsed.attemptId).toArray()[0];
         let stored: { bindingRef?: string; siteId?: string } | null = null;
         try { stored = record ? JSON.parse(record.value) as { bindingRef?: string; siteId?: string } : null; }
         catch { stored = null; }
         if (!stored?.bindingRef || stored.siteId !== siteId) {
           throw new AuthorizeNetWebhookError("site_mismatch");
         }
-        if (event.transactionId) this.authorizeNetCheckout(siteId).recordTransaction(event.attemptId, event.transactionId);
+        if ((await authorizeNetStoreTag(stored.siteId)) !== parsed.storeTag) {
+          throw new AuthorizeNetWebhookError("site_mismatch");
+        }
+        if (event.transactionId) this.authorizeNetCheckout(siteId).recordTransaction(parsed.attemptId, event.transactionId);
         // Authorize.net notifications are only reconciliation hints. The
         // authoritative lookup remains the checkout port's getTransaction.
         const receivedAt = Date.now();
-        sql.exec("INSERT OR IGNORE INTO checkout_wakes (attempt_id,woke_at) VALUES (?,?)", event.attemptId, receivedAt);
+        sql.exec("INSERT OR IGNORE INTO checkout_wakes (attempt_id,woke_at) VALUES (?,?)", parsed.attemptId, receivedAt);
         const merchantId = (this.env.AUTHORIZE_NET_MERCHANT_ID as string) || this.env.AUTHORIZE_NET_API_LOGIN_ID;
         const wakeEventId = await authorizeNetWakeEventId(event.id);
         sql.exec(
           "INSERT OR IGNORE INTO checkout_wake_events (event_id,attempt_id,site_id,binding_ref,stripe_account_id,authorize_net_merchant_id,mode,received_at,acknowledged_at,delivery_generation) VALUES (?,?,?,?,?,?,?, ?,NULL,1)",
-          wakeEventId, event.attemptId, stored.siteId, stored.bindingRef, "", merchantId, "test", receivedAt,
+          wakeEventId, parsed.attemptId, stored.siteId, stored.bindingRef, "", merchantId, "test", receivedAt,
         );
       },
     })(payload, signature, eventId);
@@ -360,7 +379,9 @@ export default {
               message === "invalid_payload" ||
               message === "invalid_event_id" ||
               message === "raw_payload_required" ||
-              message === "missing_signature_key"
+              message === "missing_signature_key" ||
+              message === "site_mismatch" ||
+              message === "invalid_invoice_reference"
             ) {
               throw new AuthorizeNetWebhookError(message);
             }

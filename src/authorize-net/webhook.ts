@@ -17,7 +17,8 @@ export interface AuthorizeNetWebhookEvent {
   readonly id: string;
   readonly payload: unknown;
   readonly transaction: AuthorizeNetTransaction | null;
-  readonly attemptId?: string;
+  /** Raw invoiceNumber/attemptId from the signed body (store-bound reference). */
+  readonly invoiceReference?: string;
   readonly transactionId?: string;
 }
 
@@ -74,8 +75,8 @@ export async function verifyAuthorizeNetWebhook(
   if (seenEventIds.has(notificationId)) throw new AuthorizeNetWebhookError("replayed_event");
   const body = parsed as Record<string, unknown>;
   const transactionId = nestedString(body, ["transactionId", "transId"], /^[0-9]+$/);
-  const attemptId = nestedString(body, ["attemptId", "invoiceNumber"], /^[A-Za-z0-9._-]{1,20}$/);
-  return { id: notificationId, payload: parsed, transaction: null, attemptId, transactionId };
+  const invoiceReference = nestedString(body, ["attemptId", "invoiceNumber"], /^[A-Za-z0-9._-]{1,20}$/);
+  return { id: notificationId, payload: parsed, transaction: null, invoiceReference, transactionId };
 }
 
 export function createAuthorizeNetWebhookHandler(options: {

@@ -1,14 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  AUTHORIZE_NET_ATTEMPT_ID_MAX_LENGTH,
   AUTHORIZE_NET_HOSTED_PRODUCTION_URL,
   AUTHORIZE_NET_HOSTED_SANDBOX_URL,
+  AUTHORIZE_NET_INVOICE_MAX_LENGTH,
   AUTHORIZE_NET_PRODUCTION_URL,
   AUTHORIZE_NET_SANDBOX_URL,
+  AUTHORIZE_NET_STORE_TAG_LENGTH,
   authorizeNetEndpoints,
+  authorizeNetStoreTag,
+  buildAuthorizeNetInvoiceReference,
   createAuthorizeNetGateway,
   createAuthorizeNetFetchTransport,
   createAuthorizeNetPaymentPort,
+  parseAuthorizeNetInvoiceReference,
   transactionOutcome,
 } from "../src/authorize-net/checkout.ts";
 import {
@@ -17,6 +23,7 @@ import {
 } from "../src/authorize-net/webhook.ts";
 
 const credentials = { apiLoginId: "synthetic-login", transactionKey: "synthetic-transaction-key", merchantCurrency: "USD", mode: "test" };
+const siteId = "store-a";
 const payment = {
   attemptId: "attempt-one", bindingRef: "bind-one",
   lines: [{ catalogItemId: "sku", quantity: 1, name: "Item", unitPrice: { currency: "USD", minor: "1200" } }],
@@ -46,6 +53,26 @@ test("mode pins API and hosted endpoints and unknown mode fails closed", () => {
   assert.throws(() => createAuthorizeNetGateway({ ...credentials, mode: "production" }), /invalid_mode/);
 });
 
+test("store-bound invoice references fit the 20-char budget and reject overflow or malformed input", async () => {
+  assert.equal(AUTHORIZE_NET_INVOICE_MAX_LENGTH, 20);
+  assert.equal(AUTHORIZE_NET_STORE_TAG_LENGTH, 8);
+  assert.equal(AUTHORIZE_NET_ATTEMPT_ID_MAX_LENGTH, 11);
+  const tag = await authorizeNetStoreTag(siteId);
+  assert.match(tag, /^[0-9a-f]{8}$/);
+  const identity = await buildAuthorizeNetInvoiceReference(siteId, "attempt-one");
+  assert.equal(identity, `${tag}.attempt-one`);
+  assert.equal(identity.length, 20);
+  assert.deepEqual(parseAuthorizeNetInvoiceReference(identity), { storeTag: tag, attemptId: "attempt-one" });
+  assert.equal(parseAuthorizeNetInvoiceReference("attempt-one"), null);
+  assert.equal(parseAuthorizeNetInvoiceReference(`${tag}attempt-one`), null);
+  assert.equal(parseAuthorizeNetInvoiceReference("abcd.attempt-one"), null);
+  const otherTag = await authorizeNetStoreTag("store-b");
+  assert.notEqual(tag, otherTag);
+  await assert.rejects(buildAuthorizeNetInvoiceReference(siteId, "a".repeat(12)), /invalid_attempt_id/);
+  await assert.rejects(buildAuthorizeNetInvoiceReference(siteId, "bad attempt"), /invalid_attempt_id/);
+  await assert.rejects(buildAuthorizeNetInvoiceReference("", "attempt-one"), /invalid_site_id/);
+});
+
 test("Accept Hosted creation uses the official request shape and converts USD minor units only at transport", async () => {
   let request;
   const gateway = createAuthorizeNetGateway({
@@ -55,18 +82,20 @@ test("Accept Hosted creation uses the official request shape and converts USD mi
       return { token: "hosted-token", messages: { resultCode: "Ok" } };
     } },
   });
+  const identity = await buildAuthorizeNetInvoiceReference(siteId, "attempt-one");
   const created = await gateway.createHostedPayment({
     attemptId: "attempt-one",
+    siteId,
     total: { currency: "USD", minor: "1200" },
     returnUrl: "https://store.example/return",
     cancelUrl: "https://store.example/cancel",
   });
-  assert.deepEqual(created, { token: "hosted-token", identity: "attempt-one" });
+  assert.deepEqual(created, { token: "hosted-token", identity });
   const hosted = request.getHostedPaymentPageRequest;
   assert.equal(hosted.transactionRequest.amount, "12.00");
   assert.equal(hosted.transactionRequest.transactionType, "authCaptureTransaction");
-  assert.equal(hosted.refId, "attempt-one");
-  assert.equal(hosted.transactionRequest.order.invoiceNumber, "attempt-one");
+  assert.equal(hosted.refId, identity);
+  assert.equal(hosted.transactionRequest.order.invoiceNumber, identity);
   assert.deepEqual(JSON.parse(hosted.hostedPaymentSettings.setting[0].settingValue), {
     url: "https://store.example/return",
     urlText: "Return",
@@ -133,7 +162,8 @@ test("a lost creation response remains retryable unknown and never fabricates a 
     transport: { request: async () => { throw new Error("connection_lost"); } },
   });
   await assert.rejects(gateway.createHostedPayment({
-    attemptId: "attempt-lost",
+    attemptId: "att-lost",
+    siteId,
     total: { currency: "USD", minor: "1200" },
     returnUrl: "https://store.example/return",
     cancelUrl: "https://store.example/cancel",
@@ -155,9 +185,10 @@ test("webhooks verify raw bytes, reject tampering and replay, and wake only once
 });
 
 test("signed Authorize.net transaction hints can wake a durable attempt without deciding payment", async () => {
+  const invoiceReference = await buildAuthorizeNetInvoiceReference(siteId, "attempt-one");
   const { payload, signature, key } = await signedAuthorizeNetWebhook({
     notificationId: "n-transaction",
-    payload: { transaction: { transId: "123", order: { invoiceNumber: "attempt-one" } } },
+    payload: { transaction: { transId: "123", order: { invoiceNumber: invoiceReference } } },
   });
   let event;
   await createAuthorizeNetWebhookHandler({
@@ -165,7 +196,7 @@ test("signed Authorize.net transaction hints can wake a durable attempt without 
     seenEventIds: new Set(),
     wake: async value => { event = value; },
   })(payload, signature, "n-transaction");
-  assert.equal(event.attemptId, "attempt-one");
+  assert.equal(event.invoiceReference, invoiceReference);
   assert.equal(event.transactionId, "123");
   assert.equal(event.transaction, null);
 });
@@ -242,7 +273,8 @@ test("browser return is only a validated lookup hint and forged URLs fail closed
 
 test("wired payment port persists hosted session and reports authoritative paid, unpaid, and pending outcomes", async () => {
   const records = new Map();
-  let response = { transId: "123", responseCode: 1, transactionStatus: "settledSuccessfully", authAmount: "12.00", settleAmount: "12.00", order: { invoiceNumber: payment.attemptId } };
+  const identity = await buildAuthorizeNetInvoiceReference(siteId, payment.attemptId);
+  let response = { transId: "123", responseCode: 1, transactionStatus: "settledSuccessfully", authAmount: "12.00", settleAmount: "12.00", order: { invoiceNumber: identity } };
   const gateway = createAuthorizeNetGateway({
     ...credentials,
     transport: { request: async body => body.getTransactionDetailsRequest
@@ -250,7 +282,7 @@ test("wired payment port persists hosted session and reports authoritative paid,
       : { messages: { resultCode: "Ok" }, token: "hosted-token" } },
   });
   const port = createAuthorizeNetPaymentPort({
-    gateway, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
+    gateway, siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
     returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel",
     now: () => 1_800_000_000_000,
     store: { transaction: fn => fn({
@@ -274,7 +306,7 @@ test("wired payment port persists hosted session and reports authoritative paid,
   records.get(payment.attemptId).transactionId = "123";
   await assert.rejects(port.lookup(payment), /amount_or_currency_mismatch/);
   await assert.rejects(port.ensureSession({ ...payment, total: { currency: "USD", minor: "1300" } }), /attempt_mismatch/);
-  response = { transId: "123", responseCode: 1, transactionStatus: "settledSuccessfully", authAmount: "12.00", settleAmount: "12.00", order: { invoiceNumber: "other-attempt" } };
+  response = { transId: "123", responseCode: 1, transactionStatus: "settledSuccessfully", authAmount: "12.00", settleAmount: "12.00", order: { invoiceNumber: "other-att" } };
   records.get(payment.attemptId).transactionId = "123";
   await assert.rejects(port.lookup(payment), /identity_mismatch/);
 });
@@ -290,16 +322,16 @@ test("wired creation remains unknown after a lost response and can recover durab
     } },
   });
   const port = createAuthorizeNetPaymentPort({
-    gateway, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
+    gateway, siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
     returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel",
     store: { transaction: fn => fn({
       read: id => structuredClone(records.get(id) ?? null),
       write: (id, value) => records.set(id, structuredClone(value)),
     }) },
   });
-  assert.deepEqual(await port.ensureSession({ ...payment, attemptId: "attempt-lost" }), { outcome: "unknown" });
-  assert.equal((await port.ensureSession({ ...payment, attemptId: "attempt-lost" })).outcome, "open");
-  assert.equal(records.get("attempt-lost").token, "hosted-token");
+  assert.deepEqual(await port.ensureSession({ ...payment, attemptId: "att-lost" }), { outcome: "unknown" });
+  assert.equal((await port.ensureSession({ ...payment, attemptId: "att-lost" })).outcome, "open");
+  assert.equal(records.get("att-lost").token, "hosted-token");
 });
 
 test("fetch transport deadline covers a late response body without AbortSignal RPC", async () => {
