@@ -1,0 +1,29 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import test from "node:test";
+
+const script = "scripts/stripe-test-mode-proof.mjs";
+
+function runProof(env, ...args) {
+  return execFileSync(process.execPath, ["--import", "tsx", script, ...args], {
+    cwd: process.cwd(),
+    env: { ...process.env, ...env },
+    encoding: "utf8",
+  });
+}
+
+test("Stripe proof is a non-contact dry-run by default", () => {
+  assert.equal(runProof({ STRIPE_API_KEY: "" }), "stripe test mode dry-run: PASS\n");
+});
+
+test("Stripe proof refuses a live key before any provider contact", () => {
+  assert.throws(
+    () => runProof({ STRIPE_API_KEY: "sk_live_never_printed" }, "--run"),
+    error => {
+      assert.equal(error.status, 1);
+      assert.equal(error.stdout, "stripe test key: FAIL\n");
+      assert.doesNotMatch(error.stdout, /sk_live/);
+      return true;
+    },
+  );
+});
