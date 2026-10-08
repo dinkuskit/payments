@@ -8,7 +8,7 @@ import { createHostedHandler } from "../hosted/http.js";
 import { createStripeCheckout } from "../stripe/checkout.js";
 import { createStripeOnboarding } from "../stripe/onboarding.js";
 import { authorizeNetEndpoints, createAuthorizeNetGateway, createAuthorizeNetPaymentPort } from "../authorize-net/checkout.js";
-import { createAuthorizeNetWebhookHandler } from "../authorize-net/webhook.js";
+import { AuthorizeNetWebhookError, createAuthorizeNetWebhookHandler } from "../authorize-net/webhook.js";
 import type { PaymentRequest } from "../commerce/checkout-port.js";
 
 type WakeRow = Record<string, string | number | null> & WakeContext & { deliveryGeneration: number; wokeAt: number; acknowledgedAt: number | null; authorizeNetMerchantId: string | null };
@@ -249,7 +249,7 @@ export class PaymentConnection extends DurableObject<Env> {
           const stored = record ? JSON.parse(record.value) as { bindingRef?: string } : null;
           if (stored?.bindingRef) {
             const merchantId = (this.env.AUTHORIZE_NET_MERCHANT_ID as string) || this.env.AUTHORIZE_NET_API_LOGIN_ID;
-            const eventId = authorizeNetWakeEventId(event.id);
+            const eventId = await authorizeNetWakeEventId(event.id);
             sql.exec(
               "INSERT OR IGNORE INTO checkout_wake_events (event_id,attempt_id,site_id,binding_ref,stripe_account_id,authorize_net_merchant_id,mode,received_at,acknowledged_at,delivery_generation) VALUES (?,?,?,?,?,?,?, ?,NULL,1)",
               eventId, event.attemptId, siteId, stored.bindingRef, "", merchantId, "test", receivedAt,
@@ -262,10 +262,10 @@ export class PaymentConnection extends DurableObject<Env> {
   }
 }
 
-function authorizeNetWakeEventId(notificationId: string): string {
-  const compact = notificationId.replace(/[^A-Za-z0-9]/g, "");
-  if (!compact) throw new WakeError("invalid_event_id");
-  return `evt_anet${compact}`;
+async function authorizeNetWakeEventId(notificationId: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(notificationId));
+  const hex = [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, "0")).join("");
+  return `evt_anet${hex}`;
 }
 
 function wakeContextFromRow(row: WakeRow): WakeContext {
@@ -338,7 +338,23 @@ export default {
         },
         authorizeNetWebhook: async (payload, signature, eventId, siteId) => {
           if ((env.PAYMENT_PROVIDER as string) !== "authorize_net" || env.AUTHORIZE_NET_MODE !== "test") throw new Error("webhook_unconfigured");
-          await stubFor(env, siteId).receiveAuthorizeNetWebhook(payload, signature, eventId, siteId);
+          try {
+            await stubFor(env, siteId).receiveAuthorizeNetWebhook(payload, signature, eventId, siteId);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "";
+            if (
+              message === "replayed_event" ||
+              message === "notification_id_mismatch" ||
+              message === "invalid_signature" ||
+              message === "invalid_payload" ||
+              message === "invalid_event_id" ||
+              message === "raw_payload_required" ||
+              message === "missing_signature_key"
+            ) {
+              throw new AuthorizeNetWebhookError(message);
+            }
+            throw error;
+          }
         },
       })(request);
     } catch { return Response.json({ error: "payments_service_unavailable" }, { status: 503, headers: { "Cache-Control": "no-store" } }); }
