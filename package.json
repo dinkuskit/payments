@@ -27,6 +27,7 @@
     "audit:repo": "node scripts/repo-contract.mjs",
     "verify:quick": "bin/verify-payments quick",
     "verify:full": "bin/verify-payments full",
+    "proof:stripe-test": "node --import tsx scripts/stripe-test-mode-proof.mjs",
     "test:runtime": "vitest run",
     "typecheck": "tsc --noEmit",
     "types": "wrangler types --include-runtime false",
