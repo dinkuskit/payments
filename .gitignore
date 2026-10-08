@@ -5,6 +5,7 @@ coverage/
 .env
 .env.*
 .grilltrack/work/
+.cursor/skills/
 runs/
 .tmp/
 
