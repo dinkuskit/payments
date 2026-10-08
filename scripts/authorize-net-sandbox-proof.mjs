@@ -27,8 +27,13 @@ async function check(name, action) {
     await action();
     console.log(`${name}: PASS`);
     checks.push(true);
-  } catch {
-    console.log(`${name}: FAIL`);
+  } catch (error) {
+    const diagnostic = error?.providerDiagnostic;
+    if (diagnostic) {
+      console.log(`${name}: FAIL resultCode=${diagnostic.resultCode ?? "unknown"} code=${diagnostic.code ?? "unknown"} text=${diagnostic.text ?? "unknown"}`);
+    } else {
+      console.log(`${name}: FAIL`);
+    }
     checks.push(false);
   }
 }
@@ -66,7 +71,18 @@ async function post(body) {
     body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error("sandbox_transport");
-  return response.json();
+  const bodyValue = await response.json();
+  if (bodyValue.messages?.resultCode === "Error") {
+    const message = Array.isArray(bodyValue.messages.message) ? bodyValue.messages.message[0] : null;
+    throw Object.assign(new Error("sandbox_request_rejected"), {
+      providerDiagnostic: {
+        resultCode: bodyValue.messages.resultCode,
+        code: message?.code ?? null,
+        text: message?.text ?? null,
+      },
+    });
+  }
+  return bodyValue;
 }
 
 async function authenticateTestRequest() {
@@ -84,6 +100,7 @@ await check("authenticateTestRequest", authenticateTestRequest);
 const gateway = createAuthorizeNetGateway({
   apiLoginId: process.env.AUTHORIZE_NET_API_LOGIN_ID,
   transactionKey: process.env.AUTHORIZE_NET_TRANSACTION_KEY,
+  merchantCurrency: "USD",
   mode,
 });
 
@@ -91,8 +108,8 @@ await check("Accept Hosted token", async () => {
   const result = await gateway.createHostedPayment({
     attemptId: invoiceNumber,
     total: { currency: "USD", minor: "100" },
-    returnUrl: "https://sandbox-proof.example.invalid/return",
-    cancelUrl: "https://sandbox-proof.example.invalid/cancel",
+    returnUrl: "https://example.com/checkout/success",
+    cancelUrl: "https://example.com/checkout/cancel",
   });
   if (!result.token) throw new Error("missing_hosted_token");
 });

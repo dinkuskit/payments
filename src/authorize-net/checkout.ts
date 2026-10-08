@@ -25,12 +25,20 @@ export interface AuthorizeNetTransaction {
   readonly status: string | null;
   readonly responseCode: number | null;
   readonly amountMinor: number | null;
+  readonly authAmountMinor: number | null;
+  readonly settleAmountMinor: number | null;
   readonly currency: string | null;
   readonly invoiceNumber: string | null;
   readonly refId: string | null;
 }
 
-export class AuthorizeNetError extends Error {}
+export class AuthorizeNetError extends Error {
+  readonly providerDiagnostic?: { resultCode: string | null; code: string | null; text: string | null };
+  constructor(message: string, providerDiagnostic?: AuthorizeNetError["providerDiagnostic"]) {
+    super(message);
+    this.providerDiagnostic = providerDiagnostic;
+  }
+}
 
 function minorToAmount(minor: string): string {
   if (!/^(0|[1-9][0-9]*)$/.test(minor)) throw new AuthorizeNetError("invalid_amount");
@@ -55,20 +63,31 @@ function responseBody(value: unknown): Record<string, any> {
   const body = value as Record<string, any>;
   const resultCode = body.messages?.resultCode;
   if (resultCode === "Error") {
-    throw new AuthorizeNetError("authorize_net_request_rejected");
+    const message = Array.isArray(body.messages?.message) ? body.messages.message[0] : null;
+    throw new AuthorizeNetError("authorize_net_request_rejected", {
+      resultCode,
+      code: typeof message?.code === "string" ? message.code : null,
+      text: typeof message?.text === "string" ? message.text : null,
+    });
   }
   return body;
 }
 
-function transactionFrom(body: unknown): AuthorizeNetTransaction {
-  const response = responseBody(body).transactionResponse;
+function transactionFrom(body: unknown, merchantCurrency: string): AuthorizeNetTransaction {
+  const response = responseBody(body).transaction;
   if (!response || typeof response !== "object") throw new AuthorizeNetError("transaction_not_found");
+  const authAmountMinor = amountToMinor(response.authAmount);
+  const settleAmountMinor = response.settleAmount === undefined ? null : amountToMinor(response.settleAmount);
   return {
     id: typeof response.transId === "string" ? response.transId : "",
     status: typeof response.transactionStatus === "string" ? response.transactionStatus : null,
     responseCode: Number.isSafeInteger(response.responseCode) ? response.responseCode : null,
-    amountMinor: amountToMinor(response.settleAmount ?? response.amount),
-    currency: typeof response.currencyCode === "string" ? response.currencyCode : null,
+    amountMinor: authAmountMinor,
+    authAmountMinor,
+    settleAmountMinor,
+    // Get Transaction Details does not return currencyCode. Currency is a
+    // server-owned merchant invariant, never inferred from the response.
+    currency: merchantCurrency,
     invoiceNumber: typeof response.order?.invoiceNumber === "string" ? response.order.invoiceNumber : null,
     refId: null,
   };
@@ -93,6 +112,7 @@ function assertUsd(request: Pick<PaymentRequest, "total" | "paymentMethods">): s
 export function createAuthorizeNetGateway(options: {
   apiLoginId: string;
   transactionKey: string;
+  merchantCurrency: string;
   mode: "test" | "live";
   transport?: AuthorizeNetTransport;
 }): {
@@ -105,6 +125,7 @@ export function createAuthorizeNetGateway(options: {
   getTransaction(transactionId: string): Promise<AuthorizeNetTransaction>;
 } {
   const endpoints = authorizeNetEndpoints(options.mode);
+  if (options.merchantCurrency !== "USD") throw new AuthorizeNetError("unsupported_merchant_currency");
   if (!options.apiLoginId || !options.transactionKey) throw new AuthorizeNetError("missing_credentials");
   const transport = options.transport ?? {
     async request(body: unknown) {
@@ -165,7 +186,7 @@ export function createAuthorizeNetGateway(options: {
           transId: transactionId,
         },
       });
-      const transaction = transactionFrom(body);
+      const transaction = transactionFrom(body, options.merchantCurrency);
       if (transaction.id !== transactionId) throw new AuthorizeNetError("transaction_mismatch");
       return transaction;
     },
@@ -173,11 +194,13 @@ export function createAuthorizeNetGateway(options: {
 }
 
 export function transactionOutcome(transaction: AuthorizeNetTransaction, expected: { minor: string; currency: "USD" }): "paid" | "unpaid" | "unknown" {
-  if (transaction.amountMinor === null || transaction.amountMinor !== Number(expected.minor) ||
+  const expectedMinor = Number(expected.minor);
+  if (transaction.authAmountMinor === null || transaction.authAmountMinor !== expectedMinor ||
+      (transaction.settleAmountMinor !== null && transaction.settleAmountMinor !== expectedMinor) ||
       transaction.currency !== expected.currency) throw new AuthorizeNetError("amount_or_currency_mismatch");
   if (transaction.responseCode === 1 &&
       ["capturedPendingSettlement", "settledSuccessfully"].includes(transaction.status ?? "")) return "paid";
-  if (["declined", "failed", "voided"].includes(transaction.status ?? "")) return "unpaid";
+  if (["declined", "failed", "voided", "errored", "error", "settlementError"].includes(transaction.status ?? "")) return "unpaid";
   return "unknown";
 }
 

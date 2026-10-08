@@ -14,7 +14,7 @@ import {
   verifyAuthorizeNetReturn,
 } from "../src/authorize-net/webhook.ts";
 
-const credentials = { apiLoginId: "synthetic-login", transactionKey: "synthetic-transaction-key", mode: "test" };
+const credentials = { apiLoginId: "synthetic-login", transactionKey: "synthetic-transaction-key", merchantCurrency: "USD", mode: "test" };
 
 test("mode pins API and hosted endpoints and unknown mode fails closed", () => {
   assert.deepEqual(authorizeNetEndpoints("test"), {
@@ -64,12 +64,12 @@ test("transaction lookup is authoritative and unknown is distinct from unpaid", 
     ...credentials,
     transport: { request: async () => ({
       messages: { resultCode: "Ok" },
-      transactionResponse: {
+      transaction: {
         transId: "123",
         responseCode: 1,
         transactionStatus: "settledSuccessfully",
+        authAmount: "12.00",
         settleAmount: "12.00",
-        currencyCode: "USD",
       },
     }) },
   });
@@ -78,21 +78,26 @@ test("transaction lookup is authoritative and unknown is distinct from unpaid", 
     status: "settledSuccessfully",
     responseCode: 1,
     amountMinor: 1200,
+    authAmountMinor: 1200,
+    settleAmountMinor: 1200,
     currency: "USD",
     invoiceNumber: null,
     refId: null,
   });
   const paid = transactionOutcome({
     id: "123", responseCode: 1, status: "settledSuccessfully",
-    amountMinor: 1200, currency: "USD", invoiceNumber: "attempt-one", refId: null,
+    amountMinor: 1200, authAmountMinor: 1200, settleAmountMinor: 1200,
+    currency: "USD", invoiceNumber: "attempt-one", refId: null,
   }, { minor: "1200", currency: "USD" });
   const unpaid = transactionOutcome({
     id: "124", responseCode: 2, status: "declined",
-    amountMinor: 1200, currency: "USD", invoiceNumber: "attempt-one", refId: null,
+    amountMinor: 1200, authAmountMinor: 1200, settleAmountMinor: 1200,
+    currency: "USD", invoiceNumber: "attempt-one", refId: null,
   }, { minor: "1200", currency: "USD" });
   const pending = transactionOutcome({
     id: "125", responseCode: 1, status: "pendingSettlement",
-    amountMinor: 1200, currency: "USD", invoiceNumber: "attempt-one", refId: null,
+    amountMinor: 1200, authAmountMinor: 1200, settleAmountMinor: 1200,
+    currency: "USD", invoiceNumber: "attempt-one", refId: null,
   }, { minor: "1200", currency: "USD" });
   assert.equal(paid, "paid");
   assert.equal(unpaid, "unpaid");
@@ -100,7 +105,8 @@ test("transaction lookup is authoritative and unknown is distinct from unpaid", 
   await assert.rejects(gateway.getTransaction("not-a-transaction"), /invalid_transaction_id/);
   assert.throws(() => transactionOutcome({
     id: "126", responseCode: 1, status: "settledSuccessfully",
-    amountMinor: 999, currency: "USD", invoiceNumber: null, refId: null,
+    amountMinor: 999, authAmountMinor: 999, settleAmountMinor: 999,
+    currency: "USD", invoiceNumber: null, refId: null,
   }, { minor: "1200", currency: "USD" }), /amount_or_currency_mismatch/);
 });
 

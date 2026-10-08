@@ -14,6 +14,11 @@ receipts, and the final payment decision.
 - Authorize.net's `getTransactionDetailsRequest` is the only source that can
   produce `paid` or terminal `unpaid`. A lost create response, a pending status,
   a browser return, and an unrecognized status remain `unknown`.
+- Details responses provide `authAmount` and, when present, `settleAmount`;
+  both are checked against the Commerce attempt amount. Details do not provide
+  `currencyCode`, so the adapter uses the server-owned merchant currency
+  configuration, currently restricted to USD, and fails closed for any other
+  configured currency. Currency is never inferred from a shopper response.
 - `X-ANET-Signature` is verified as HMAC-SHA512 over the original request bytes.
   A verified webhook only wakes reconciliation. Event IDs have a replay fence;
   the webhook body never marks Commerce paid.
