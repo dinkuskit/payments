@@ -30,6 +30,7 @@ async function readCheckoutRequest(request: Request): Promise<PaymentRequest> {
       chunks.push(value);
     }
   } finally {
+    await reader.cancel();
     reader.releaseLock();
   }
   try {
@@ -39,7 +40,7 @@ async function readCheckoutRequest(request: Request): Promise<PaymentRequest> {
       bytes.set(chunk, offset);
       offset += chunk.byteLength;
     }
-    const body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as PaymentRequest;
+    const body = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes)) as PaymentRequest;
     return validatePaymentRequest(body);
   } catch (error) {
     if (error instanceof CheckoutError) throw error;

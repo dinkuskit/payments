@@ -304,18 +304,34 @@ test("stored 1799-second remaining expiry is replayed on the official Stripe wir
     cancelUrl,
     now: () => clocks.service,
   });
+  function assertPinnedCreate(call) {
+    assert.equal(call.params.has("expires_at"), true);
+    assert.equal(call.params.get("expires_at"), String(pinnedExpires));
+    assert.equal(call.headers.get("idempotency-key"), "dinkus-checkout:attempt-short-deadline");
+    assert.equal(call.headers.get("stripe-account"), "acct_short");
+  }
   const first = await service.ensureSessionFor(owner, payment);
   assert.equal(first.outcome, "unknown");
   assert.equal(omissionTrapTaken, false);
-  assert.equal(creates.length, 0);
+  assert.equal(creates.length, 1);
+  assertPinnedCreate(creates[0]);
+  assert.equal(creates[0].remaining, 1799);
   const second = await service.ensureSessionFor(owner, payment);
   assert.equal(second.outcome, "unknown");
-  assert.equal(creates.length, 0);
+  assert.equal(creates.length, 2);
+  assertPinnedCreate(creates[1]);
+  assert.equal(creates[1].remaining, 1799);
+  assert.equal(creates[1].body, creates[0].body);
+  assert.equal(creates[1].headers.get("idempotency-key"), creates[0].headers.get("idempotency-key"));
+  assert.equal(creates[1].headers.get("stripe-account"), creates[0].headers.get("stripe-account"));
   clocks.provider = claimBaseSeconds + 1860;
   clocks.service = claimMs + 1_860_000;
   const zero = await service.ensureSessionFor(owner, payment);
   assert.equal(zero.outcome, "unknown");
-  assert.equal(creates.length, 0);
+  assert.equal(creates.length, 3);
+  assertPinnedCreate(creates[2]);
+  assert.equal(creates[2].remaining, 0);
+  assert.equal(creates[2].body, creates[0].body);
   assert.equal(omissionTrapTaken, false);
   assert.equal(attempts.get(payment.attemptId).requestedExpiresAtSeconds, pinnedExpires);
   assert.equal(attempts.get(payment.attemptId).stripeSessionId, null);

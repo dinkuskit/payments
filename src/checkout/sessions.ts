@@ -24,7 +24,6 @@ export class CheckoutError extends Error {}
 // than create a second session after an unacknowledged request ages out.
 export const CREATION_RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
 export const STRIPE_MIN_EXPIRES_AT_SECONDS = 1800;
-export const STRIPE_MAX_EXPIRES_AT_SECONDS = 86400;
 const SESSION_ID_PATTERN = /^cs_(?:test_|live_)?[A-Za-z0-9]+$/;
 
 const MINOR_PATTERN = /^(0|[1-9][0-9]*)$/;
@@ -634,10 +633,6 @@ export function createCheckoutSessionService(options: {
   async function createOrRecover(record: AttemptRecord): Promise<PaymentOutcome> {
     if (record.stripeSessionId) return mappedOutcome(record);
     if (now() - record.claimedAtMs >= CREATION_RETRY_WINDOW_MS) return unknown();
-    const remainingSeconds = record.requestedExpiresAtSeconds - Math.floor(now() / 1000);
-    if (remainingSeconds < STRIPE_MIN_EXPIRES_AT_SECONDS || remainingSeconds > STRIPE_MAX_EXPIRES_AT_SECONDS) {
-      return unknown();
-    }
     if (record.pricing) {
       // A partial or corrupted priced claim cannot authorize another create.
       if (record.mappingVersion !== "stripe-whole-line-v1" || !Array.isArray(record.chargeLines)) return unknown();
