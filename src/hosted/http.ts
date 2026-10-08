@@ -14,6 +14,23 @@ type WakeApi = {
   acknowledge(wake: CommercePaymentWake): Promise<boolean>;
 };
 
+async function hasBodyBytes(request: Request): Promise<boolean> {
+  if (request.body === null) return false;
+  // workerd can represent a bodyless POST as an exhausted stream. Reject
+  // content on the first byte rather than buffering caller input.
+  const reader = request.body.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return false;
+      if (value.byteLength > 0) return true;
+    }
+  } finally {
+    await reader.cancel();
+    reader.releaseLock();
+  }
+}
+
 function checkoutErrorStatus(error: unknown): number {
   if (!(error instanceof Error)) return 503;
   if (error.message === "connection_owner_mismatch") return 403;
@@ -71,8 +88,9 @@ export function createHostedHandler(options: {
       const service = options.service(principal);
       if (pathname === "/v1/connect") {
         // No caller-controlled account, mode, return URL, or provider selection.
-        // This endpoint has no request body and therefore never buffers one.
-        if (request.body !== null || searchParams.size) return respond({ error: "unexpected_input" }, 400);
+        // Check bytes, not stream presence: a bodyless runtime POST can still
+        // have a non-null, exhausted stream. No caller input is buffered.
+        if (searchParams.size || await hasBodyBytes(request)) return respond({ error: "unexpected_input" }, 400);
         return respond(await service.connect(principal));
       }
       if (pathname === "/v1/status") {

@@ -1,6 +1,10 @@
 #!/usr/bin/env sh
 set -eu
 
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repo_root=$(dirname -- "$script_dir")
+cd "$repo_root"
+
 mode="${1:-quick}"
 
 case "$mode" in
@@ -10,7 +14,7 @@ case "$mode" in
     npm run audit:repo
     ;;
   full)
-    "$0" quick
+    "$script_dir/verify-payments" quick
     npm run test:runtime
     npm run build
     ;;
@@ -19,3 +23,5 @@ case "$mode" in
     exit 64
     ;;
 esac
+
+printf "verify-payments: %s passed\n" "$mode"

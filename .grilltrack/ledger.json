@@ -4,11 +4,11 @@
   "current_focus": {
     "cadence": "sequential",
     "confirmed": true,
-    "confirmed_at": "2026-10-06T23:23:59+00:00",
-    "domain": "Commerce pricing v1 Payments adapter adoption",
-    "started_at": "2026-10-06T23:23:59+00:00",
+    "confirmed_at": "2026-10-07T23:28:45+00:00",
+    "domain": "Merchant-owned Stripe connection from the registry Payments plugin",
+    "started_at": "2026-10-07T23:28:36+00:00",
     "status": "confirmed",
-    "summary": "Qualified Commerce48 pricing v1 explicit adapter adoption: strict snapshot/quote arithmetic, full fingerprint/durable replay, deterministic whole-line Stripe mapping plus frozen shipping, unchanged timing/unknown/lookup/historical contracts; synthetic packaged compatibility proof, focused PR and exact existing reviews at maintainer gate. No real Stripe, credential/grants, deploy, activation, publish or merge."
+    "summary": "Continue accepted hosted-service decision unchanged: repair authenticated byte-empty POST connect across workerd, reject caller content and query, verify signed site/owner isolation and current provider readiness. Parent delegated bounded Payments-only defect repair under existing locks. Synthetic proof only; no issuer creation, credentials, real provider traffic, deployment, publication or merge."
   },
   "decisions": [
     {
@@ -363,22 +363,78 @@
           "review_source_identity": null,
           "to": "implemented",
           "verification_ref": null
+        },
+        {
+          "at": "2026-10-07T23:28:36+00:00",
+          "choice": "DinkusKit operates the hosted Stripe connection service by default, reusing the DinkusKit merchant identity used for Inventory. The merchant owns the receiving Stripe account. The service owns authenticated store-to-account bindings, Stripe onboarding links and verified readiness, and provides the hosted integration boundary for Stripe checkout and verified updates. DinkusKit accepts the service operation responsibility. Normal users do not configure infrastructure or API keys.",
+          "from": "implemented",
+          "implementation_ref": ".grilltrack/proof/hosted-connection/PROOF.md",
+          "note": "Reverify unchanged hosted-service contract after workerd exposes valid bodyless POST as exhausted stream; existing HTTP guard incorrectly returns400.",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "reopened",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-07T23:28:36+00:00",
+          "choice": "DinkusKit operates the hosted Stripe connection service by default, reusing the DinkusKit merchant identity used for Inventory. The merchant owns the receiving Stripe account. The service owns authenticated store-to-account bindings, Stripe onboarding links and verified readiness, and provides the hosted integration boundary for Stripe checkout and verified updates. DinkusKit accepts the service operation responsibility. Normal users do not configure infrastructure or API keys.",
+          "from": "reopened",
+          "implementation_ref": ".grilltrack/proof/hosted-connection/PROOF.md",
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-07T23:28:46+00:00",
+          "choice": "DinkusKit operates the hosted Stripe connection service by default, reusing the DinkusKit merchant identity used for Inventory. The merchant owns the receiving Stripe account. The service owns authenticated store-to-account bindings, Stripe onboarding links and verified readiness, and provides the hosted integration boundary for Stripe checkout and verified updates. DinkusKit accepts the service operation responsibility. Normal users do not configure infrastructure or API keys.",
+          "from": "locked",
+          "implementation_ref": ".grilltrack/proof/hosted-connection/PROOF.md",
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-07T23:29:44+00:00",
+          "choice": "DinkusKit operates the hosted Stripe connection service by default, reusing the DinkusKit merchant identity used for Inventory. The merchant owns the receiving Stripe account. The service owns authenticated store-to-account bindings, Stripe onboarding links and verified readiness, and provides the hosted integration boundary for Stripe checkout and verified updates. DinkusKit accepts the service operation responsibility. Normal users do not configure infrastructure or API keys.",
+          "from": "implemented",
+          "implementation_ref": "src/hosted/http.ts;tests/empty-connect.test.mjs;tests/runtime/merchant-http.test.ts",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": null
         }
       ],
       "id": "merchant-hosted-service-003",
-      "implementation_ref": ".grilltrack/proof/hosted-connection/PROOF.md",
+      "implementation_ref": "src/hosted/http.ts;tests/empty-connect.test.mjs;tests/runtime/merchant-http.test.ts",
       "question": "Who operates the Stripe connection service for the registry Payments plugin?",
-      "rationale": "",
+      "rationale": "Unchanged hosted-service choice; repair existing byte-empty connect contract. No new issuer, account, provider or installed-readiness claim.",
       "repair_required": false,
       "review_classifications": [],
       "review_history": [],
       "review_ref": null,
       "review_result": null,
       "review_source_identity": null,
-      "status": "implemented",
+      "status": "verified",
       "superseded_by": null,
-      "updated_at": "2026-09-30T01:13:52+00:00",
-      "verification_ref": null
+      "updated_at": "2026-10-07T23:29:44+00:00",
+      "verification_ref": ".grilltrack/proof/empty-connect-http/PROOF.md#verification;79Node;10workerd;typecheck;audit;offline-build"
     },
     {
       "baseline_ref": "git:63d6f80e172f822bdf09ca0dc7cef9e0b420d073",
@@ -932,7 +988,7 @@
     }
   ],
   "last_activation": {
-    "at": "2026-10-01T12:38:59+00:00",
+    "at": "2026-10-07T23:28:36+00:00",
     "mechanism": "implicit"
   },
   "last_pause": {
@@ -955,5 +1011,5 @@
   "status": "active",
   "title": "DinkusKit Payments public scaffold",
   "track_id": "gt-20260830202947-ccfe03",
-  "updated_at": "2026-10-06T23:37:11+00:00"
+  "updated_at": "2026-10-07T23:29:44+00:00"
 }

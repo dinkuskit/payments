@@ -60,3 +60,9 @@ bin/verify-payments full
 ```
 
 Under construction. MIT licensed.
+
+## Local verification
+
+Run `bin/verify-payments quick` during edits and `bin/verify-payments full` before
+delivery. See [the project verification skill](skills/payments-verification/SKILL.md)
+for prerequisites, checks, and proof limits.
