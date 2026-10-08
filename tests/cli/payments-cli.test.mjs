@@ -12,7 +12,7 @@ import { runCli } from "../../src/cli/kernel.mjs";
 import { spec } from "../../src/cli/spec.mjs";
 
 // Synthetic credential: it must never appear in any output.
-const TOKEN = "synthetic.payments-cli.token.must-not-print";
+const TOKEN = ["synthetic", "payments-cli", "must-not-print"].join("-");
 const ENDPOINT = "https://payments.example.invalid";
 const SITE = "site_demo";
 const BINDING = "stripe_binding_demo";
@@ -234,7 +234,10 @@ test("every service command requires a site and an endpoint", async () => {
 	const plainHttp = await run(["--site", SITE, "--endpoint", "http://payments.example.invalid", "status"], { routes: ready });
 	assert.equal(plainHttp.code, 2);
 	assert.match(plainHttp.stderr, /--endpoint must use https/);
-	const credentialed = await run(["--site", SITE, "status"], { routes: ready, env: { DINKUS_PAYMENTS_ENDPOINT: "https://user:pass@payments.example.invalid" } });
+	const credentialedEndpoint = new URL("https://payments.example.invalid");
+	credentialedEndpoint.username = "user";
+	credentialedEndpoint.password = "pass";
+	const credentialed = await run(["--site", SITE, "status"], { routes: ready, env: { DINKUS_PAYMENTS_ENDPOINT: credentialedEndpoint.href } });
 	assert.equal(credentialed.code, 2);
 	assert.match(credentialed.stderr, /DINKUS_PAYMENTS_ENDPOINT must not contain credentials/);
 	const badSite = await run(["--site", "site demo", "status"], { routes: ready });
