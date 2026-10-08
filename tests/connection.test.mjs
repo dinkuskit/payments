@@ -105,3 +105,22 @@ test('HTTP surface requires auth, separates checkout scope, and rejects caller c
   assert.equal((await handle(new Request('https://service.invalid/v1/connect?success=true', { headers }))).status, 405);
   assert.notEqual((await f.service().status(owner)).state, 'ready');
 });
+
+test('malformed checkout bodies are rejected before the service or durable object is touched', async () => {
+  let serviceCalls = 0;
+  let checkoutCalls = 0;
+  const handle = createHostedHandler({
+    authenticate: async () => owner,
+    service: () => { serviceCalls++; throw Error('service_must_not_run'); },
+    checkout: () => { checkoutCalls++; throw Error('checkout_must_not_run'); },
+  });
+  const response = await handle(new Request('https://service.invalid/v1/checkout/session', {
+    method: 'POST',
+    headers: { authorization: 'Bearer synthetic', 'content-type': 'application/json' },
+    body: '{"attemptId":',
+  }));
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: 'invalid_request' });
+  assert.equal(serviceCalls, 0);
+  assert.equal(checkoutCalls, 0);
+});
