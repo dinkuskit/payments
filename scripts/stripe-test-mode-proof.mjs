@@ -10,6 +10,7 @@ import {
 
 const run = process.argv.includes("--run");
 const lookupIndex = process.argv.indexOf("--lookup");
+const hasLookupFlag = lookupIndex >= 0;
 const lookupSessionId = lookupIndex >= 0 ? process.argv[lookupIndex + 1] : null;
 const key = process.env.STRIPE_API_KEY ?? "";
 const accountId = process.env.STRIPE_TEST_ACCOUNT_ID ?? "";
@@ -21,9 +22,14 @@ function redact(value) {
     .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]");
 }
 
-if (!run && !lookupSessionId) {
+if (!run && !hasLookupFlag) {
   console.log("stripe test mode dry-run: PASS");
   process.exit(0);
+}
+
+if (hasLookupFlag && !lookupSessionId) {
+  console.log("lookup session id: FAIL (a cs_test_ id is required)");
+  process.exit(1);
 }
 
 if (!key) {

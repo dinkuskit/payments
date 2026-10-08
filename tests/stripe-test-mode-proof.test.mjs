@@ -17,6 +17,17 @@ test("Stripe proof is a non-contact dry-run by default", () => {
   assert.equal(runProof({ STRIPE_API_KEY: "" }), "stripe test mode dry-run: PASS\n");
 });
 
+test("Stripe proof rejects lookup mode without a session id", () => {
+  assert.throws(
+    () => runProof({ STRIPE_API_KEY: "" }, "--lookup"),
+    error => {
+      assert.equal(error.status, 1);
+      assert.equal(error.stdout, "lookup session id: FAIL (a cs_test_ id is required)\n");
+      return true;
+    },
+  );
+});
+
 test("Stripe proof refuses a live key before any provider contact", () => {
   assert.throws(
     () => runProof({ STRIPE_API_KEY: "sk_live_never_printed" }, "--run"),
