@@ -57,4 +57,3 @@ export function unavailableStatusProjection(): StatusProjection {
     message: "Connect your DinkusKit account to check payment setup. Account connection is not available in this build.",
   };
 }
-
