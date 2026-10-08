@@ -15,9 +15,7 @@
   "dinkuskit": {
     "pluginId": "dinkus-payments",
     "providerSelection": "one-active-per-store",
-    "demoProviders": [
-      "stripe"
-    ],
+    "demoProviders": ["stripe", "authorize_net"],
     "demoCurrencies": [
       "USD"
     ],

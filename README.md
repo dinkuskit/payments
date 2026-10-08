@@ -19,7 +19,8 @@ package release, or production compatibility promise yet.
 The demo direction is deliberately narrow:
 
 - one active payment provider per store;
-- Stripe as the only permitted demo provider;
+- Stripe as the reference adapter and Authorize.net as the second approved
+  adapter;
 - USD as the only accepted demo currency;
 - no automatic provider fallback or per-checkout provider selection;
 - no currency conversion.
@@ -65,3 +66,16 @@ Under construction. MIT licensed.
 Run `bin/verify-payments quick` during edits and `bin/verify-payments full` before
 delivery. See [the project verification skill](skills/payments-verification/SKILL.md)
 for prerequisites, checks, and proof limits.
+
+## Authorize.net sandbox proof
+
+The credential-gated proof runs on Node 22.23.2 from `.nvmrc`:
+
+```bash
+npm ci
+node --import tsx scripts/authorize-net-sandbox-proof.mjs --run
+```
+
+See [the Authorize.net adapter proof notes](docs/authorize-net.md) for the
+required environment variables and the mock-versus-sandbox boundary. Without
+`--run`, the script reports a dry run and exits without contacting the sandbox.
