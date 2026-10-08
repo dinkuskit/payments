@@ -239,6 +239,229 @@ test.each(["historical-unpriced", "priced-v1"])("SQLite mapping survives evictio
   ]);
 });
 
+test("characterization: lost create response leaves a claim unrecoverable by webhook until authorized ensure replay", async () => {
+  // CURRENT RECOVERY GAP characterization: a provider-side create can exist
+  // while the mapping is absent, and a webhook cannot recover that claim.
+  // This is observed behavior, not a desired permanent product rule.
+  const operations = new Map<string, { params: string; body: Record<string, unknown> }>();
+  let createCalls = 0;
+  let loseCreationResponse = true;
+  const retrieveCalls: string[] = [];
+  const createAccounts: (string | null)[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = new URL(String(input));
+    if (url.hostname !== "api.stripe.com") throw new Error(`unexpected provider host: ${url.hostname}`);
+    const path = url.pathname;
+    if (path === "/v1/accounts" && init?.method === "POST") {
+      return Response.json({ object: "account", id: "acct_lostresponse", details_submitted: true, charges_enabled: true, payouts_enabled: true, capabilities: { card_payments: "active" }, requirements: {} });
+    }
+    if (path === "/v1/account_links") {
+      return Response.json({ object: "account_link", url: "https://connect.stripe.com/setup/lost-response", expires_at: Math.floor(Date.now() / 1000) + 600 });
+    }
+    if (path === "/v1/accounts/acct_lostresponse") {
+      return Response.json({ object: "account", id: "acct_lostresponse", details_submitted: true, charges_enabled: true, payouts_enabled: true, capabilities: { card_payments: "active" }, requirements: {} });
+    }
+    if (path === "/v1/checkout/sessions" && init?.method === "POST") {
+      createCalls++;
+      createAccounts.push(new Headers(init.headers).get("stripe-account"));
+      const params = String(init.body ?? "");
+      const key = new Headers(init.headers).get("idempotency-key");
+      if (!key) throw new Error("missing synthetic idempotency key");
+      const existing = operations.get(key);
+      if (existing) {
+        expect(params).toBe(existing.params);
+        if (loseCreationResponse) throw new Error("synthetic lost creation response");
+        return Response.json(existing.body);
+      }
+      const form = new URLSearchParams(params);
+      const body = {
+        object: "checkout.session",
+        id: "cs_lostresponse",
+        url: "https://checkout.stripe.com/c/pay/cs_lostresponse",
+        status: "open",
+        payment_status: "unpaid",
+        amount_total: 1200,
+        currency: "usd",
+        created: Number(form.get("expires_at")) - 1860,
+        expires_at: Number(form.get("expires_at")),
+        livemode: false,
+        payment_intent: null,
+        metadata: {
+          dinkus_attempt: form.get("metadata[dinkus_attempt]"),
+          dinkus_binding: form.get("metadata[dinkus_binding]"),
+          dinkus_site: form.get("metadata[dinkus_site]"),
+        },
+        payment_method_types: ["card"],
+      };
+      operations.set(key, { params, body });
+      if (loseCreationResponse) {
+        loseCreationResponse = false;
+        throw new Error("synthetic lost creation response");
+      }
+      return Response.json(body);
+    }
+    if (path === "/v1/checkout/sessions/cs_lostresponse") {
+      retrieveCalls.push(path);
+      const body = [...operations.values()][0]?.body;
+      if (!body) throw new Error("synthetic session operation missing");
+      return Response.json(body);
+    }
+    throw new Error(`unexpected local Stripe route: ${init?.method ?? "GET"} ${path}`);
+  });
+
+  const principal = { accountId: "synthetic-owner", siteId: crypto.randomUUID() };
+  const stub = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", principal.siteId]));
+  const connected = await stub.startOnboarding(principal);
+  expect(connected.state).toBe("ready");
+  const payment = {
+    attemptId: "attempt-lost-response",
+    bindingRef: connected.bindingRef!,
+    lines: [{ catalogItemId: "sku-lost-response", quantity: 1, name: "Fixture Hat", unitPrice: { currency: "USD" as const, minor: "1200" } }],
+    total: { currency: "USD" as const, minor: "1200" },
+    paymentWindow: { minSeconds: 1800 as const, maxSeconds: 1860 as const },
+    paymentMethods: ["card"] as const,
+  };
+
+  const first = await stub.ensureSession(principal, payment);
+  expect(first).toEqual({ outcome: "unknown" });
+  expect(operations.size).toBe(1);
+  expect(createCalls).toBe(1);
+  const originalClaim = await runInDurableObject(stub, instance => {
+    const row = instance.ctx.storage.sql.exec<{ value: string }>(
+      "SELECT value FROM checkout_attempts WHERE attempt_id=?",
+      payment.attemptId,
+    ).one();
+    return JSON.parse(row.value);
+  });
+  expect(originalClaim).toMatchObject({
+    attemptId: payment.attemptId,
+    bindingRef: connected.bindingRef,
+    stripeAccountId: "acct_lostresponse",
+    siteId: principal.siteId,
+    requestFingerprint: expect.any(String),
+    idempotencyKey: "dinkus-checkout:attempt-lost-response",
+    stripeSessionId: null,
+    redirectUrl: null,
+  });
+  const originalIdentity = {
+    requestFingerprint: originalClaim.requestFingerprint,
+    idempotencyKey: originalClaim.idempotencyKey,
+    requestedExpiresAtSeconds: originalClaim.requestedExpiresAtSeconds,
+    claimedAtMs: originalClaim.claimedAtMs,
+    stripeAccountId: originalClaim.stripeAccountId,
+    siteId: originalClaim.siteId,
+  };
+
+  expect(await stub.lookup(principal, payment)).toEqual({ outcome: "unknown" });
+  expect(createCalls).toBe(1);
+
+  const payload = JSON.stringify({
+    id: "evt_lostresponse",
+    object: "event",
+    type: "checkout.session.completed",
+    livemode: false,
+    account: "acct_lostresponse",
+    data: {
+      object: {
+        object: "checkout.session",
+        id: "cs_lostresponse",
+        url: "https://checkout.stripe.com/c/pay/cs_lostresponse",
+        status: "open",
+        payment_status: "unpaid",
+        amount_total: 1200,
+        currency: "usd",
+        created: operations.values().next().value!.body.created,
+        expires_at: operations.values().next().value!.body.expires_at,
+        livemode: false,
+        payment_intent: null,
+        metadata: {
+          dinkus_attempt: payment.attemptId,
+          dinkus_binding: payment.bindingRef,
+          dinkus_site: principal.siteId,
+        },
+      },
+    },
+  });
+  const signature = await Stripe.webhooks.generateTestHeaderStringAsync({
+    payload,
+    secret: "whsec_synthetic_fixture",
+    cryptoProvider: Stripe.createSubtleCryptoProvider(),
+  });
+  const webhookError = await runInDurableObject(stub, async instance => {
+    try {
+      await instance.receiveWebhook(new TextEncoder().encode(payload).buffer as ArrayBuffer, signature, "acct_lostresponse");
+      return "allowed";
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  });
+  expect(webhookError).toBe("session_missing");
+  expect(retrieveCalls).toEqual([]);
+  expect(await runInDurableObject(stub, instance => instance.ctx.storage.sql.exec(
+    "SELECT attempt_id FROM checkout_wakes ORDER BY attempt_id",
+  ).toArray())).toEqual([]);
+  expect(await runInDurableObject(stub, instance => instance.ctx.storage.sql.exec(
+    "SELECT event_id FROM checkout_wake_events ORDER BY event_id",
+  ).toArray())).toEqual([]);
+  expect(await runInDurableObject(stub, instance => instance.ctx.storage.sql.exec<{ value: string }>(
+    "SELECT value FROM checkout_attempts WHERE attempt_id=?",
+    payment.attemptId,
+  ).one()).then(row => JSON.parse(row.value))).toEqual(originalClaim);
+
+  await evictDurableObject(stub);
+  const reopened = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", principal.siteId]));
+  expect(await reopened.lookup(principal, payment)).toEqual({ outcome: "unknown" });
+  expect(createCalls).toBe(1);
+  const reopenedClaim = await runInDurableObject(reopened, instance => {
+    const row = instance.ctx.storage.sql.exec<{ value: string }>(
+      "SELECT value FROM checkout_attempts WHERE attempt_id=?",
+      payment.attemptId,
+    ).one();
+    return JSON.parse(row.value);
+  });
+  expect(reopenedClaim).toEqual(originalClaim);
+  expect({
+    requestFingerprint: reopenedClaim.requestFingerprint,
+    idempotencyKey: reopenedClaim.idempotencyKey,
+    requestedExpiresAtSeconds: reopenedClaim.requestedExpiresAtSeconds,
+    claimedAtMs: reopenedClaim.claimedAtMs,
+    stripeAccountId: reopenedClaim.stripeAccountId,
+    siteId: reopenedClaim.siteId,
+  }).toEqual(originalIdentity);
+
+  loseCreationResponse = false;
+  const replay = await reopened.ensureSession(principal, payment);
+  expect(replay).toMatchObject({
+    outcome: "open",
+    attemptId: payment.attemptId,
+    session: {
+      sessionId: "cs_lostresponse",
+      redirectUrl: "https://checkout.stripe.com/c/pay/cs_lostresponse",
+    },
+  });
+  expect(operations.size).toBe(1);
+  expect(createCalls).toBe(2);
+  expect(createAccounts).toEqual(["acct_lostresponse", "acct_lostresponse"]);
+  expect(await reopened.lookup(principal, payment)).toEqual(replay);
+  const recoveredClaim = await runInDurableObject(reopened, instance => {
+    const row = instance.ctx.storage.sql.exec<{ value: string }>(
+      "SELECT value FROM checkout_attempts WHERE attempt_id=?",
+      payment.attemptId,
+    ).one();
+    return JSON.parse(row.value);
+  });
+  expect(recoveredClaim).toMatchObject({
+    ...originalIdentity,
+    stripeSessionId: "cs_lostresponse",
+    redirectUrl: "https://checkout.stripe.com/c/pay/cs_lostresponse",
+  });
+  await evictDurableObject(reopened);
+  const afterReplay = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", principal.siteId]));
+  expect(await afterReplay.lookup(principal, payment)).toEqual(replay);
+  expect(createCalls).toBe(2);
+  expect(operations.size).toBe(1);
+});
+
 test("Durable Object wake consumers serialize callbacks and avoid ACK overcounting", async () => {
   const siteId = crypto.randomUUID();
   const stub = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", siteId]));
