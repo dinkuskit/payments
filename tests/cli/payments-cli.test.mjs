@@ -192,15 +192,14 @@ test("service text cannot drive the terminal in human output or the connect prev
 test("site and endpoint resolve from flags, environment and config files in that order", async () => {
 	const project = join(scratch, "project");
 	await mkdir(join(project, ".dinkuskit"), { recursive: true });
-	await writeFile(join(project, ".dinkuskit", "payments.json"), JSON.stringify({ endpoint: "https://config.example.invalid", site: "site_config", profiles: { other: { site: "site_profile" } } }));
-	const noEnvEndpoint = { DINKUS_PAYMENTS_ENDPOINT: "" };
+	await writeFile(join(project, ".dinkuskit", "payments.json"), JSON.stringify({ site: "site_config", profiles: { other: { site: "site_profile" } } }));
 
-	const fromConfig = await run(["status", "--json"], { routes: ready, cwd: project, env: noEnvEndpoint });
+	const fromConfig = await run(["status", "--json"], { routes: ready, cwd: project });
 	assert.equal(fromConfig.json().context.siteId, "site_config");
 	assert.equal(fromConfig.calls[0].headers["x-dinkus-site"], "site_config");
 	assert.equal(fromConfig.calls[0].headers.authorization, `Bearer ${TOKEN}`);
 
-	const fromProfile = await run(["--profile", "other", "status", "--json"], { routes: ready, cwd: project, env: noEnvEndpoint });
+	const fromProfile = await run(["--profile", "other", "status", "--json"], { routes: ready, cwd: project });
 	assert.equal(fromProfile.json().context.siteId, "site_profile");
 
 	const fromEnv = await run(["status", "--json"], { routes: ready, cwd: project, env: { DINKUS_PAYMENTS_SITE: "site_env" } });
@@ -208,6 +207,27 @@ test("site and endpoint resolve from flags, environment and config files in that
 
 	const fromFlag = await run(["--site", SITE, "status", "--json"], { routes: ready, cwd: project, env: { DINKUS_PAYMENTS_SITE: "site_env" } });
 	assert.equal(fromFlag.json().context.siteId, SITE);
+});
+
+test("the token is never sent to an endpoint from project config", async () => {
+	const project = join(scratch, "untrusted-endpoint");
+	await mkdir(join(project, ".dinkuskit"), { recursive: true });
+	await writeFile(join(project, ".dinkuskit", "payments.json"), JSON.stringify({ endpoint: "https://config.example.invalid", site: SITE }));
+
+	const refused = await run(["status", "--json"], { routes: ready, cwd: project, env: { DINKUS_PAYMENTS_ENDPOINT: "" } });
+	assert.equal(refused.code, 4);
+	assert.equal(refused.calls.length, 0, "nothing is sent to the project-config host");
+	assert.equal(refused.json().error.code, "untrusted_endpoint");
+
+	const fromEnv = await run(["status", "--json"], { routes: ready, cwd: project });
+	assert.equal(fromEnv.code, 0, fromEnv.stderr);
+
+	const xdg = join(scratch, "xdg-endpoint");
+	await mkdir(join(xdg, "dinkuskit", "payments"), { recursive: true });
+	await writeFile(join(xdg, "dinkuskit", "payments", "config.json"), JSON.stringify({ endpoint: ENDPOINT }));
+	const fromUser = await run(["--site", SITE, "status", "--json"], { routes: ready, env: { DINKUS_PAYMENTS_ENDPOINT: "", XDG_CONFIG_HOME: xdg } });
+	assert.equal(fromUser.code, 0, fromUser.stderr);
+	assert.equal(fromUser.calls.length, 1);
 });
 
 test("config files that hold a token are rejected before any request", async () => {

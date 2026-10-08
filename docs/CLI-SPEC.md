@@ -249,7 +249,7 @@ needs a new schema version. Human text is not a parsing interface.
 | `1` | Business rejection (`409`), a `400` refusal from the service, or a route the service does not serve (`404`). Nothing changed. |
 | `2` | Invalid usage, missing site or endpoint, invalid non-secret config, malformed `--request`, or invalid `--limit`. Nothing was sent. |
 | `3` | Service, network, or timeout failure (`5xx`, unreachable), or an unknown `connect` outcome. |
-| `4` | Missing or malformed `DINKUS_PAYMENTS_TOKEN`, `401`, `403`, a declined or missing confirmation, or Ctrl-C before a send. |
+| `4` | Missing or malformed `DINKUS_PAYMENTS_TOKEN`, an endpoint from project config (`untrusted_endpoint`), `401`, `403`, a declined or missing confirmation, or Ctrl-C before a send. |
 | `5` | The response broke the contract: non-JSON body, wrong shape, mismatched `bindingRef` or `attemptId`, a redirect, or `405`. |
 
 HTTP mapping in detail:
@@ -289,14 +289,20 @@ optional `profiles` map whose entries override them:
 
 ```json
 {
-  "endpoint": "https://payments.example.invalid",
-  "profiles": { "demo": { "site": "site_demo" } }
+  "site": "site_demo",
+  "profiles": { "other": { "site": "site_other" } }
 }
 ```
 
 Config files are rejected (exit `2`) if any key looks like a secret (`token`,
 `secret`, `password`, `authorization`, `credential`, `api_key`, `cookie`). An
 unknown `--profile` is a usage error.
+
+Every request carries the token, so the endpoint must come from `--endpoint`,
+`DINKUS_PAYMENTS_ENDPOINT`, or user config. Project config comes with the
+working directory (a cloned repository, for example); when it supplies the
+endpoint, the command exits `4` with `untrusted_endpoint` before sending
+anything. Project config may still supply `site` and profiles.
 
 The credential comes only from `DINKUS_PAYMENTS_TOKEN`, supplied by the
 caller's secret manager or shell. There is no `--token` flag, no token in

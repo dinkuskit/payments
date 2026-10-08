@@ -4,7 +4,7 @@
 import { createReadStream } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { CliError, EXIT, sanitizeTerminal, usageError, validateEndpoint } from "./kernel.mjs";
-import { KNOWN_STATES, createPaymentsClient, readToken } from "../client/payments-client.mjs";
+import { KNOWN_STATES, TOKEN_ENV, createPaymentsClient, readToken } from "../client/payments-client.mjs";
 
 const NAME = "dinkus-payments";
 const SITE_ID = /^[\x21-\x7e]{1,200}$/;
@@ -50,6 +50,15 @@ function bindingArgument(ctx) {
 
 // The credential is read last, after every local usage check has passed.
 function paymentsClient(ctx, { endpoint, siteId }) {
+	// A project config file comes with the working directory, so it must not
+	// decide which host receives the token. Every Payments request carries it.
+	if (ctx.config.source("endpoint") === "project") {
+		throw new CliError(
+			"untrusted_endpoint",
+			`Refusing to send ${TOKEN_ENV} to an endpoint from project config. Pass --endpoint or set DINKUS_PAYMENTS_ENDPOINT.`,
+			{ exit: EXIT.blocked },
+		);
+	}
 	return createPaymentsClient({
 		endpoint,
 		siteId,
