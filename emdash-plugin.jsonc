@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/@emdash-cms/plugin-cli/schemas/emdash-plugin.schema.json",
+  "slug": "dinkus-payments",
+  "version": "0.0.0",
+  "license": "MIT",
+  "capabilities": [],
+  "allowedHosts": [],
+  "admin": {
+    "pages": [
+      {
+        "path": "/status",
+        "label": "Payments status",
+        "icon": "activity"
+      }
+    ]
+  },
+  "name": "DinkusKit Payments",
+  "description": "Private local Payments status surface.",
+  "keywords": [
+    "payments",
+    "status"
+  ],
+  "repo": "https://github.com/dinkuskit/payments",
+  "publisher": "did:plc:ekk4pjmkh3k3ql2kfoex3qt4",
+  "author": {
+    "name": "DinkusKit",
+    "url": "https://github.com/dinkuskit"
+  },
+  "security": {
+    "url": "https://github.com/dinkuskit/payments/security"
+  }
+}

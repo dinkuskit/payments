@@ -15,7 +15,10 @@
   "dinkuskit": {
     "pluginId": "dinkus-payments",
     "providerSelection": "one-active-per-store",
-    "demoProviders": ["stripe", "authorize_net"],
+    "demoProviders": [
+      "stripe",
+      "authorize_net"
+    ],
     "demoCurrencies": [
       "USD"
     ],
@@ -25,11 +28,15 @@
   "scripts": {
     "test": "node --import tsx --test tests/*.test.mjs",
     "audit:repo": "node scripts/repo-contract.mjs",
+    "plugin:validate": "emdash-plugin validate",
+    "plugin:build": "emdash-plugin build --out-dir dist/registry",
+    "plugin:bundle": "emdash-plugin bundle --out-dir dist/registry",
+    "test:plugin-runtime": "vitest run --config vitest.plugin.config.ts",
     "verify:quick": "bin/verify-payments quick",
     "verify:full": "bin/verify-payments full",
     "proof:stripe-test": "node --import tsx scripts/stripe-test-mode-proof.mjs",
     "test:runtime": "vitest run",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit --project tsconfig.plugin.json",
     "types": "wrangler types --include-runtime false",
     "build": "wrangler deploy --dry-run --outdir dist"
   },
@@ -40,6 +47,9 @@
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.3.3",
     "@cloudflare/workers-types": "5.20260929.1",
+    "@emdash-cms/plugin-cli": "0.13.3",
+    "@emdash-cms/plugin-test": "0.2.8",
+    "emdash": "1.2.0",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
     "vitest": "4.1.11",
