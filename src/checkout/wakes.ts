@@ -5,8 +5,9 @@ export interface WakeContext {
   readonly attemptId: string;
   readonly siteId: string;
   readonly bindingRef: string;
-  readonly stripeAccountId: string;
   readonly mode: Mode;
+  readonly stripeAccountId?: string;
+  readonly authorizeNetMerchantId?: string;
 }
 
 export interface CommercePaymentWake {
@@ -23,7 +24,11 @@ export class WakeError extends Error {}
 
 export function assertWakeContext(context: WakeContext): void {
   if (!context || typeof context !== "object") throw new WakeError("invalid_wake_context");
-  const required = ["eventId", "attemptId", "siteId", "bindingRef", "stripeAccountId", "mode"];
+  const hasStripe = Object.prototype.hasOwnProperty.call(context, "stripeAccountId");
+  const hasAuthorizeNet = Object.prototype.hasOwnProperty.call(context, "authorizeNetMerchantId");
+  if (hasStripe === hasAuthorizeNet) throw new WakeError("invalid_wake_context");
+  const identityKey = hasStripe ? "stripeAccountId" : "authorizeNetMerchantId";
+  const required = ["eventId", "attemptId", "siteId", "bindingRef", identityKey, "mode"];
   const keys = Object.keys(context);
   if (keys.length !== required.length || required.some(key => !Object.prototype.hasOwnProperty.call(context, key))) {
     throw new WakeError("invalid_wake_context");

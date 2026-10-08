@@ -35,7 +35,7 @@ export class PaymentConnection extends DurableObject<Env> {
       pending: batchLimit => sql.exec<WakeRow>(
         "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, authorize_net_merchant_id AS authorizeNetMerchantId, mode FROM checkout_wake_events WHERE acknowledged_at IS NULL ORDER BY received_at ASC LIMIT ?",
         batchLimit,
-      ).toArray().map(({ authorizeNetMerchantId: _authorizeNetMerchantId, ...context }) => context as WakeRow),
+      ).toArray().map(row => wakeContextFromRow(row)),
       acknowledge: context => {
         assertWakeContext(context);
         const row = sql.exec<WakeRow>(
@@ -248,9 +248,11 @@ export class PaymentConnection extends DurableObject<Env> {
           const record = sql.exec<{ value: string }>("SELECT value FROM authorize_net_attempts WHERE attempt_id=?", event.attemptId).toArray()[0];
           const stored = record ? JSON.parse(record.value) as { bindingRef?: string } : null;
           if (stored?.bindingRef) {
+            const merchantId = (this.env.AUTHORIZE_NET_MERCHANT_ID as string) || this.env.AUTHORIZE_NET_API_LOGIN_ID;
+            const eventId = authorizeNetWakeEventId(event.id);
             sql.exec(
               "INSERT OR IGNORE INTO checkout_wake_events (event_id,attempt_id,site_id,binding_ref,stripe_account_id,authorize_net_merchant_id,mode,received_at,acknowledged_at,delivery_generation) VALUES (?,?,?,?,?,?,?, ?,NULL,1)",
-              `evt_anet_${event.id}`, event.attemptId, siteId, stored.bindingRef, "", (this.env.AUTHORIZE_NET_MERCHANT_ID as string) || this.env.AUTHORIZE_NET_API_LOGIN_ID, "test", receivedAt,
+              eventId, event.attemptId, siteId, stored.bindingRef, "", merchantId, "test", receivedAt,
             );
           }
         }
@@ -258,6 +260,34 @@ export class PaymentConnection extends DurableObject<Env> {
     })(payload, signature, eventId);
     sql.exec("INSERT OR IGNORE INTO authorize_net_webhook_events (event_id) VALUES (?)", eventId);
   }
+}
+
+function authorizeNetWakeEventId(notificationId: string): string {
+  const compact = notificationId.replace(/[^A-Za-z0-9]/g, "");
+  if (!compact) throw new WakeError("invalid_event_id");
+  return `evt_anet${compact}`;
+}
+
+function wakeContextFromRow(row: WakeRow): WakeContext {
+  const merchantId = typeof row.authorizeNetMerchantId === "string" ? row.authorizeNetMerchantId : "";
+  if (merchantId) {
+    return {
+      eventId: row.eventId,
+      attemptId: row.attemptId,
+      siteId: row.siteId,
+      bindingRef: row.bindingRef,
+      authorizeNetMerchantId: merchantId,
+      mode: row.mode,
+    };
+  }
+  return {
+    eventId: row.eventId,
+    attemptId: row.attemptId,
+    siteId: row.siteId,
+    bindingRef: row.bindingRef,
+    stripeAccountId: String(row.stripeAccountId ?? ""),
+    mode: row.mode,
+  };
 }
 
 function stubFor(env: Env, siteId: string) {

@@ -1,3 +1,4 @@
+import { AuthorizeNetWebhookError } from "../authorize-net/webhook.js";
 import { CheckoutError } from "../checkout/sessions.js";
 import { WebhookError } from "../checkout/webhook.js";
 import { assertCommercePaymentWake, WakeError, type CommercePaymentWake } from "../checkout/wakes.js";
@@ -80,7 +81,9 @@ export function createHostedHandler(options: {
         await options.authorizeNetWebhook(new Uint8Array(await request.arrayBuffer()), signature, eventId, authorizeNetPath[1]);
         return respond({ received: true });
       } catch (error) {
-        if (error instanceof WebhookError) return respond({ error: error.message }, 400);
+        if (error instanceof AuthorizeNetWebhookError || error instanceof WebhookError) {
+          return respond({ error: error.message }, 400);
+        }
         if (error instanceof Error && /signature/i.test(error.message)) return respond({ error: "invalid_signature" }, 400);
         return respond({ error: "wake_failed" }, 500);
       }
