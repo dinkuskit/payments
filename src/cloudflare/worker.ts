@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { createCheckoutSessionService, type AttemptRecord } from "../checkout/sessions.js";
 import { createStripeWebhookVerifier, createWebhookHandler, WebhookError } from "../checkout/webhook.js";
 import { assertCommercePaymentWake, assertWakeContext, consumeWakeBatch, WakeError, type CommercePaymentWake, type ReconciliationResult, type WakeContext, type WakeEventStore } from "../checkout/wakes.js";
-import { createConnectionService, type CheckoutBinding, type Connection, type Principal } from "../hosted/connection.js";
+import { ConnectionError, createConnectionService, type CheckoutBinding, type Connection, type Principal } from "../hosted/connection.js";
 import { createAccountAuthenticator } from "../hosted/auth.js";
 import { createHostedHandler } from "../hosted/http.js";
 import { createStripeCheckout } from "../stripe/checkout.js";
@@ -60,7 +60,13 @@ export class PaymentConnection extends DurableObject<Env> {
         },
         write: record => { sql.exec("INSERT INTO connection_state (id,value) VALUES (1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value", JSON.stringify(record)); },
       })) },
-      provider: createStripeOnboarding({ apiKey: this.env.STRIPE_API_KEY, mode: "test", returnUrl: this.env.ONBOARDING_RETURN_URL, refreshUrl: this.env.ONBOARDING_REFRESH_URL }),
+      provider: (this.env.PAYMENT_PROVIDER as string) === "authorize_net"
+        ? {
+          createAccount: async () => { throw new ConnectionError("stripe_unconfigured"); },
+          accountStatus: async () => { throw new ConnectionError("stripe_unconfigured"); },
+          createLink: async () => { throw new ConnectionError("stripe_unconfigured"); },
+        }
+        : createStripeOnboarding({ apiKey: this.env.STRIPE_API_KEY, mode: "test", returnUrl: this.env.ONBOARDING_RETURN_URL, refreshUrl: this.env.ONBOARDING_REFRESH_URL }),
       providerId: (this.env.PAYMENT_PROVIDER as string) === "authorize_net" ? "authorize_net" : "stripe",
       authorizeNetMerchantId: (this.env.AUTHORIZE_NET_MERCHANT_ID as string) || this.env.AUTHORIZE_NET_API_LOGIN_ID,
     });
@@ -296,8 +302,11 @@ function stubFor(env: Env, siteId: string) {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    if (!env.ACCOUNT_ISSUER || !env.ACCOUNT_AUDIENCE || !env.ACCOUNT_JWKS_URL || !env.STRIPE_API_KEY || !env.ONBOARDING_RETURN_URL || !env.ONBOARDING_REFRESH_URL ||
-        ((env.PAYMENT_PROVIDER as string) === "authorize_net" && (env.AUTHORIZE_NET_MODE !== "test" || !env.AUTHORIZE_NET_API_LOGIN_ID || !env.AUTHORIZE_NET_TRANSACTION_KEY || !env.AUTHORIZE_NET_SIGNATURE_KEY))) {
+    const authorizeNet = (env.PAYMENT_PROVIDER as string) === "authorize_net";
+    const issuerConfigured = Boolean(env.ACCOUNT_ISSUER && env.ACCOUNT_AUDIENCE && env.ACCOUNT_JWKS_URL);
+    const authorizeNetConfigured = env.AUTHORIZE_NET_MODE === "test" && Boolean(env.AUTHORIZE_NET_API_LOGIN_ID && env.AUTHORIZE_NET_TRANSACTION_KEY && env.AUTHORIZE_NET_SIGNATURE_KEY);
+    const stripeConfigured = Boolean(env.STRIPE_API_KEY && env.ONBOARDING_RETURN_URL && env.ONBOARDING_REFRESH_URL);
+    if (!issuerConfigured || (authorizeNet ? !authorizeNetConfigured : !stripeConfigured)) {
       return Response.json({ error: "payments_service_unconfigured" }, { status: 503, headers: { "Cache-Control": "no-store" } });
     }
     try {

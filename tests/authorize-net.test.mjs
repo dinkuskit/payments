@@ -242,7 +242,7 @@ test("browser return is only a validated lookup hint and forged URLs fail closed
 
 test("wired payment port persists hosted session and reports authoritative paid, unpaid, and pending outcomes", async () => {
   const records = new Map();
-  let response = { transId: "123", responseCode: 1, transactionStatus: "settledSuccessfully", authAmount: "12.00", settleAmount: "12.00" };
+  let response = { transId: "123", responseCode: 1, transactionStatus: "settledSuccessfully", authAmount: "12.00", settleAmount: "12.00", order: { invoiceNumber: payment.attemptId } };
   const gateway = createAuthorizeNetGateway({
     ...credentials,
     transport: { request: async body => body.getTransactionDetailsRequest
@@ -274,6 +274,9 @@ test("wired payment port persists hosted session and reports authoritative paid,
   records.get(payment.attemptId).transactionId = "123";
   await assert.rejects(port.lookup(payment), /amount_or_currency_mismatch/);
   await assert.rejects(port.ensureSession({ ...payment, total: { currency: "USD", minor: "1300" } }), /attempt_mismatch/);
+  response = { transId: "123", responseCode: 1, transactionStatus: "settledSuccessfully", authAmount: "12.00", settleAmount: "12.00", order: { invoiceNumber: "other-attempt" } };
+  records.get(payment.attemptId).transactionId = "123";
+  await assert.rejects(port.lookup(payment), /identity_mismatch/);
 });
 
 test("wired creation remains unknown after a lost response and can recover durably", async () => {

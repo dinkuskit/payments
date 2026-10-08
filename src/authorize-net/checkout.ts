@@ -307,13 +307,20 @@ export function createAuthorizeNetPaymentPort(options: {
       if (!existing?.transactionId) return { outcome: "unknown" };
       try {
         const transaction = await options.gateway.getTransaction(existing.transactionId);
+        const identity = identityFor(request.attemptId);
+        if (transaction.invoiceNumber !== identity && transaction.refId !== identity) {
+          throw new AuthorizeNetError("identity_mismatch");
+        }
         const outcome = transactionOutcome(transaction, request.total);
         const fields = { attemptId: request.attemptId, total: request.total, session: asSession(existing) };
         if (outcome === "paid") return { outcome, ...fields, paymentId: transaction.id };
         if (outcome === "unpaid") return { outcome: "expired-unpaid" as const, ...fields };
         return { outcome: "unknown" as const };
       } catch (error) {
-        if (error instanceof AuthorizeNetError && error.message === "amount_or_currency_mismatch") throw error;
+        if (error instanceof AuthorizeNetError &&
+            (error.message === "amount_or_currency_mismatch" || error.message === "identity_mismatch")) {
+          throw error;
+        }
         return { outcome: "unknown" };
       }
     },
