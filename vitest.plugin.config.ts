@@ -1,0 +1,11 @@
+import { emdashPluginTest } from "@emdash-cms/plugin-test/config";
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  plugins: [emdashPluginTest()],
+  test: {
+    include: ["tests/registry-runtime.test.ts"],
+    maxWorkers: 1,
+    minWorkers: 1,
+  },
+});
