@@ -2,6 +2,11 @@
 import assert from "node:assert/strict";
 import { createCheckoutSessionService, requestFingerprint } from "../src/checkout/sessions.ts";
 import { createStripeCheckout } from "../src/stripe/checkout.ts";
+import {
+  createProofRequest,
+  lookupProofRequest,
+  STRIPE_PROOF_AMOUNT_MINOR,
+} from "./stripe-test-mode-proof-logic.mjs";
 
 const run = process.argv.includes("--run");
 const lookupIndex = process.argv.indexOf("--lookup");
@@ -44,14 +49,7 @@ if (lookupSessionId && !/^cs_test_[A-Za-z0-9]+$/.test(lookupSessionId)) {
 
 const principal = { accountId: "proof-owner", siteId: "stripe-test-proof" };
 const binding = { bindingRef: "stripe_test_proof", providerId: "stripe", stripeAccountId: accountId, mode: "test" };
-const request = {
-  attemptId: `stripe-proof-${Date.now()}`,
-  bindingRef: binding.bindingRef,
-  lines: [{ catalogItemId: "proof-item", quantity: 1, name: "Stripe test proof", unitPrice: { currency: "USD", minor: "100" } }],
-  total: { currency: "USD", minor: "100" },
-  paymentWindow: { minSeconds: 1800, maxSeconds: 1860 },
-  paymentMethods: ["card"],
-};
+const request = createProofRequest(`stripe-proof-${Date.now()}`, binding.bindingRef);
 
 const attempts = new Map();
 const store = {
@@ -88,23 +86,14 @@ async function check(name, action) {
 if (lookupSessionId) {
   const session = await check("retrieve test Checkout Session", () => provider.retrieveSession(lookupSessionId, accountId));
   if (!session) process.exit(1);
-  if (session.livemode || session.currency !== "usd" || !Number.isSafeInteger(session.amountTotal) || session.amountTotal <= 0) {
-    console.log("lookup session fields: FAIL (expected a USD test session with a positive integer amount)");
+  let lookup;
+  try {
+    lookup = lookupProofRequest(session);
+  } catch (error) {
+    console.log(`lookup session fields: FAIL (${redact(error.message)})`);
     process.exit(1);
   }
-  const { dinkus_attempt: attemptId, dinkus_binding: bindingRef, dinkus_site: siteId } = session.metadata;
-  if (!/^stripe-proof-[0-9]+$/.test(attemptId ?? "") || !bindingRef || !siteId) {
-    console.log("lookup session metadata: FAIL (not created by this proof)");
-    process.exit(1);
-  }
-  const lookupRequest = {
-    attemptId,
-    bindingRef,
-    lines: [{ catalogItemId: "proof-item", quantity: 1, name: "Stripe test proof", unitPrice: { currency: "USD", minor: String(session.amountTotal) } }],
-    total: { currency: "USD", minor: String(session.amountTotal) },
-    paymentWindow: { minSeconds: 1800, maxSeconds: 1860 },
-    paymentMethods: ["card"],
-  };
+  const { attemptId, bindingRef, siteId, request: lookupRequest } = lookup;
   attempts.set(attemptId, {
     attemptId,
     bindingRef,
@@ -113,7 +102,7 @@ if (lookupSessionId) {
     siteId,
     requestFingerprint: requestFingerprint(lookupRequest),
     lines: lookupRequest.lines,
-    amountMinor: String(session.amountTotal),
+    amountMinor: STRIPE_PROOF_AMOUNT_MINOR,
     currency: "USD",
     claimedAtMs: session.created * 1000,
     requestedExpiresAtSeconds: session.expiresAt,
@@ -134,7 +123,7 @@ if (lookupSessionId) {
     const outcome = await service.lookupFor({ accountId: "proof-owner", siteId }, lookupRequest);
     assert.equal(outcome.outcome, "paid");
     assert.equal(outcome.total.currency, "USD");
-    assert.equal(outcome.total.minor, String(session.amountTotal));
+    assert.equal(outcome.total.minor, STRIPE_PROOF_AMOUNT_MINOR);
     console.log(`payment-intent-id: ${outcome.paymentId}`);
   });
   process.exit();
@@ -155,7 +144,7 @@ await check("pre-payment lookup reports open/unpaid", async () => {
   const outcome = await service.lookupFor(principal, request);
   assert.equal(outcome.outcome, "open");
   assert.equal(outcome.total.currency, "USD");
-  assert.equal(outcome.total.minor, "100");
+  assert.equal(outcome.total.minor, STRIPE_PROOF_AMOUNT_MINOR);
 });
 
 console.log("next-step: pay the hosted URL, then rerun with --lookup <checkout-session-id>");

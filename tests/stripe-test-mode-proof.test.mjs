@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
+import { lookupProofRequest } from "../scripts/stripe-test-mode-proof-logic.mjs";
 
 const script = "scripts/stripe-test-mode-proof.mjs";
 
@@ -38,4 +39,17 @@ test("Stripe proof requires a connected test account without contacting Stripe",
       return true;
     },
   );
+});
+
+test("lookup proof rejects a provider amount drift before any network call", () => {
+  assert.throws(() => lookupProofRequest({
+    livemode: false,
+    currency: "usd",
+    amountTotal: 200,
+    metadata: {
+      dinkus_attempt: "stripe-proof-123",
+      dinkus_binding: "stripe_test_proof",
+      dinkus_site: "stripe-test-proof",
+    },
+  }), /proof_amount_mismatch/);
 });
