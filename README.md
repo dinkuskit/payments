@@ -29,6 +29,19 @@ The plugin is adapter-ready rather than permanently Stripe-only. Future
 processors may be added as isolated modules behind the same Commerce-owned
 payment-provider contract. They do not require a second checkout model.
 
+## Install type
+
+DinkusKit plugins ship as EmDash Registry plugins: sandboxed and installed
+from the plugin Registry, which is how most EmDash sites add plugins. The
+Registry build is the supported product, and features are designed, tested and
+documented for it first. A native entry (code a site registers in its own
+configuration or Astro routes) is a developer and test setup only. It may not
+offer features the Registry build lacks, except temporary gaps listed here with
+the work that closes them. The project owner set this rule on 2026-10-08.
+
+Payments runs as a hosted service and has no installable plugin yet. When the
+`dinkus-payments` plugin ships, it ships as a Registry plugin under this rule.
+
 ## Amount terminology
 
 - **Currency** identifies the unit, such as `USD`.
