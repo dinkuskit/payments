@@ -4,13 +4,58 @@
   "current_focus": {
     "cadence": "sequential",
     "confirmed": true,
-    "confirmed_at": "2026-10-07T23:28:45+00:00",
-    "domain": "Merchant-owned Stripe connection from the registry Payments plugin",
-    "started_at": "2026-10-07T23:28:36+00:00",
+    "confirmed_at": "2026-10-08T21:44:46+00:00",
+    "domain": "Authorize.net provider binding identity",
+    "started_at": "2026-10-08T21:44:46+00:00",
     "status": "confirmed",
-    "summary": "Continue accepted hosted-service decision unchanged: repair authenticated byte-empty POST connect across workerd, reject caller content and query, verify signed site/owner isolation and current provider readiness. Parent delegated bounded Payments-only defect repair under existing locks. Synthetic proof only; no issuer creation, credentials, real provider traffic, deployment, publication or merge."
+    "summary": "Keep dedicated Authorize.net merchant binding, webhook wakes consumable with hashed evt_anet IDs, and HTTP validation from main."
   },
   "decisions": [
+    {
+      "baseline_ref": "git:b49fe39",
+      "candidate_refs": [],
+      "choice": "Qualify Stripe TEST mode for the demo checkout boundary without changing Commerce or template-store: preserve server-owned Stripe Connect binding, Commerce-authoritative amounts and paid decisions, authoritative Session plus PaymentIntent lookup, and webhook verification that only wakes reconciliation. Add a no-secret opt-in proof script and document the remaining cross-repository bindings. Exclude live mode, deployment, production mutation, and merge.",
+      "context_ref": "github:dinkuskit/payments/pull/20",
+      "created_at": "2026-10-08T15:46:00+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-plugin-topology-001",
+        "payments-demo-currency-002",
+        "merchant-stripe-ownership-001",
+        "payments-checkout-sessions-001"
+      ],
+      "domain": "Stripe TEST mode checkout proof",
+      "history": [
+        {
+          "at": "2026-10-08T15:46:00+00:00",
+          "choice": "Qualify Stripe TEST mode for the demo checkout boundary without changing Commerce or template-store: preserve server-owned Stripe Connect binding, Commerce-authoritative amounts and paid decisions, authoritative Session plus PaymentIntent lookup, and webhook verification that only wakes reconciliation. Add a no-secret opt-in proof script and document the remaining cross-repository bindings. Exclude live mode, deployment, production mutation, and merge.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "Ryan (GitHub saariuslystoned) approved this change on a branch.",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-stripe-test-mode-003",
+      "implementation_ref": "docs/stripe-test-mode.md;scripts/stripe-test-mode-proof.mjs",
+      "question": "What payments-side proof and handoff are required for a Stripe TEST mode demo checkout?",
+      "rationale": "Ryan approved a payments-only test-mode qualification with Commerce and template-store follow-up explicitly out of scope.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "locked",
+      "superseded_by": null,
+      "updated_at": "2026-10-08T15:46:00+00:00",
+      "verification_ref": null
+    },
     {
       "baseline_ref": null,
       "candidate_refs": [],
@@ -1058,10 +1103,38 @@
           "review_source_identity": null,
           "to": "locked",
           "verification_ref": null
+        },
+        {
+          "at": "2026-10-08T21:44:46+00:00",
+          "choice": "Give Authorize.net its dedicated server-owned `authorizeNetMerchantId` binding field. Stripe bindings use only `stripeAccountId`; Authorize.net bindings use only `authorizeNetMerchantId`; cross-provider fields and the `authorize_net` sentinel in `stripeAccountId` fail closed.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-08T21:45:09+00:00",
+          "choice": "Give Authorize.net its dedicated server-owned `authorizeNetMerchantId` binding field. Stripe bindings use only `stripeAccountId`; Authorize.net bindings use only `authorizeNetMerchantId`; cross-provider fields and the `authorize_net` sentinel in `stripeAccountId` fail closed.",
+          "from": "implemented",
+          "implementation_ref": "file:src/hosted/connection.ts,src/cloudflare/worker.ts,src/checkout/wakes.ts,src/hosted/http.ts,FEATURE_MAP.md",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": null
         }
       ],
       "id": "payments-authorize-net-binding-003",
-      "implementation_ref": null,
+      "implementation_ref": "file:src/hosted/connection.ts,src/cloudflare/worker.ts,src/checkout/wakes.ts,src/hosted/http.ts,FEATURE_MAP.md",
       "question": "Which server-owned binding field identifies the Authorize.net merchant?",
       "rationale": "Stripe account identity must remain Stripe-only; Commerce PR #72 reads the exact `authorizeNetMerchantId` field.",
       "repair_required": false,
@@ -1070,10 +1143,10 @@
       "review_ref": null,
       "review_result": null,
       "review_source_identity": null,
-      "status": "locked",
+      "status": "verified",
       "superseded_by": null,
-      "updated_at": "2026-10-08T18:50:00+00:00",
-      "verification_ref": null
+      "updated_at": "2026-10-08T21:45:09+00:00",
+      "verification_ref": "npm test: 102 passed after merging origin/main"
     }
   ],
   "last_activation": {
@@ -1100,5 +1173,5 @@
   "status": "active",
   "title": "DinkusKit Payments public scaffold",
   "track_id": "gt-20260830202947-ccfe03",
-  "updated_at": "2026-10-08T01:56:00+00:00"
+  "updated_at": "2026-10-08T21:45:09+00:00"
 }

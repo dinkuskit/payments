@@ -12,6 +12,9 @@ released public compatibility promise yet.
 
 ## Boundary rules
 
+- Install type: the sandboxed Registry plugin is the supported product. A
+  native entry is a developer and test setup with no features the Registry
+  build lacks, except gaps the README lists (owner rule, 2026-10-08).
 - Commerce defines the payment-provider contract. Payments implements it and
   must not create a second checkout or order model.
 - Provider selection is store-level server state. A checkout request never
