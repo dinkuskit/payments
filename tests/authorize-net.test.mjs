@@ -16,6 +16,14 @@ import {
 
 const credentials = { apiLoginId: "synthetic-login", transactionKey: "synthetic-transaction-key", merchantCurrency: "USD", mode: "test" };
 
+async function signedAuthorizeNetWebhook(body, key = "signature-key") {
+  const payload = new TextEncoder().encode(JSON.stringify(body));
+  const cryptoKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-512" }, false, ["sign"]);
+  const digest = [...new Uint8Array(await crypto.subtle.sign("HMAC", cryptoKey, payload))]
+    .map(byte => byte.toString(16).padStart(2, "0")).join("");
+  return { payload, signature: `sha512=${digest}`, key };
+}
+
 test("mode pins API and hosted endpoints and unknown mode fails closed", () => {
   assert.deepEqual(authorizeNetEndpoints("test"), {
     api: AUTHORIZE_NET_SANDBOX_URL,
@@ -124,18 +132,42 @@ test("a lost creation response remains retryable unknown and never fabricates a 
 });
 
 test("webhooks verify raw bytes, reject tampering and replay, and wake only once", async () => {
-  const key = "signature-key";
-  const payload = new TextEncoder().encode(JSON.stringify({ notificationId: "n-1", eventType: "net.authorize.payment.authcapture.created" }));
-  const cryptoKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-512" }, false, ["sign"]);
-  const digest = [...new Uint8Array(await crypto.subtle.sign("HMAC", cryptoKey, payload))]
-    .map(byte => byte.toString(16).padStart(2, "0")).join("");
+  const { payload, signature, key } = await signedAuthorizeNetWebhook({
+    notificationId: "n-1",
+    eventType: "net.authorize.payment.authcapture.created",
+  });
   const seen = new Set();
   const wakes = [];
   const handle = createAuthorizeNetWebhookHandler({ signatureKey: key, seenEventIds: seen, wake: async event => wakes.push(event.id) });
-  await handle(payload, `sha512=${digest}`, "n-1");
+  await handle(payload, signature, "n-1");
   assert.deepEqual(wakes, ["n-1"]);
-  await assert.rejects(handle(payload, `sha512=${digest}`, "n-1"), /replayed_event/);
+  await assert.rejects(handle(payload, signature, "n-1"), /replayed_event/);
   await assert.rejects(handle(payload, `sha512=${"0".repeat(128)}`, "n-2"), /invalid_signature/);
+});
+
+test("a failed wake stays retryable and a later success is replay-fenced", async () => {
+  const { payload, signature, key } = await signedAuthorizeNetWebhook({
+    notificationId: "n-retry",
+    eventType: "net.authorize.payment.authcapture.created",
+  });
+  const seen = new Set();
+  const wakes = [];
+  let fail = true;
+  const handle = createAuthorizeNetWebhookHandler({
+    signatureKey: key,
+    seenEventIds: seen,
+    wake: async event => {
+      if (fail) throw new Error("commerce_down");
+      wakes.push(event.id);
+    },
+  });
+  await assert.rejects(handle(payload, signature, "n-retry"), /commerce_down/);
+  assert.deepEqual(wakes, []);
+  fail = false;
+  await handle(payload, signature, "n-retry");
+  assert.deepEqual(wakes, ["n-retry"]);
+  await assert.rejects(handle(payload, signature, "n-retry"), /replayed_event/);
+  assert.deepEqual(wakes, ["n-retry"]);
 });
 
 test("browser return is only a validated lookup hint and forged URLs fail closed", () => {

@@ -44,7 +44,6 @@ export async function verifyAuthorizeNetWebhook(
   let parsed: unknown;
   try { parsed = JSON.parse(new TextDecoder().decode(payload)); }
   catch { throw new AuthorizeNetWebhookError("invalid_payload"); }
-  seenEventIds.add(eventId);
   return { id: eventId, payload: parsed, transaction: null };
 }
 
@@ -56,6 +55,7 @@ export function createAuthorizeNetWebhookHandler(options: {
   return async (payload: Uint8Array, signature: string, eventId: string): Promise<void> => {
     const event = await verifyAuthorizeNetWebhook(payload, signature, options.signatureKey, eventId, options.seenEventIds);
     await options.wake(event);
+    options.seenEventIds.add(eventId);
   };
 }
 
