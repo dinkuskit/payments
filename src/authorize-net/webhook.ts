@@ -19,11 +19,22 @@ export interface AuthorizeNetWebhookEvent {
   readonly transaction: AuthorizeNetTransaction | null;
 }
 
+function signedNotificationId(parsed: unknown): string {
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new AuthorizeNetWebhookError("invalid_payload");
+  }
+  const notificationId = (parsed as { notificationId?: unknown }).notificationId;
+  if (typeof notificationId !== "string" || !/^[-A-Za-z0-9_:.]{1,200}$/.test(notificationId)) {
+    throw new AuthorizeNetWebhookError("invalid_event_id");
+  }
+  return notificationId;
+}
+
 /**
  * Authorize.net documents X-ANET-Signature as sha512=<hex HMAC> over the
- * original request body using the account Signature Key. The event ID is
- * separately replay-fenced by the caller because signature verification alone
- * cannot distinguish a replay.
+ * original request body using the account Signature Key. Replay and wake
+ * identity come from the signed `notificationId`; the caller event ID must
+ * match it. Signature verification alone cannot distinguish a replay.
  */
 export async function verifyAuthorizeNetWebhook(
   payload: Uint8Array,
@@ -39,12 +50,14 @@ export async function verifyAuthorizeNetWebhook(
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(signatureKey), { name: "HMAC", hash: "SHA-512" }, false, ["sign"]);
   const expected = `sha512=${hex(await crypto.subtle.sign("HMAC", key, payload))}`;
   if (!equalBytes(expected.toLowerCase(), signature.toLowerCase())) throw new AuthorizeNetWebhookError("invalid_signature");
-  if (seenEventIds.has(eventId)) throw new AuthorizeNetWebhookError("replayed_event");
 
   let parsed: unknown;
   try { parsed = JSON.parse(new TextDecoder().decode(payload)); }
   catch { throw new AuthorizeNetWebhookError("invalid_payload"); }
-  return { id: eventId, payload: parsed, transaction: null };
+  const notificationId = signedNotificationId(parsed);
+  if (notificationId !== eventId) throw new AuthorizeNetWebhookError("notification_id_mismatch");
+  if (seenEventIds.has(notificationId)) throw new AuthorizeNetWebhookError("replayed_event");
+  return { id: notificationId, payload: parsed, transaction: null };
 }
 
 export function createAuthorizeNetWebhookHandler(options: {
@@ -55,7 +68,7 @@ export function createAuthorizeNetWebhookHandler(options: {
   return async (payload: Uint8Array, signature: string, eventId: string): Promise<void> => {
     const event = await verifyAuthorizeNetWebhook(payload, signature, options.signatureKey, eventId, options.seenEventIds);
     await options.wake(event);
-    options.seenEventIds.add(eventId);
+    options.seenEventIds.add(event.id);
   };
 }
 

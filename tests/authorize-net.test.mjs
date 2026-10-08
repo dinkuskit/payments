@@ -170,6 +170,27 @@ test("a failed wake stays retryable and a later success is replay-fenced", async
   assert.deepEqual(wakes, ["n-retry"]);
 });
 
+test("a signed notification cannot wake under a different caller event ID", async () => {
+  const { payload, signature, key } = await signedAuthorizeNetWebhook({
+    notificationId: "n-signed",
+    eventType: "net.authorize.payment.authcapture.created",
+  });
+  const seen = new Set();
+  const wakes = [];
+  const handle = createAuthorizeNetWebhookHandler({
+    signatureKey: key,
+    seenEventIds: seen,
+    wake: async event => wakes.push(event.id),
+  });
+  await assert.rejects(handle(payload, signature, "n-other"), /notification_id_mismatch/);
+  assert.deepEqual(wakes, []);
+  await handle(payload, signature, "n-signed");
+  assert.deepEqual(wakes, ["n-signed"]);
+  await assert.rejects(handle(payload, signature, "n-other"), /notification_id_mismatch/);
+  await assert.rejects(handle(payload, signature, "n-signed"), /replayed_event/);
+  assert.deepEqual(wakes, ["n-signed"]);
+});
+
 test("browser return is only a validated lookup hint and forged URLs fail closed", () => {
   assert.deepEqual(verifyAuthorizeNetReturn({
     requestUrl: "https://store.example/return?transId=123",

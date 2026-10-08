@@ -145,8 +145,9 @@ await check("sandbox transaction and authoritative lookup", async () => {
 });
 
 await check("webhook HMAC-SHA512", async () => {
+  const notificationId = `proof-${Date.now()}`;
   const body = new TextEncoder().encode(JSON.stringify({
-    notificationId: `proof-${Date.now()}`,
+    notificationId,
     eventType: "net.authorize.payment.authcapture.created",
   }));
   const key = await crypto.subtle.importKey(
@@ -163,10 +164,11 @@ await check("webhook HMAC-SHA512", async () => {
     seenEventIds: new Set(),
     wake: async () => {},
   });
-  await handler(body, `sha512=${digest}`, "sandbox-proof-webhook");
+  await handler(body, `sha512=${digest}`, notificationId);
+  await assertRejects(() => handler(body, `sha512=${digest}`, "sandbox-proof-mismatch"));
   const tampered = new Uint8Array(body);
   tampered[0] ^= 1;
-  await assertRejects(() => handler(tampered, `sha512=${digest}`, "sandbox-proof-tampered"));
+  await assertRejects(() => handler(tampered, `sha512=${digest}`, notificationId));
 });
 
 if (transactionId) console.log(`transaction-id: ${transactionId}`);

@@ -20,9 +20,10 @@ receipts, and the final payment decision.
   configuration, currently restricted to USD, and fails closed for any other
   configured currency. Currency is never inferred from a shopper response.
 - `X-ANET-Signature` is verified as HMAC-SHA512 over the original request bytes.
-  A verified webhook only wakes reconciliation. Event IDs are replay-fenced
-  after a successful wake; a failed wake stays retryable. The webhook body
-  never marks Commerce paid.
+  A verified webhook only wakes reconciliation. Replay and wake identity are
+  the signed `notificationId`; a caller event ID that does not match is
+  rejected before wake. A failed wake stays retryable. The webhook body never
+  marks Commerce paid.
 - Unknown providers fail closed and there is no fallback or checkout-request
   provider selection.
 
@@ -34,7 +35,8 @@ the adapter rejects identities that cannot fit rather than truncate them.
 Mock proof uses an injected transport and contains no credentials. It covers
 request shape, USD conversion, authoritative lookup, unknown outcomes, lost
 creation responses, duplicate wake suppression after success, failed-wake retry,
-forged return URLs, signature tampering/replay, and amount/currency mismatch.
+signed-notification ID mismatch, forged return URLs, signature tampering/replay,
+and amount/currency mismatch.
 
 Sandbox proof is a separate, not-yet-run path. It requires these process
 environment variables, supplied out of band and never committed or printed:
