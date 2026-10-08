@@ -98,7 +98,7 @@ export async function auditRepository(root = repositoryRoot) {
   const expectedDinkusKit = {
     pluginId: "dinkus-payments",
     providerSelection: "one-active-per-store",
-    demoProviders: ["stripe"],
+    demoProviders: ["stripe", "authorize_net"],
     demoCurrencies: ["USD"],
     providerFallback: false,
     currencyConversion: false,

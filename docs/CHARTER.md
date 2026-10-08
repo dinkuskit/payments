@@ -37,9 +37,12 @@ The public package and EmDash installation are `@dinkuskit/payments` and
 processor adapters over time, while each store selects exactly one active
 provider in server-owned configuration.
 
-For the demo, `stripe` is the only provider ID permitted for implementation and
-acceptance. Unknown providers fail before transport. Checkout input cannot
-select a provider, and the plugin never retries through a different processor.
+For the demo, `stripe` remains the reference adapter and `authorize_net` is the
+second approved provider ID. The 2026-10-07 decision was recorded for
+restricted-category merchants whose underwriters use the Authorize.net gateway.
+Each store still has exactly one server-selected active provider. Unknown
+providers fail before transport. Checkout input cannot select a provider, and
+the plugin never retries through a different processor.
 
 ## Amount and currency model
 

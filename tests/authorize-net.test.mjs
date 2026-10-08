@@ -1,0 +1,124 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  createAuthorizeNetGateway,
+  transactionOutcome,
+} from "../src/authorize-net/checkout.ts";
+import {
+  createAuthorizeNetWebhookHandler,
+  verifyAuthorizeNetReturn,
+} from "../src/authorize-net/webhook.ts";
+
+const credentials = { apiLoginId: "synthetic-login", transactionKey: "synthetic-transaction-key", mode: "test" };
+
+test("Accept Hosted creation uses the official request shape and converts USD minor units only at transport", async () => {
+  let request;
+  const gateway = createAuthorizeNetGateway({
+    ...credentials,
+    transport: { request: async body => {
+      request = body;
+      return { token: "hosted-token", messages: { resultCode: "Ok" } };
+    } },
+  });
+  const created = await gateway.createHostedPayment({
+    attemptId: "attempt-one",
+    total: { currency: "USD", minor: "1200" },
+    returnUrl: "https://store.example/return",
+    cancelUrl: "https://store.example/cancel",
+  });
+  assert.deepEqual(created, { token: "hosted-token", identity: "attempt-one" });
+  const hosted = request.getHostedPaymentPageRequest;
+  assert.equal(hosted.transactionRequest.amount, "12.00");
+  assert.equal(hosted.transactionRequest.transactionType, "authCaptureTransaction");
+  assert.equal(hosted.refId, "attempt-one");
+  assert.equal(hosted.transactionRequest.order.invoiceNumber, "attempt-one");
+  assert.deepEqual(JSON.parse(hosted.hostedPaymentSettings.setting[0].settingValue), {
+    url: "https://store.example/return",
+    urlText: "Return",
+    cancelUrl: "https://store.example/cancel",
+    cancelUrlText: "Cancel",
+    showReceipt: false,
+  });
+});
+
+test("transaction lookup is authoritative and unknown is distinct from unpaid", async () => {
+  const gateway = createAuthorizeNetGateway({
+    ...credentials,
+    transport: { request: async () => ({
+      messages: { resultCode: "Ok" },
+      transaction: { transId: "unused" },
+    }) },
+  });
+  const paid = transactionOutcome({
+    id: "123", responseCode: 1, status: "settledSuccessfully",
+    amountMinor: 1200, currency: "USD", invoiceNumber: "attempt-one", refId: null,
+  }, { minor: "1200", currency: "USD" });
+  const unpaid = transactionOutcome({
+    id: "124", responseCode: 2, status: "declined",
+    amountMinor: 1200, currency: "USD", invoiceNumber: "attempt-one", refId: null,
+  }, { minor: "1200", currency: "USD" });
+  const pending = transactionOutcome({
+    id: "125", responseCode: 1, status: "pendingSettlement",
+    amountMinor: 1200, currency: "USD", invoiceNumber: "attempt-one", refId: null,
+  }, { minor: "1200", currency: "USD" });
+  assert.equal(paid, "paid");
+  assert.equal(unpaid, "unpaid");
+  assert.equal(pending, "unknown");
+  await assert.rejects(gateway.getTransaction("not-a-transaction"), /invalid_transaction_id/);
+  assert.throws(() => transactionOutcome({
+    id: "126", responseCode: 1, status: "settledSuccessfully",
+    amountMinor: 999, currency: "USD", invoiceNumber: null, refId: null,
+  }, { minor: "1200", currency: "USD" }), /amount_or_currency_mismatch/);
+});
+
+test("a lost creation response remains retryable unknown and never fabricates a session", async () => {
+  const gateway = createAuthorizeNetGateway({
+    ...credentials,
+    transport: { request: async () => { throw new Error("connection_lost"); } },
+  });
+  await assert.rejects(gateway.createHostedPayment({
+    attemptId: "attempt-lost",
+    total: { currency: "USD", minor: "1200" },
+    returnUrl: "https://store.example/return",
+    cancelUrl: "https://store.example/cancel",
+  }), /connection_lost/);
+});
+
+test("webhooks verify raw bytes, reject tampering and replay, and wake only once", async () => {
+  const key = "signature-key";
+  const payload = new TextEncoder().encode(JSON.stringify({ notificationId: "n-1", eventType: "net.authorize.payment.authcapture.created" }));
+  const cryptoKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-512" }, false, ["sign"]);
+  const digest = [...new Uint8Array(await crypto.subtle.sign("HMAC", cryptoKey, payload))]
+    .map(byte => byte.toString(16).padStart(2, "0")).join("");
+  const seen = new Set();
+  const wakes = [];
+  const handle = createAuthorizeNetWebhookHandler({ signatureKey: key, seenEventIds: seen, wake: async event => wakes.push(event.id) });
+  await handle(payload, `sha512=${digest}`, "n-1");
+  assert.deepEqual(wakes, ["n-1"]);
+  await assert.rejects(handle(payload, `sha512=${digest}`, "n-1"), /replayed_event/);
+  await assert.rejects(handle(payload, `sha512=${"0".repeat(128)}`, "n-2"), /invalid_signature/);
+});
+
+test("browser return is only a validated lookup hint and forged URLs fail closed", () => {
+  assert.deepEqual(verifyAuthorizeNetReturn({
+    requestUrl: "https://store.example/return?transId=123",
+    configuredUrl: "https://store.example/return",
+    transactionId: "123",
+    amount: "12.00",
+    currency: "USD",
+  }), { transactionId: "123", amount: "12.00", currency: "USD" });
+  assert.throws(() => verifyAuthorizeNetReturn({
+    requestUrl: "https://evil.example/return",
+    configuredUrl: "https://store.example/return",
+    transactionId: "123",
+    amount: "12.00",
+    currency: "USD",
+  }), /forged_return_url/);
+  assert.throws(() => verifyAuthorizeNetReturn({
+    requestUrl: "https://store.example/return",
+    configuredUrl: "https://store.example/return",
+    transactionId: "123",
+    amount: "12.00",
+    currency: "EUR",
+  }), /invalid_return/);
+});

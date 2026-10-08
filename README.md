@@ -19,7 +19,8 @@ package release, or production compatibility promise yet.
 The demo direction is deliberately narrow:
 
 - one active payment provider per store;
-- Stripe as the only permitted demo provider;
+- Stripe as the reference adapter and Authorize.net as the second approved
+  adapter;
 - USD as the only accepted demo currency;
 - no automatic provider fallback or per-checkout provider selection;
 - no currency conversion.
