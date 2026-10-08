@@ -7,6 +7,8 @@ import {
   AUTHORIZE_NET_SANDBOX_URL,
   authorizeNetEndpoints,
   createAuthorizeNetGateway,
+  createAuthorizeNetFetchTransport,
+  createAuthorizeNetPaymentPort,
   transactionOutcome,
 } from "../src/authorize-net/checkout.ts";
 import {
@@ -15,6 +17,13 @@ import {
 } from "../src/authorize-net/webhook.ts";
 
 const credentials = { apiLoginId: "synthetic-login", transactionKey: "synthetic-transaction-key", merchantCurrency: "USD", mode: "test" };
+const payment = {
+  attemptId: "attempt-one", bindingRef: "bind-one",
+  lines: [{ catalogItemId: "sku", quantity: 1, name: "Item", unitPrice: { currency: "USD", minor: "1200" } }],
+  total: { currency: "USD", minor: "1200" },
+  paymentWindow: { minSeconds: 1800, maxSeconds: 1860 },
+  paymentMethods: ["card"],
+};
 
 async function signedAuthorizeNetWebhook(body, key = "signature-key") {
   const payload = new TextEncoder().encode(JSON.stringify(body));
@@ -213,4 +222,72 @@ test("browser return is only a validated lookup hint and forged URLs fail closed
     amount: "12.00",
     currency: "EUR",
   }), /invalid_return/);
+});
+
+test("wired payment port persists hosted session and reports authoritative paid, unpaid, and pending outcomes", async () => {
+  const records = new Map();
+  let response = { transId: "123", responseCode: 1, transactionStatus: "settledSuccessfully", authAmount: "12.00", settleAmount: "12.00" };
+  const gateway = createAuthorizeNetGateway({
+    ...credentials,
+    transport: { request: async body => body.getTransactionDetailsRequest
+      ? { messages: { resultCode: "Ok" }, transaction: response }
+      : { messages: { resultCode: "Ok" }, token: "hosted-token" } },
+  });
+  const port = createAuthorizeNetPaymentPort({
+    gateway, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
+    returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel",
+    now: () => 1_800_000_000_000,
+    store: { transaction: fn => fn({
+      read: id => structuredClone(records.get(id) ?? null),
+      write: (id, value) => records.set(id, structuredClone(value)),
+    }) },
+  });
+  const open = await port.ensureSession(payment);
+  assert.equal(open.outcome, "open");
+  assert.match(open.session.redirectUrl, /test\.authorize\.net\/payment\/payment\?token=/);
+  assert.deepEqual(await port.lookup(payment), { outcome: "unknown" });
+  port.recordTransaction(payment.attemptId, "123");
+  assert.equal((await port.lookup(payment)).outcome, "paid");
+  response = { ...response, transId: "123", responseCode: 2, transactionStatus: "declined" };
+  records.get(payment.attemptId).transactionId = "123";
+  assert.equal((await port.lookup(payment)).outcome, "expired-unpaid");
+  response = { ...response, transId: "123", responseCode: 1, transactionStatus: "pendingSettlement" };
+  records.get(payment.attemptId).transactionId = "123";
+  assert.equal((await port.lookup(payment)).outcome, "unknown");
+  response = { ...response, transId: "123", authAmount: "9.00", settleAmount: "9.00" };
+  records.get(payment.attemptId).transactionId = "123";
+  await assert.rejects(port.lookup(payment), /amount_or_currency_mismatch/);
+});
+
+test("wired creation remains unknown after a lost response and can recover durably", async () => {
+  const records = new Map();
+  let lose = true;
+  const gateway = createAuthorizeNetGateway({
+    ...credentials,
+    transport: { request: async body => {
+      if (lose) { lose = false; throw new Error("connection_lost"); }
+      return { messages: { resultCode: "Ok" }, token: "hosted-token" };
+    } },
+  });
+  const port = createAuthorizeNetPaymentPort({
+    gateway, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
+    returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel",
+    store: { transaction: fn => fn({
+      read: id => structuredClone(records.get(id) ?? null),
+      write: (id, value) => records.set(id, structuredClone(value)),
+    }) },
+  });
+  assert.deepEqual(await port.ensureSession({ ...payment, attemptId: "attempt-lost" }), { outcome: "unknown" });
+  assert.equal((await port.ensureSession({ ...payment, attemptId: "attempt-lost" })).outcome, "open");
+  assert.equal(records.get("attempt-lost").token, "hosted-token");
+});
+
+test("fetch transport deadline covers a late response body without AbortSignal RPC", async () => {
+  const transport = createAuthorizeNetFetchTransport({ endpoint: "https://apitest.authorize.net/xml/v1/request.api", timeoutMs: 10 });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(new ReadableStream({
+    start(controller) { setTimeout(() => { controller.enqueue(new TextEncoder().encode("{}")); controller.close(); }, 30); },
+  }), { status: 200 });
+  try { await assert.rejects(transport.request({}), /authorize_net_timeout/); }
+  finally { globalThis.fetch = originalFetch; }
 });

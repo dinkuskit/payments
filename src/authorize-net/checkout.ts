@@ -6,6 +6,7 @@ export const AUTHORIZE_NET_PRODUCTION_URL = "https://api2.authorize.net/xml/v1/r
 export const AUTHORIZE_NET_HOSTED_SANDBOX_URL = "https://test.authorize.net/payment/payment";
 export const AUTHORIZE_NET_HOSTED_PRODUCTION_URL = "https://accept.authorize.net/payment/payment";
 export const AUTHORIZE_NET_DUPLICATE_WINDOW_SECONDS = 120;
+export const AUTHORIZE_NET_REQUEST_TIMEOUT_MS = 10_000;
 
 export function authorizeNetEndpoints(mode: "test" | "live"): {
   api: string;
@@ -18,6 +19,46 @@ export function authorizeNetEndpoints(mode: "test" | "live"): {
 
 export interface AuthorizeNetTransport {
   request(body: unknown): Promise<unknown>;
+}
+
+function withDeadline<T>(promise: Promise<T>, deadline: number): Promise<T> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return Promise.reject(new AuthorizeNetError("authorize_net_timeout"));
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new AuthorizeNetError("authorize_net_timeout")), remaining);
+    promise.then(
+      value => { clearTimeout(timer); resolve(value); },
+      error => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
+/**
+ * Keep the deadline at the promise boundary. Passing an AbortSignal through
+ * the host RPC boundary is not reliable in the plugin sandbox, and a fetch
+ * response can resolve before its body is available. The same deadline covers
+ * both operations without crossing that boundary.
+ */
+export function createAuthorizeNetFetchTransport(options: {
+  endpoint: string;
+  timeoutMs?: number;
+}): AuthorizeNetTransport {
+  const timeoutMs = options.timeoutMs ?? AUTHORIZE_NET_REQUEST_TIMEOUT_MS;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new AuthorizeNetError("invalid_timeout");
+  return {
+    async request(body) {
+      const deadline = Date.now() + timeoutMs;
+      const response = await withDeadline(fetch(options.endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }), deadline);
+      if (!response.ok) throw new AuthorizeNetError("authorize_net_transport");
+      const text = await withDeadline(response.text(), deadline);
+      try { return JSON.parse(text); }
+      catch { throw new AuthorizeNetError("invalid_provider_response"); }
+    },
+  };
 }
 
 export interface AuthorizeNetTransaction {
@@ -127,17 +168,7 @@ export function createAuthorizeNetGateway(options: {
   const endpoints = authorizeNetEndpoints(options.mode);
   if (options.merchantCurrency !== "USD") throw new AuthorizeNetError("unsupported_merchant_currency");
   if (!options.apiLoginId || !options.transactionKey) throw new AuthorizeNetError("missing_credentials");
-  const transport = options.transport ?? {
-    async request(body: unknown) {
-      const response = await fetch(endpoints.api, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!response.ok) throw new AuthorizeNetError("authorize_net_transport");
-      return response.json();
-    },
-  };
+  const transport = options.transport ?? createAuthorizeNetFetchTransport({ endpoint: endpoints.api });
   const authentication = { name: options.apiLoginId, transactionKey: options.transactionKey };
   return {
     async createHostedPayment(input) {
@@ -208,16 +239,34 @@ export function createAuthorizeNetPaymentPort(options: {
   gateway: ReturnType<typeof createAuthorizeNetGateway>;
   returnUrl: string;
   cancelUrl: string;
-}): CheckoutPaymentPort {
-  // This port is intentionally only the adapter seam. Commerce remains the
-  // durable owner of attempt/session mapping and must supply transaction IDs
-  // to lookup in its reconciliation implementation.
-  const sessions = new Map<string, { token: string; identity: string }>();
+  hostedUrl: string;
+  siteId?: string;
+  store: {
+    transaction<T>(fn: (state: {
+      read(attemptId: string): { token: string; transactionId: string | null; createdAt: number; expiresAt: number; bindingRef?: string; siteId?: string } | null;
+      write(attemptId: string, value: { token: string; transactionId: string | null; createdAt: number; expiresAt: number; bindingRef?: string; siteId?: string }): void;
+    }) => T): T;
+  };
+  now?: () => number;
+}): CheckoutPaymentPort & { recordTransaction(attemptId: string, transactionId: string): void } {
+  const now = options.now ?? (() => Date.now());
+  const read = (attemptId: string) => options.store.transaction(tx => tx.read(attemptId));
+  const asSession = (record: { token: string; createdAt: number; expiresAt: number }) => ({
+    sessionId: record.token,
+    redirectUrl: `${options.hostedUrl}?token=${encodeURIComponent(record.token)}`,
+    createdAt: record.createdAt,
+    expiresAt: record.expiresAt,
+  });
   return {
     async ensureSession(request) {
       assertUsd(request);
-      const existing = sessions.get(request.attemptId);
-      if (existing) return { outcome: "unknown" };
+      const existing = read(request.attemptId);
+      if (existing) return {
+        outcome: "open",
+        attemptId: request.attemptId,
+        total: request.total,
+        session: asSession(existing),
+      };
       try {
         const created = await options.gateway.createHostedPayment({
           attemptId: request.attemptId,
@@ -225,14 +274,49 @@ export function createAuthorizeNetPaymentPort(options: {
           returnUrl: options.returnUrl,
           cancelUrl: options.cancelUrl,
         });
-        sessions.set(request.attemptId, created);
+        const createdAt = Math.floor(now() / 1000);
+        const expiresAt = createdAt + ("paymentWindow" in request && request.paymentWindow
+          ? request.paymentWindow.maxSeconds : request.paymentWindowSeconds);
+        options.store.transaction(tx => {
+          if (!tx.read(request.attemptId)) tx.write(request.attemptId, {
+            token: created.token, transactionId: null, createdAt, expiresAt,
+            bindingRef: request.bindingRef, siteId: options.siteId,
+          });
+        });
+        const saved = read(request.attemptId);
+        if (!saved) return { outcome: "unknown" };
+        return {
+          outcome: "open",
+          attemptId: request.attemptId,
+          total: request.total,
+          session: asSession(saved),
+        };
       } catch {
         return { outcome: "unknown" };
       }
-      return { outcome: "unknown" };
     },
-    async lookup() {
-      return { outcome: "unknown" };
+    async lookup(request) {
+      assertUsd(request);
+      const existing = read(request.attemptId);
+      if (!existing?.transactionId) return { outcome: "unknown" };
+      try {
+        const transaction = await options.gateway.getTransaction(existing.transactionId);
+        const outcome = transactionOutcome(transaction, request.total);
+        const fields = { attemptId: request.attemptId, total: request.total, session: asSession(existing) };
+        if (outcome === "paid") return { outcome, ...fields, paymentId: transaction.id };
+        if (outcome === "unpaid") return { outcome: "expired-unpaid" as const, ...fields };
+        return { outcome: "unknown" as const };
+      } catch (error) {
+        if (error instanceof AuthorizeNetError && error.message === "amount_or_currency_mismatch") throw error;
+        return { outcome: "unknown" };
+      }
+    },
+    recordTransaction(attemptId, transactionId) {
+      if (!/^[0-9]+$/.test(transactionId)) throw new AuthorizeNetError("invalid_transaction_id");
+      options.store.transaction(tx => {
+        const current = tx.read(attemptId);
+        if (current) tx.write(attemptId, { ...current, transactionId });
+      });
     },
   };
 }

@@ -23,7 +23,7 @@ export type Status = {
   mode: Mode;
   bindingRef?: string;
 };
-export interface CheckoutBinding { bindingRef: string; providerId: "stripe"; stripeAccountId: string; mode: Mode }
+export interface CheckoutBinding { bindingRef: string; providerId: "stripe" | "authorize_net"; stripeAccountId: string; mode: Mode }
 export class ConnectionError extends Error {}
 
 // Stripe retains idempotency results for at least 24 hours. Stop early rather
@@ -34,11 +34,13 @@ export function createConnectionService(options: {
   store: ConnectionStore;
   provider: OnboardingProvider;
   mode: Mode;
+  providerId?: "stripe" | "authorize_net";
   now?: () => number;
   newId?: () => string;
 }) {
   const now = options.now ?? Date.now;
   const { store, provider, mode } = options;
+  const providerId = options.providerId ?? "stripe";
   function read(principal: Principal) {
     if (!principal.accountId || !principal.siteId) throw new ConnectionError("unauthorized");
     return store.transaction(tx => {
@@ -54,6 +56,7 @@ export function createConnectionService(options: {
     if (!record) return { state: "disconnected", mode };
     const base = { mode, bindingRef: record.bindingRef };
     if (!record.stripeAccountId) return { ...base, state: now() - record.startedAt >= CREATION_RETRY_WINDOW_MS ? "recovery_required" : "connecting" };
+    if (providerId === "authorize_net") return { ...base, state: "ready" };
     try {
       const result = await provider.accountStatus(record.stripeAccountId);
       if (result.id !== record.stripeAccountId) throw new Error("unexpected_account");
@@ -70,13 +73,20 @@ export function createConnectionService(options: {
         return existing;
       }
       const initial: Connection = {
-        bindingRef: `stripe_${(options.newId ? options.newId() : crypto.randomUUID())}`,
+        bindingRef: `${providerId}_${(options.newId ? options.newId() : crypto.randomUUID())}`,
         owner: { ...principal }, mode, startedAt: now(), stripeAccountId: null,
       };
       tx.write(initial);
       return initial;
     });
     if (!record.stripeAccountId) {
+      if (providerId === "authorize_net") {
+        store.transaction(tx => {
+          const current = tx.read();
+          if (current && current.bindingRef === record.bindingRef) tx.write({ ...current, stripeAccountId: "authorize_net" });
+        });
+        return { state: "ready", mode, bindingRef: record.bindingRef };
+      }
       if (now() - record.startedAt >= CREATION_RETRY_WINDOW_MS) return { state: "recovery_required", mode, bindingRef: record.bindingRef };
       let accountId: string;
       try { accountId = await provider.createAccount(record.bindingRef); }
@@ -104,14 +114,14 @@ export function createConnectionService(options: {
     const record = read(principal);
     if (!record || record.bindingRef !== bindingRef || !record.stripeAccountId) return null;
     if ((await status(principal)).state !== "ready") return null;
-    return { bindingRef, providerId: "stripe", stripeAccountId: record.stripeAccountId, mode };
+    return { bindingRef, providerId, stripeAccountId: record.stripeAccountId, mode };
   }
   // Existing-attempt reads must keep the original recipient after readiness
   // regresses. New checkout still uses checkoutBinding.
   async function existingBinding(principal: Principal, bindingRef: string): Promise<CheckoutBinding | null> {
     const record = read(principal);
     if (!record || record.bindingRef !== bindingRef || !record.stripeAccountId) return null;
-    return { bindingRef, providerId: "stripe", stripeAccountId: record.stripeAccountId, mode };
+    return { bindingRef, providerId, stripeAccountId: record.stripeAccountId, mode };
   }
   return { connect, status, checkoutBinding, existingBinding };
 }

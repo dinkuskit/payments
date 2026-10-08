@@ -26,6 +26,15 @@ receipts, and the final payment decision.
   marks Commerce paid.
 - Unknown providers fail closed and there is no fallback or checkout-request
   provider selection.
+- The Worker selects `PAYMENT_PROVIDER` from server-owned configuration. When
+  it is `authorize_net`, the checkout port uses the test Accept Hosted endpoint,
+  persists the hosted token and transaction mapping in the PaymentConnection
+  Durable Object, and returns the Commerce hosted-session contract.
+  `AUTHORIZE_NET_MODE` must remain `test`; live mode fails closed.
+- `POST /v1/webhooks/authorize-net/{siteId}` verifies `X-ANET-Signature` and
+  durable notification replay identity before waking reconciliation. A signed
+  notification may attach a transaction identifier for later lookup, but it
+  never establishes `paid`.
 
 Authorize.net currently limits `refId` and `invoiceNumber` to 20 characters;
 the adapter rejects identities that cannot fit rather than truncate them.
@@ -64,17 +73,32 @@ identifier; it never prints credential values or the hosted token. The
 script-only direct transaction uses the published sandbox test card solely to
 prove lookup; the adapter itself remains Accept Hosted-only.
 
+## Configuration
+
+These are host secret bindings, never plugin settings or source:
+
+```text
+AUTHORIZE_NET_API_LOGIN_ID
+AUTHORIZE_NET_TRANSACTION_KEY
+AUTHORIZE_NET_SIGNATURE_KEY
+```
+
+Set `PAYMENT_PROVIDER=authorize_net` and keep `AUTHORIZE_NET_MODE=test` in
+server-owned Worker configuration to exercise this path. Empty local
+placeholders are provided in `.dev.vars.example`.
+
 ## Open decisions
 
-- The checkout-window decision remains open for Accept Hosted tokens. The
-  adapter does not invent a provider expiry or claim a Commerce payment window.
-  Resolve this against the approved checkout-window design in issue #6 before
-  enabling production checkout.
+- Accept Hosted does not report a provider expiry. The test-only wiring uses
+  the already-approved Commerce request window as the local hosted-session
+  lease; it does not treat that lease as provider evidence. Resolve any
+  production expiry policy against issue #6 before enabling production
+  checkout.
 - Refund and void operations are intentionally not implemented here. They must
   follow issue #7's refund design once that contract is available.
-- Credential storage and readiness ownership remain deployment decisions;
-  this repository only defines the credential names needed by the sandbox
-  proof path.
+- The live endpoint and live credentials remain explicitly disabled. The
+  credentialed sandbox proof is left for stack-pilot to run on its box against
+  the wiring branch.
 
 ## Documentation checked
 

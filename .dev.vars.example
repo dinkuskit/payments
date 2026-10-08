@@ -1,0 +1,6 @@
+# Host secret bindings. Set locally with real test credentials only.
+STRIPE_API_KEY=
+STRIPE_WEBHOOK_SECRET=
+AUTHORIZE_NET_API_LOGIN_ID=
+AUTHORIZE_NET_TRANSACTION_KEY=
+AUTHORIZE_NET_SIGNATURE_KEY=

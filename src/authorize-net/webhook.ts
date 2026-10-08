@@ -17,6 +17,8 @@ export interface AuthorizeNetWebhookEvent {
   readonly id: string;
   readonly payload: unknown;
   readonly transaction: AuthorizeNetTransaction | null;
+  readonly attemptId?: string;
+  readonly transactionId?: string;
 }
 
 function signedNotificationId(parsed: unknown): string {
@@ -57,7 +59,12 @@ export async function verifyAuthorizeNetWebhook(
   const notificationId = signedNotificationId(parsed);
   if (notificationId !== eventId) throw new AuthorizeNetWebhookError("notification_id_mismatch");
   if (seenEventIds.has(notificationId)) throw new AuthorizeNetWebhookError("replayed_event");
-  return { id: notificationId, payload: parsed, transaction: null };
+  const body = parsed as Record<string, unknown>;
+  const transactionId = typeof body.transactionId === "string" && /^[0-9]+$/.test(body.transactionId)
+    ? body.transactionId : undefined;
+  const attemptId = typeof body.attemptId === "string" && body.attemptId.length > 0
+    ? body.attemptId : undefined;
+  return { id: notificationId, payload: parsed, transaction: null, attemptId, transactionId };
 }
 
 export function createAuthorizeNetWebhookHandler(options: {

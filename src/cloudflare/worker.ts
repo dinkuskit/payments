@@ -7,6 +7,8 @@ import { createAccountAuthenticator } from "../hosted/auth.js";
 import { createHostedHandler } from "../hosted/http.js";
 import { createStripeCheckout } from "../stripe/checkout.js";
 import { createStripeOnboarding } from "../stripe/onboarding.js";
+import { authorizeNetEndpoints, createAuthorizeNetGateway, createAuthorizeNetPaymentPort } from "../authorize-net/checkout.js";
+import { createAuthorizeNetWebhookHandler } from "../authorize-net/webhook.js";
 import type { PaymentRequest } from "../commerce/checkout-port.js";
 
 type WakeRow = Record<string, string | number | null> & WakeContext & { deliveryGeneration: number; wokeAt: number; acknowledgedAt: number | null };
@@ -18,6 +20,8 @@ export class PaymentConnection extends DurableObject<Env> {
     super(ctx, env);
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS connection_state (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL)");
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS checkout_attempts (attempt_id TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS authorize_net_attempts (attempt_id TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS authorize_net_webhook_events (event_id TEXT PRIMARY KEY)");
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS checkout_wakes (attempt_id TEXT PRIMARY KEY, woke_at INTEGER NOT NULL)");
     const sql = ctx.storage.sql;
     sql.exec("CREATE TABLE IF NOT EXISTS checkout_wake_events (event_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL, site_id TEXT NOT NULL, binding_ref TEXT NOT NULL, stripe_account_id TEXT NOT NULL, mode TEXT NOT NULL, received_at INTEGER NOT NULL, acknowledged_at INTEGER, delivery_generation INTEGER NOT NULL DEFAULT 1)");
@@ -54,6 +58,7 @@ export class PaymentConnection extends DurableObject<Env> {
         write: record => { sql.exec("INSERT INTO connection_state (id,value) VALUES (1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value", JSON.stringify(record)); },
       })) },
       provider: createStripeOnboarding({ apiKey: this.env.STRIPE_API_KEY, mode: "test", returnUrl: this.env.ONBOARDING_RETURN_URL, refreshUrl: this.env.ONBOARDING_REFRESH_URL }),
+      providerId: (this.env.PAYMENT_PROVIDER as string) === "authorize_net" ? "authorize_net" : "stripe",
     });
   }
   private checkout() {
@@ -75,12 +80,45 @@ export class PaymentConnection extends DurableObject<Env> {
       provider: createStripeCheckout({ apiKey: this.env.STRIPE_API_KEY, mode: "test" }),
     });
   }
+  private authorizeNetCheckout(siteId?: string) {
+    const sql = this.ctx.storage.sql;
+    const gateway = createAuthorizeNetGateway({
+      apiLoginId: this.env.AUTHORIZE_NET_API_LOGIN_ID,
+      transactionKey: this.env.AUTHORIZE_NET_TRANSACTION_KEY,
+      merchantCurrency: "USD",
+      mode: "test",
+    });
+    return createAuthorizeNetPaymentPort({
+      gateway,
+      siteId,
+      hostedUrl: authorizeNetEndpoints("test").hosted,
+      returnUrl: this.env.CHECKOUT_SUCCESS_URL,
+      cancelUrl: this.env.CHECKOUT_CANCEL_URL,
+      store: {
+        transaction: fn => this.ctx.storage.transactionSync(() => fn({
+          read: attemptId => {
+            const row = sql.exec<{ value: string }>("SELECT value FROM authorize_net_attempts WHERE attempt_id=?", attemptId).toArray()[0];
+            return row ? JSON.parse(row.value) : null;
+          },
+          write: (attemptId, value) => {
+            sql.exec("INSERT INTO authorize_net_attempts (attempt_id,value) VALUES (?,?) ON CONFLICT(attempt_id) DO UPDATE SET value=excluded.value", attemptId, JSON.stringify(value));
+          },
+        })),
+      },
+    });
+  }
   async startOnboarding(principal: Principal) { return this.connection().connect(principal); }
   async status(principal: Principal) { return this.connection().status(principal); }
   async checkoutBinding(principal: Principal, bindingRef: string) { return this.connection().checkoutBinding(principal, bindingRef); }
   async existingBinding(principal: Principal, bindingRef: string) { return this.connection().existingBinding(principal, bindingRef); }
-  async ensureSession(principal: Principal, request: PaymentRequest) { return this.checkout().ensureSessionFor(principal, request); }
-  async lookup(principal: Principal, request: PaymentRequest) { return this.checkout().lookupFor(principal, request); }
+  async ensureSession(principal: Principal, request: PaymentRequest) {
+    if ((this.env.PAYMENT_PROVIDER as string) === "authorize_net") return this.authorizeNetCheckout(principal.siteId).ensureSession(request);
+    return this.checkout().ensureSessionFor(principal, request);
+  }
+  async lookup(principal: Principal, request: PaymentRequest) {
+    if ((this.env.PAYMENT_PROVIDER as string) === "authorize_net") return this.authorizeNetCheckout(principal.siteId).lookup(request);
+    return this.checkout().lookupFor(principal, request);
+  }
   async consumeWakes(reconcile: (context: WakeContext) => Promise<ReconciliationResult>, limit = 25) {
     return consumeWakeBatch(this.wakeEvents, reconcile, limit);
   }
@@ -132,9 +170,17 @@ export class PaymentConnection extends DurableObject<Env> {
       throw new WakeError("wake_association_mismatch");
     }
     const attempt = this.ctx.storage.sql.exec<{ value: string }>(
-      "SELECT value FROM checkout_attempts WHERE attempt_id=?", row.attemptId,
+      `SELECT value FROM ${binding.providerId === "authorize_net" ? "authorize_net_attempts" : "checkout_attempts"} WHERE attempt_id=?`, row.attemptId,
     ).toArray()[0];
     if (!attempt) throw new WakeError("wake_association_mismatch");
+    if (binding.providerId === "authorize_net") {
+      let record: { bindingRef?: string; siteId?: string };
+      try { record = JSON.parse(attempt.value); } catch { throw new WakeError("wake_association_mismatch"); }
+      if (record.bindingRef !== binding.bindingRef || record.siteId !== principal.siteId) {
+        throw new WakeError("wake_association_mismatch");
+      }
+      return;
+    }
     let record: AttemptRecord;
     try { record = JSON.parse(attempt.value) as AttemptRecord; } catch { throw new WakeError("wake_association_mismatch"); }
     if (record.attemptId !== row.attemptId || record.siteId !== principal.siteId ||
@@ -172,6 +218,32 @@ export class PaymentConnection extends DurableObject<Env> {
       mode: "test",
     })(new Uint8Array(payload), signature, stripeAccount);
   }
+  async receiveAuthorizeNetWebhook(payload: Uint8Array, signature: string, eventId: string, siteId: string) {
+    const sql = this.ctx.storage.sql;
+    const seen = new Set(sql.exec<{ eventId: string }>("SELECT event_id AS eventId FROM authorize_net_webhook_events").toArray().map(row => row.eventId));
+    await createAuthorizeNetWebhookHandler({
+      signatureKey: this.env.AUTHORIZE_NET_SIGNATURE_KEY,
+      seenEventIds: seen,
+      wake: async event => {
+        if (event.attemptId && event.transactionId) this.authorizeNetCheckout(siteId).recordTransaction(event.attemptId, event.transactionId);
+        // Authorize.net notifications are only reconciliation hints. The
+        // authoritative lookup remains the checkout port's getTransaction.
+        if (event.attemptId) {
+          const receivedAt = Date.now();
+          sql.exec("INSERT OR IGNORE INTO checkout_wakes (attempt_id,woke_at) VALUES (?,?)", event.attemptId, receivedAt);
+          const record = sql.exec<{ value: string }>("SELECT value FROM authorize_net_attempts WHERE attempt_id=?", event.attemptId).toArray()[0];
+          const stored = record ? JSON.parse(record.value) as { bindingRef?: string } : null;
+          if (stored?.bindingRef) {
+            sql.exec(
+              "INSERT OR IGNORE INTO checkout_wake_events (event_id,attempt_id,site_id,binding_ref,stripe_account_id,mode,received_at,acknowledged_at,delivery_generation) VALUES (?,?,?,?,?,?,?,NULL,1)",
+              `evt_anet_${event.id}`, event.attemptId, siteId, stored.bindingRef, "authorize_net", "test", receivedAt,
+            );
+          }
+        }
+      },
+    })(payload, signature, eventId);
+    sql.exec("INSERT OR IGNORE INTO authorize_net_webhook_events (event_id) VALUES (?)", eventId);
+  }
 }
 
 function stubFor(env: Env, siteId: string) {
@@ -180,7 +252,8 @@ function stubFor(env: Env, siteId: string) {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    if (!env.ACCOUNT_ISSUER || !env.ACCOUNT_AUDIENCE || !env.ACCOUNT_JWKS_URL || !env.STRIPE_API_KEY || !env.ONBOARDING_RETURN_URL || !env.ONBOARDING_REFRESH_URL) {
+    if (!env.ACCOUNT_ISSUER || !env.ACCOUNT_AUDIENCE || !env.ACCOUNT_JWKS_URL || !env.STRIPE_API_KEY || !env.ONBOARDING_RETURN_URL || !env.ONBOARDING_REFRESH_URL ||
+        ((env.PAYMENT_PROVIDER as string) === "authorize_net" && (env.AUTHORIZE_NET_MODE !== "test" || !env.AUTHORIZE_NET_API_LOGIN_ID || !env.AUTHORIZE_NET_TRANSACTION_KEY || !env.AUTHORIZE_NET_SIGNATURE_KEY))) {
       return Response.json({ error: "payments_service_unconfigured" }, { status: 503, headers: { "Cache-Control": "no-store" } });
     }
     try {
@@ -218,6 +291,10 @@ export default {
           if (!siteId) throw new WebhookError("missing_site");
           // Re-verify inside the site object. Routing uses only post-verify metadata.
           await stubFor(env, siteId).receiveWebhook(payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength) as ArrayBuffer, signature, stripeAccount);
+        },
+        authorizeNetWebhook: async (payload, signature, eventId, siteId) => {
+          if ((env.PAYMENT_PROVIDER as string) !== "authorize_net" || env.AUTHORIZE_NET_MODE !== "test") throw new Error("webhook_unconfigured");
+          await stubFor(env, siteId).receiveAuthorizeNetWebhook(payload, signature, eventId, siteId);
         },
       })(request);
     } catch { return Response.json({ error: "payments_service_unavailable" }, { status: 503, headers: { "Cache-Control": "no-store" } }); }

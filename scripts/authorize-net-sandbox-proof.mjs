@@ -7,11 +7,15 @@ import {
 } from "../src/authorize-net/checkout.ts";
 import { createAuthorizeNetWebhookHandler } from "../src/authorize-net/webhook.ts";
 
-const required = [
-  "AUTHORIZE_NET_API_LOGIN_ID",
-  "AUTHORIZE_NET_TRANSACTION_KEY",
-  "AUTHORIZE_NET_SIGNATURE_KEY",
-];
+const aliases = {
+  AUTHORIZE_NET_API_LOGIN_ID: "AUTHNET_SANDBOX_API_LOGIN_ID",
+  AUTHORIZE_NET_TRANSACTION_KEY: "AUTHNET_SANDBOX_TRANSACTION_KEY",
+  AUTHORIZE_NET_SIGNATURE_KEY: "AUTHNET_SANDBOX_SIGNATURE_KEY",
+};
+for (const [canonical, alternate] of Object.entries(aliases)) {
+  if (!process.env[canonical] && process.env[alternate]) process.env[canonical] = process.env[alternate];
+}
+const required = Object.keys(aliases);
 const missing = required.filter(name => !process.env[name]);
 const mode = "test";
 const endpoints = authorizeNetEndpoints(mode);
