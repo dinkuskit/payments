@@ -985,6 +985,50 @@
       "superseded_by": null,
       "updated_at": "2026-10-06T23:37:11+00:00",
       "verification_ref": ".grilltrack/proof/checkout-pricing/PROOF.md#proof;76Node;9workerd;5pinnedPackageScenarios;typecheck;audit;drybuild"
+    },
+    {
+      "baseline_ref": null,
+      "candidate_refs": [],
+      "choice": "Approve `authorize_net` as the second isolated payment provider alongside Stripe. Each store still selects exactly one active provider through server-owned configuration; checkout requests cannot select a provider, unknown providers fail closed, and Stripe remains the reference adapter. The adapter uses Accept Hosted, authoritative transaction lookup, raw-byte HMAC-SHA512 webhook verification that only wakes reconciliation, and USD integer minor units.",
+      "context_ref": "github:dinkuskit/payments/issues/16",
+      "created_at": "2026-10-07T21:50:55+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-plugin-topology-001",
+        "payments-demo-currency-002"
+      ],
+      "domain": "Authorize.net provider adapter for Payments",
+      "history": [
+        {
+          "at": "2026-10-07T21:50:55+00:00",
+          "choice": "Approve `authorize_net` as the second isolated payment provider alongside Stripe. Each store still selects exactly one active provider through server-owned configuration; checkout requests cannot select a provider, unknown providers fail closed, and Stripe remains the reference adapter. The adapter uses Accept Hosted, authoritative transaction lookup, raw-byte HMAC-SHA512 webhook verification that only wakes reconciliation, and USD integer minor units.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "maintainer saariuslystoned approved the provider decision; rationale: restricted-category merchants whose underwriters use the Authorize.net gateway",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-authorize-net-provider-002",
+      "implementation_ref": null,
+      "question": "Should Payments add `authorize_net` as a second isolated provider while retaining Stripe as the reference adapter?",
+      "rationale": "Restricted-category merchants whose underwriters use the Authorize.net gateway.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "locked",
+      "superseded_by": null,
+      "updated_at": "2026-10-07T21:50:55+00:00",
+      "verification_ref": null
     }
   ],
   "last_activation": {
@@ -1011,5 +1055,5 @@
   "status": "active",
   "title": "DinkusKit Payments public scaffold",
   "track_id": "gt-20260830202947-ccfe03",
-  "updated_at": "2026-10-07T23:29:44+00:00"
+  "updated_at": "2026-10-08T01:56:00+00:00"
 }
