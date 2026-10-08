@@ -51,9 +51,9 @@ Sandbox proof is a separate, not-yet-run path. It requires these process
 environment variables, supplied out of band and never committed or printed:
 
 ```text
-AUTHORIZE_NET_API_LOGIN_ID
-AUTHORIZE_NET_TRANSACTION_KEY
-AUTHORIZE_NET_SIGNATURE_KEY
+AUTHNET_SANDBOX_API_LOGIN_ID
+AUTHNET_SANDBOX_TRANSACTION_KEY
+AUTHNET_SANDBOX_SIGNATURE_KEY
 ```
 
 The sandbox endpoint is
@@ -86,6 +86,10 @@ AUTHORIZE_NET_SIGNATURE_KEY
 Set `PAYMENT_PROVIDER=authorize_net` and keep `AUTHORIZE_NET_MODE=test` in
 server-owned Worker configuration to exercise this path. Empty local
 placeholders are provided in `.dev.vars.example`.
+The server-owned connection binding stores the provider merchant identity in
+`authorizeNetMerchantId`; it never stores it in Stripe's `stripeAccountId`
+field. Stripe bindings use `stripeAccountId` only. Missing or cross-provider
+identity fields fail closed.
 
 ## Open decisions
 

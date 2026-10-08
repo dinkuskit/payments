@@ -11,7 +11,7 @@ import { authorizeNetEndpoints, createAuthorizeNetGateway, createAuthorizeNetPay
 import { createAuthorizeNetWebhookHandler } from "../authorize-net/webhook.js";
 import type { PaymentRequest } from "../commerce/checkout-port.js";
 
-type WakeRow = Record<string, string | number | null> & WakeContext & { deliveryGeneration: number; wokeAt: number; acknowledgedAt: number | null };
+type WakeRow = Record<string, string | number | null> & WakeContext & { deliveryGeneration: number; wokeAt: number; acknowledgedAt: number | null; authorizeNetMerchantId: string | null };
 
 export class PaymentConnection extends DurableObject<Env> {
   private readonly wakeEvents: WakeEventStore;
@@ -24,19 +24,22 @@ export class PaymentConnection extends DurableObject<Env> {
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS authorize_net_webhook_events (event_id TEXT PRIMARY KEY)");
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS checkout_wakes (attempt_id TEXT PRIMARY KEY, woke_at INTEGER NOT NULL)");
     const sql = ctx.storage.sql;
-    sql.exec("CREATE TABLE IF NOT EXISTS checkout_wake_events (event_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL, site_id TEXT NOT NULL, binding_ref TEXT NOT NULL, stripe_account_id TEXT NOT NULL, mode TEXT NOT NULL, received_at INTEGER NOT NULL, acknowledged_at INTEGER, delivery_generation INTEGER NOT NULL DEFAULT 1)");
+    sql.exec("CREATE TABLE IF NOT EXISTS checkout_wake_events (event_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL, site_id TEXT NOT NULL, binding_ref TEXT NOT NULL, stripe_account_id TEXT NOT NULL, authorize_net_merchant_id TEXT, mode TEXT NOT NULL, received_at INTEGER NOT NULL, acknowledged_at INTEGER, delivery_generation INTEGER NOT NULL DEFAULT 1)");
+    if (!sql.exec<{ name: string }>("PRAGMA table_info(checkout_wake_events)").toArray().some(column => column.name === "authorize_net_merchant_id")) {
+      sql.exec("ALTER TABLE checkout_wake_events ADD COLUMN authorize_net_merchant_id TEXT");
+    }
     if (!sql.exec<{ name: string }>("PRAGMA table_info(checkout_wake_events)").toArray().some(column => column.name === "delivery_generation")) {
       sql.exec("ALTER TABLE checkout_wake_events ADD COLUMN delivery_generation INTEGER NOT NULL DEFAULT 1");
     }
     this.wakeEvents = {
       pending: batchLimit => sql.exec<WakeRow>(
-        "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, mode FROM checkout_wake_events WHERE acknowledged_at IS NULL ORDER BY received_at ASC LIMIT ?",
+        "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, authorize_net_merchant_id AS authorizeNetMerchantId, mode FROM checkout_wake_events WHERE acknowledged_at IS NULL ORDER BY received_at ASC LIMIT ?",
         batchLimit,
-      ).toArray(),
+      ).toArray().map(({ authorizeNetMerchantId: _authorizeNetMerchantId, ...context }) => context as WakeRow),
       acknowledge: context => {
         assertWakeContext(context);
         const row = sql.exec<WakeRow>(
-          "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, mode FROM checkout_wake_events WHERE event_id=?",
+          "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, authorize_net_merchant_id AS authorizeNetMerchantId, mode FROM checkout_wake_events WHERE event_id=?",
           context.eventId,
         ).toArray()[0];
         if (!row || Object.keys(context).some(key => row[key as keyof WakeContext] !== context[key as keyof WakeContext])) {
@@ -59,6 +62,7 @@ export class PaymentConnection extends DurableObject<Env> {
       })) },
       provider: createStripeOnboarding({ apiKey: this.env.STRIPE_API_KEY, mode: "test", returnUrl: this.env.ONBOARDING_RETURN_URL, refreshUrl: this.env.ONBOARDING_REFRESH_URL }),
       providerId: (this.env.PAYMENT_PROVIDER as string) === "authorize_net" ? "authorize_net" : "stripe",
+      authorizeNetMerchantId: (this.env.AUTHORIZE_NET_MERCHANT_ID as string) || this.env.AUTHORIZE_NET_API_LOGIN_ID,
     });
   }
   private checkout() {
@@ -135,7 +139,7 @@ export class PaymentConnection extends DurableObject<Env> {
     const binding = await this.connection().existingBinding(principal, bindingRef);
     if (!binding) throw new WakeError("binding_not_found");
     const rows = this.ctx.storage.sql.exec<WakeRow>(
-      "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, mode, delivery_generation AS deliveryGeneration, received_at AS wokeAt FROM checkout_wake_events WHERE binding_ref=? AND acknowledged_at IS NULL ORDER BY received_at ASC LIMIT ?",
+      "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, authorize_net_merchant_id AS authorizeNetMerchantId, mode, delivery_generation AS deliveryGeneration, received_at AS wokeAt FROM checkout_wake_events WHERE binding_ref=? AND acknowledged_at IS NULL ORDER BY received_at ASC LIMIT ?",
       bindingRef, limit,
     ).toArray();
     return rows.map(row => {
@@ -156,7 +160,7 @@ export class PaymentConnection extends DurableObject<Env> {
     return this.ctx.storage.transactionSync(() => {
       const sql = this.ctx.storage.sql;
       const row = sql.exec<WakeRow>(
-        "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, mode, delivery_generation AS deliveryGeneration, received_at AS wokeAt, acknowledged_at AS acknowledgedAt FROM checkout_wake_events WHERE event_id=?",
+        "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, authorize_net_merchant_id AS authorizeNetMerchantId, mode, delivery_generation AS deliveryGeneration, received_at AS wokeAt, acknowledged_at AS acknowledgedAt FROM checkout_wake_events WHERE event_id=?",
         wake.eventId,
       ).toArray()[0];
       if (!row) throw new WakeError("wake_not_found");
@@ -174,7 +178,9 @@ export class PaymentConnection extends DurableObject<Env> {
   }
   private assertWakeAssociation(principal: Principal, binding: CheckoutBinding, row: WakeRow): void {
     if (row.siteId !== principal.siteId || row.bindingRef !== binding.bindingRef ||
-        row.stripeAccountId !== binding.stripeAccountId || row.mode !== "test") {
+        row.mode !== "test" ||
+        (binding.providerId === "stripe" && row.stripeAccountId !== binding.stripeAccountId) ||
+        (binding.providerId === "authorize_net" && row.authorizeNetMerchantId !== binding.authorizeNetMerchantId)) {
       throw new WakeError("wake_association_mismatch");
     }
     const attempt = this.ctx.storage.sql.exec<{ value: string }>(
@@ -207,7 +213,7 @@ export class PaymentConnection extends DurableObject<Env> {
         async wake(context) {
           assertWakeContext(context);
           const existing = sql.exec<WakeRow>(
-            "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, mode FROM checkout_wake_events WHERE event_id=?",
+            "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, authorize_net_merchant_id AS authorizeNetMerchantId, mode FROM checkout_wake_events WHERE event_id=?",
             context.eventId,
           ).toArray()[0];
           if (existing) {
@@ -243,8 +249,8 @@ export class PaymentConnection extends DurableObject<Env> {
           const stored = record ? JSON.parse(record.value) as { bindingRef?: string } : null;
           if (stored?.bindingRef) {
             sql.exec(
-              "INSERT OR IGNORE INTO checkout_wake_events (event_id,attempt_id,site_id,binding_ref,stripe_account_id,mode,received_at,acknowledged_at,delivery_generation) VALUES (?,?,?,?,?,?,?,NULL,1)",
-              `evt_anet_${event.id}`, event.attemptId, siteId, stored.bindingRef, "authorize_net", "test", receivedAt,
+              "INSERT OR IGNORE INTO checkout_wake_events (event_id,attempt_id,site_id,binding_ref,stripe_account_id,authorize_net_merchant_id,mode,received_at,acknowledged_at,delivery_generation) VALUES (?,?,?,?,?,?,?, ?,NULL,1)",
+              `evt_anet_${event.id}`, event.attemptId, siteId, stored.bindingRef, "", (this.env.AUTHORIZE_NET_MERCHANT_ID as string) || this.env.AUTHORIZE_NET_API_LOGIN_ID, "test", receivedAt,
             );
           }
         }

@@ -4,3 +4,6 @@ STRIPE_WEBHOOK_SECRET=
 AUTHORIZE_NET_API_LOGIN_ID=
 AUTHORIZE_NET_TRANSACTION_KEY=
 AUTHORIZE_NET_SIGNATURE_KEY=
+# Optional server-owned merchant identity; the sandbox API Login ID is used
+# only as a runtime fallback when this is empty.
+AUTHORIZE_NET_MERCHANT_ID=

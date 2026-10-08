@@ -9,7 +9,10 @@ and reuses the same merchant identity as hosted Inventory. Shop owners do not
 configure infrastructure or manually enter Stripe API keys.
 
 The implementation here is the first backend slice. It is not a registry
-release or proof that the entire experience is available.
+release or proof that the entire experience is available. Stripe bindings
+carry `stripeAccountId`; sandbox Authorize.net bindings carry the separate
+server-owned `authorizeNetMerchantId`. Cross-provider fields and provider
+sentinels fail closed.
 
 ## Backend contract
 

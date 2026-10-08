@@ -417,6 +417,7 @@ function storedSession(record: AttemptRecord): PaymentSession | null {
 }
 
 function assertBinding(record: AttemptRecord, binding: CheckoutBinding, request: PaymentRequest, principal: Principal) {
+  if (binding.providerId !== "stripe") throw new CheckoutError("binding_provider_mismatch");
   if (record.siteId !== principal.siteId) throw new CheckoutError("binding_mismatch");
   if (record.bindingRef !== request.bindingRef || binding.bindingRef !== request.bindingRef) throw new CheckoutError("binding_mismatch");
   if (record.stripeAccountId !== binding.stripeAccountId || record.mode !== binding.mode) throw new CheckoutError("binding_mismatch");
@@ -518,6 +519,7 @@ export function createCheckoutSessionService(options: {
   }
 
   async function claim(principal: Principal, request: PaymentRequest, binding: CheckoutBinding): Promise<AttemptRecord> {
+    if (binding.providerId !== "stripe") throw new CheckoutError("binding_provider_mismatch");
     const claimedAtMs = now();
     const handoff = paymentRequestHandoff(request);
     if (!handoff) throw new CheckoutError("invalid_request");
