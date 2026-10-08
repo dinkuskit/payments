@@ -4,6 +4,9 @@
   "description": "The open-source payment-provider plugin for EmDash commerce sites",
   "type": "module",
   "private": true,
+  "bin": {
+    "dinkus-payments": "./bin/dinkus-payments.mjs"
+  },
   "files": [
     "dist"
   ],
@@ -23,7 +26,7 @@
     "currencyConversion": false
   },
   "scripts": {
-    "test": "node --import tsx --test tests/*.test.mjs",
+    "test": "node --import tsx --test tests/*.test.mjs tests/cli/*.test.mjs",
     "audit:repo": "node scripts/repo-contract.mjs",
     "verify:quick": "bin/verify-payments quick",
     "verify:full": "bin/verify-payments full",

@@ -7,3 +7,5 @@
   API contract, tests, and the remaining registry/account integration.
 - [Checkout sessions](checkout-sessions.md): Commerce port fixture, durable
   Stripe session mapping, webhook wake rules, and feasibility limits.
+- [CLI specification](CLI-SPEC.md): draft `dinkus-payments` command-line
+  client for the hosted API, its output contract, and non-goals.
