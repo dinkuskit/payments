@@ -1,4 +1,4 @@
-import { CheckoutError } from "../checkout/sessions.js";
+import { CheckoutError, validatePaymentRequest } from "../checkout/sessions.js";
 import { WebhookError } from "../checkout/webhook.js";
 import { assertCommercePaymentWake, WakeError, type CommercePaymentWake } from "../checkout/wakes.js";
 import type { PaymentOutcome, PaymentRequest } from "../commerce/checkout-port.js";
@@ -13,6 +13,40 @@ type WakeApi = {
   list(bindingRef: string, limit: number): Promise<readonly CommercePaymentWake[]>;
   acknowledge(wake: CommercePaymentWake): Promise<boolean>;
 };
+
+const MAX_CHECKOUT_BODY_BYTES = 128 * 1024;
+
+async function readCheckoutRequest(request: Request): Promise<PaymentRequest> {
+  if (!request.body) throw new CheckoutError("invalid_request");
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_CHECKOUT_BODY_BYTES) throw new CheckoutError("request_too_large");
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel();
+    reader.releaseLock();
+  }
+  try {
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    const body = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes)) as PaymentRequest;
+    return validatePaymentRequest(body);
+  } catch (error) {
+    if (error instanceof CheckoutError) throw error;
+    throw new CheckoutError("invalid_request");
+  }
+}
 
 async function hasBodyBytes(request: Request): Promise<boolean> {
   if (request.body === null) return false;
@@ -37,7 +71,8 @@ function checkoutErrorStatus(error: unknown): number {
   if (error instanceof WakeError && error.message === "invalid_wake") return 400;
   if (error instanceof WakeError && error.message === "invalid_batch_limit") return 400;
   if (error instanceof WakeError) return 409;
-  if (error instanceof CheckoutError && (error.message === "invalid_request" || error.message === "invalid_amount")) return 400;
+  if (error instanceof CheckoutError &&
+      (error.message === "invalid_request" || error.message === "invalid_amount" || error.message === "request_too_large")) return 400;
   if (error instanceof CheckoutError) return 409;
   return 503;
 }
@@ -85,8 +120,8 @@ export function createHostedHandler(options: {
     try { principal = await options.authenticate(request, checkoutScope ? "payments:checkout" : "payments:admin"); }
     catch { return respond({ error: "unauthorized" }, 401); }
     try {
-      const service = options.service(principal);
       if (pathname === "/v1/connect") {
+        const service = options.service(principal);
         // No caller-controlled account, mode, return URL, or provider selection.
         // Check bytes, not stream presence: a bodyless runtime POST can still
         // have a non-null, exhausted stream. No caller input is buffered.
@@ -94,10 +129,12 @@ export function createHostedHandler(options: {
         return respond(await service.connect(principal));
       }
       if (pathname === "/v1/status") {
+        const service = options.service(principal);
         if (searchParams.size) return respond({ error: "unexpected_input" }, 400);
         return respond(await service.status(principal));
       }
       if (pathname === "/v1/checkout-binding" || pathname === "/v1/existing-binding") {
+        const service = options.service(principal);
         const refs = searchParams.getAll("bindingRef");
         if (refs.length !== 1 || searchParams.size !== 1 || refs[0].length < 1 || refs[0].length > 200) return respond({ error: "invalid_binding" }, 400);
         const binding = pathname === "/v1/existing-binding"
@@ -132,7 +169,7 @@ export function createHostedHandler(options: {
       }
       if (!options.checkout) return respond({ error: "not_found" }, 404);
       if (searchParams.size) return respond({ error: "unexpected_input" }, 400);
-      const requestBody = await request.json() as PaymentRequest;
+      const requestBody = await readCheckoutRequest(request);
       const checkout = options.checkout(principal);
       return respond(pathname === "/v1/checkout/session" ? await checkout.ensureSession(requestBody) : await checkout.lookup(requestBody));
     } catch (error) {

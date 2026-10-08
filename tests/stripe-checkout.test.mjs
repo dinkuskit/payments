@@ -74,6 +74,10 @@ test("official Stripe checkout transport pins idempotency, connected account, ca
   assert.equal(params.get("payment_method_types[0]"), "card");
   assert.equal(params.get("line_items[0][price_data][currency]"), "usd");
   assert.equal(params.get("line_items[0][price_data][unit_amount]"), "1200");
+  assert.equal(params.has("allow_promotion_codes"), false);
+  assert.equal(params.has("coupon"), false);
+  assert.equal(params.has("promotion_code"), false);
+  assert.equal(params.has("discounts[0][coupon]"), false);
   assert.equal(params.get("metadata[dinkus_attempt]"), "attempt-one");
   const retrieved = await provider.retrieveSession("cs_fixture", "acct_one");
   assert.equal(retrieved.url, null);

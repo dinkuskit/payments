@@ -12,6 +12,51 @@
   },
   "decisions": [
     {
+      "baseline_ref": "git:b49fe39",
+      "candidate_refs": [],
+      "choice": "Qualify Stripe TEST mode for the demo checkout boundary without changing Commerce or template-store: preserve server-owned Stripe Connect binding, Commerce-authoritative amounts and paid decisions, authoritative Session plus PaymentIntent lookup, and webhook verification that only wakes reconciliation. Add a no-secret opt-in proof script and document the remaining cross-repository bindings. Exclude live mode, deployment, production mutation, and merge.",
+      "context_ref": "github:dinkuskit/payments/pull/20",
+      "created_at": "2026-10-08T15:46:00+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-plugin-topology-001",
+        "payments-demo-currency-002",
+        "merchant-stripe-ownership-001",
+        "payments-checkout-sessions-001"
+      ],
+      "domain": "Stripe TEST mode checkout proof",
+      "history": [
+        {
+          "at": "2026-10-08T15:46:00+00:00",
+          "choice": "Qualify Stripe TEST mode for the demo checkout boundary without changing Commerce or template-store: preserve server-owned Stripe Connect binding, Commerce-authoritative amounts and paid decisions, authoritative Session plus PaymentIntent lookup, and webhook verification that only wakes reconciliation. Add a no-secret opt-in proof script and document the remaining cross-repository bindings. Exclude live mode, deployment, production mutation, and merge.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "Ryan (GitHub saariuslystoned) approved this change on a branch.",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-stripe-test-mode-003",
+      "implementation_ref": "docs/stripe-test-mode.md;scripts/stripe-test-mode-proof.mjs",
+      "question": "What payments-side proof and handoff are required for a Stripe TEST mode demo checkout?",
+      "rationale": "Ryan approved a payments-only test-mode qualification with Commerce and template-store follow-up explicitly out of scope.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "locked",
+      "superseded_by": null,
+      "updated_at": "2026-10-08T15:46:00+00:00",
+      "verification_ref": null
+    },
+    {
       "baseline_ref": null,
       "candidate_refs": [],
       "choice": "Ship one @dinkuskit/payments EmDash plugin with a server-owned adapter registry and exactly one active provider per store. Stripe is the only implemented and supported demo provider. Future processors may be isolated adapters behind the Commerce-owned provider contract; unknown providers fail closed, with no fallback or browser selection.",

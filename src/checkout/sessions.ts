@@ -28,6 +28,8 @@ const SESSION_ID_PATTERN = /^cs_(?:test_|live_)?[A-Za-z0-9]+$/;
 
 const MINOR_PATTERN = /^(0|[1-9][0-9]*)$/;
 const MAX_SAFE_MINOR = BigInt(Number.MAX_SAFE_INTEGER);
+const MAX_ID_LENGTH = 200;
+const MAX_LINE_NAME_LENGTH = 500;
 
 export type LatestCharge =
   | { state: "absent" }
@@ -233,8 +235,8 @@ function exactKeys(value: object, keys: readonly string[]): boolean {
   return Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
 }
 
-function text(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
+function text(value: unknown, maxLength = MAX_ID_LENGTH): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= maxLength;
 }
 
 function pricingMoney(value: unknown): bigint {
@@ -339,24 +341,33 @@ export function requestFingerprint(request: PaymentRequest): string {
 
 export function validatePaymentRequest(request: PaymentRequest): PaymentRequest {
   if (!request || typeof request !== "object") throw new CheckoutError("invalid_request");
-  if (!request.attemptId || typeof request.attemptId !== "string" || request.attemptId.length > 200) throw new CheckoutError("invalid_request");
-  if (!request.bindingRef || typeof request.bindingRef !== "string" || request.bindingRef.length > 200) throw new CheckoutError("invalid_request");
+  if (!text(request.attemptId) || !text(request.bindingRef)) throw new CheckoutError("invalid_request");
   const handoff = paymentRequestHandoff(request);
   if (!handoff) throw new CheckoutError("invalid_request");
+  const requestKeys = handoff.kind === "current-bounded-1800-1860"
+    ? ["attemptId", "bindingRef", "lines", "total", "paymentMethods", "paymentWindow", ...(Object.hasOwn(request, "pricing") ? ["pricing"] : [])]
+    : ["attemptId", "bindingRef", "lines", "total", "paymentMethods", "paymentWindowSeconds"];
+  if (!exactKeys(request, requestKeys)) throw new CheckoutError("invalid_request");
   if (!Array.isArray(request.paymentMethods) || request.paymentMethods.length !== 1 || request.paymentMethods[0] !== "card") {
     throw new CheckoutError("invalid_request");
   }
-  if (!request.total || request.total.currency !== "USD" || typeof request.total.minor !== "string") throw new CheckoutError("invalid_amount");
+  if (!request.total || typeof request.total !== "object" || Array.isArray(request.total) ||
+      !exactKeys(request.total, ["currency", "minor"]) ||
+      request.total.currency !== "USD" || typeof request.total.minor !== "string") throw new CheckoutError("invalid_amount");
   const totalMinor = parseMinorUnits(request.total.minor);
   if (totalMinor <= 0n) throw new CheckoutError("invalid_amount");
   if (!Array.isArray(request.lines) || request.lines.length === 0 || request.lines.length > 100) throw new CheckoutError("invalid_request");
   let sum = 0n;
   for (const line of request.lines) {
-    if (!line || typeof line.catalogItemId !== "string" || !line.catalogItemId || typeof line.name !== "string" || !line.name) {
+    if (!line || typeof line !== "object" || Array.isArray(line) ||
+        !exactKeys(line, ["catalogItemId", "quantity", "name", "unitPrice"]) ||
+        !text(line.catalogItemId) || !text(line.name, MAX_LINE_NAME_LENGTH)) {
       throw new CheckoutError("invalid_request");
     }
     if (!Number.isSafeInteger(line.quantity) || line.quantity <= 0) throw new CheckoutError("invalid_request");
-    if (!line.unitPrice || line.unitPrice.currency !== "USD" || typeof line.unitPrice.minor !== "string") throw new CheckoutError("invalid_amount");
+    if (!line.unitPrice || typeof line.unitPrice !== "object" || Array.isArray(line.unitPrice) ||
+        !exactKeys(line.unitPrice, ["currency", "minor"]) ||
+        line.unitPrice.currency !== "USD" || typeof line.unitPrice.minor !== "string") throw new CheckoutError("invalid_amount");
     sum += parseMinorUnits(line.unitPrice.minor) * BigInt(line.quantity);
     if (sum > MAX_SAFE_MINOR) throw new CheckoutError("invalid_amount");
   }
