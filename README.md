@@ -42,6 +42,12 @@ the work that closes them. The project owner set this rule on 2026-10-08.
 Payments runs as a hosted service and has no installable plugin yet. When the
 `dinkus-payments` plugin ships, it ships as a Registry plugin under this rule.
 
+The current local Registry candidate is a private, read-only status page. It
+reports unavailable status with `status: null`; it does not connect an account,
+select a provider, call an external service, or publish to the Registry. The
+candidate is verified from its official built bundle with EmDash's
+`@emdash-cms/plugin-test` runtime host.
+
 ## Amount terminology
 
 - **Currency** identifies the unit, such as `USD`.

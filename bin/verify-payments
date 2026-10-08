@@ -17,6 +17,9 @@ case "$mode" in
     "$script_dir/verify-payments" quick
     npm run test:runtime
     npm run build
+    npm run plugin:validate
+    npm run plugin:build
+    npm run test:plugin-runtime
     ;;
   *)
     echo "Usage: bin/verify-payments [quick|full]" >&2
