@@ -42,6 +42,29 @@ client must treat them as short-lived sensitive links and open them only for
 the authenticated merchant. No caller may supply an account ID, provider,
 mode, or callback URL. Callback URLs are trusted operator configuration.
 
+Authenticated status responses may add this minimal `connectionEvidence`
+object without changing the legacy `state`, `mode`, or `bindingRef` fields:
+
+```json
+{
+  "provider": "stripe",
+  "mode": "test",
+  "result": "verified",
+  "accountRef": "acct_example"
+}
+```
+
+`result` is `verified`, `action_required`, `unknown`, or `unsupported`.
+Stripe reuses the existing account lookup once per status request, requires
+the returned account ID to match the stored account, and includes its account
+reference only as a provider identity reference. Lookup failures and account
+mismatches are `unknown`, never verified. Authorize.net reports
+`unsupported` for its configured legacy merchant binding without a readiness
+call or an inferred live claim. Status evidence always states the explicit
+`mode`; it does not create an overall Ready to sell result or attest a
+Commerce TEST order. Existing `connect` responses and TEST checkout admission
+remain unchanged. Legacy status payloads decode with evidence absent.
+
 The account service owns shared identity and site grants. Payments verifies
 them with `jose`; it does not create passwords or issue an alternative account
 token. Identity is the issuer/subject pair, matching Inventory's current
