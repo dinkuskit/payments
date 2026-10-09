@@ -9,3 +9,5 @@
   Stripe session mapping, webhook wake rules, and feasibility limits.
 - [Route authentication](route-auth.md): exact installed Registry and hosted paths,
   signature and scoped authorization, and the empty Registry public bypass list.
+- [Store TEST readiness](store-test-readiness.md): approved two-provider launch
+  qualification and mandatory per-store TEST-purchase agreement.
