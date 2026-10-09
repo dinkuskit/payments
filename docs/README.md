@@ -11,3 +11,5 @@
   signature and scoped authorization, and the empty Registry public bypass list.
 - [Store TEST readiness](store-test-readiness.md): approved two-provider launch
   qualification and mandatory per-store TEST-purchase agreement.
+- [Payment setup decision](payment-setup-decision.md): approved one-screen flow,
+  independent connection and TEST-order checks, research, and remaining design.

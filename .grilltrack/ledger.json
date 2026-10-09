@@ -4,11 +4,11 @@
   "current_focus": {
     "cadence": "sequential",
     "confirmed": true,
-    "confirmed_at": "2026-10-09T01:34:44+00:00",
-    "domain": "Provider qualification and store live-readiness agreement",
-    "started_at": "2026-10-09T01:34:44+00:00",
+    "confirmed_at": "2026-10-09T12:54:12+00:00",
+    "domain": "One payment setup screen",
+    "started_at": "2026-10-09T12:54:12+00:00",
     "status": "confirmed",
-    "summary": "Record the approved two-provider, Stripe-first qualification and mandatory per-store TEST purchase readiness agreement with Commerce ownership, proof invalidation, visible persistent TEST orders, no inventory gate and no real fulfillment. This slice only records the agreement and next contract handoff; feature design and implementation remain separate."
+    "summary": "Owner approved one setup screen with automatic supported connection checks, mandatory Commerce paid TEST order confirmation, and Ready to sell only when both pass. Preserve028; reject elaborate account equivalence; leave transition semantics unresolved. Documentation and decision PR only."
   },
   "decisions": [
     {
@@ -1343,6 +1343,49 @@
       "superseded_by": null,
       "updated_at": "2026-10-09T01:34:44+00:00",
       "verification_ref": null
+    },
+    {
+      "baseline_ref": "git:7179acdcd9358100d04af68cdd040ea69ba5c14f",
+      "candidate_refs": [],
+      "choice": "One setup screen: Connect payments automatically checks actual provider-supported connection and live-readiness signals; Place a test order requires Commerce confirmation of a provider-confirmed paid TEST order visible in admin; Ready to sell appears only when both checks pass. Test success does not verify live readiness. No merchant-facing technical account mapping or sandbox-to-live equivalence certification. Unsupported Authorize.net readiness capabilities remain unknown/incomplete until verified. Preserve decision028 requirements and exclusions; ordinary test-to-live revision semantics remain design, without infinite retest loops.",
+      "context_ref": "docs/payment-setup-decision.md",
+      "created_at": "2026-10-09T12:53:56+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-store-test-readiness-028"
+      ],
+      "domain": "Provider qualification and store live-readiness agreement",
+      "history": [
+        {
+          "at": "2026-10-09T12:53:56+00:00",
+          "choice": "One setup screen: Connect payments automatically checks actual provider-supported connection and live-readiness signals; Place a test order requires Commerce confirmation of a provider-confirmed paid TEST order visible in admin; Ready to sell appears only when both checks pass. Test success does not verify live readiness. No merchant-facing technical account mapping or sandbox-to-live equivalence certification. Unsupported Authorize.net readiness capabilities remain unknown/incomplete until verified. Preserve decision028 requirements and exclusions; ordinary test-to-live revision semantics remain design, without infinite retest loops.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-one-screen-setup-029",
+      "implementation_ref": null,
+      "question": "How should merchants complete payment setup without technical sandbox-to-live account certification?",
+      "rationale": "Owner explicitly approved the one setup screen recommendation and requested its lock on 2026-10-09. Separate provider-supported live connection checks from mandatory Commerce TEST-order proof.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "locked",
+      "superseded_by": null,
+      "updated_at": "2026-10-09T12:53:56+00:00",
+      "verification_ref": null
     }
   ],
   "last_activation": {
@@ -1369,5 +1412,5 @@
   "status": "active",
   "title": "DinkusKit Payments public scaffold",
   "track_id": "gt-20260830202947-ccfe03",
-  "updated_at": "2026-10-09T02:44:23+00:00"
+  "updated_at": "2026-10-09T12:54:12+00:00"
 }
