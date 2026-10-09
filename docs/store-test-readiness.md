@@ -49,3 +49,10 @@ is status-only; its seeded harness is not genuine installer or purchase proof.
 Stripe-first specifies order of qualification, not permission to make provider
 calls. Live credentials, provider traffic, deployment, account changes and
 merges remain separately gated.
+
+## Setup flow refinement
+
+The additive [one payment setup screen decision](payment-setup-decision.md)
+separates supported live connection checks from Commerce TEST-order proof in
+one merchant screen. It preserves this agreement and rejects technical
+sandbox-to-live account certification as a merchant task.
