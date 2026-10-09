@@ -17,6 +17,9 @@ export interface AuthorizeNetWebhookEvent {
   readonly id: string;
   readonly payload: unknown;
   readonly transaction: AuthorizeNetTransaction | null;
+  /** Raw invoiceNumber/attemptId from the signed body (store-bound reference). */
+  readonly invoiceReference?: string;
+  readonly transactionId?: string;
 }
 
 function signedNotificationId(parsed: unknown): string {
@@ -28,6 +31,19 @@ function signedNotificationId(parsed: unknown): string {
     throw new AuthorizeNetWebhookError("invalid_event_id");
   }
   return notificationId;
+}
+
+function nestedString(value: unknown, keys: readonly string[], pattern: RegExp): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const object = value as Record<string, unknown>;
+  for (const key of keys) {
+    if (typeof object[key] === "string" && pattern.test(object[key] as string)) return object[key] as string;
+  }
+  for (const child of Object.values(object)) {
+    const found = nestedString(child, keys, pattern);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 /**
@@ -57,7 +73,10 @@ export async function verifyAuthorizeNetWebhook(
   const notificationId = signedNotificationId(parsed);
   if (notificationId !== eventId) throw new AuthorizeNetWebhookError("notification_id_mismatch");
   if (seenEventIds.has(notificationId)) throw new AuthorizeNetWebhookError("replayed_event");
-  return { id: notificationId, payload: parsed, transaction: null };
+  const body = parsed as Record<string, unknown>;
+  const transactionId = nestedString(body, ["transactionId", "transId"], /^[0-9]+$/);
+  const invoiceReference = nestedString(body, ["attemptId", "invoiceNumber"], /^[A-Za-z0-9._-]{1,20}$/);
+  return { id: notificationId, payload: parsed, transaction: null, invoiceReference, transactionId };
 }
 
 export function createAuthorizeNetWebhookHandler(options: {

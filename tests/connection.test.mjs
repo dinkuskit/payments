@@ -88,6 +88,39 @@ test('another provider account response and a hostile onboarding URL fail closed
   assert.equal(await f.service().checkoutBinding(owner, 'stripe_binding-one'), null);
 });
 
+test('Authorize.net bindings use authorizeNetMerchantId and never a Stripe account sentinel', async () => {
+  const f = fixture();
+  const service = () => createConnectionService({
+    store: f.store, provider: f.provider, mode: 'test', providerId: 'authorize_net',
+    authorizeNetMerchantId: 'merchant-one', newId: () => 'binding-one',
+  });
+  assert.equal((await service().connect(owner)).state, 'ready');
+  assert.deepEqual(await service().checkoutBinding(owner, 'authorize_net_binding-one'), {
+    bindingRef: 'authorize_net_binding-one', providerId: 'authorize_net',
+    authorizeNetMerchantId: 'merchant-one', mode: 'test',
+  });
+  assert.equal(f.saved().stripeAccountId, null);
+  assert.equal(f.saved().authorizeNetMerchantId, 'merchant-one');
+});
+
+test('cross-provider connection fields and the authorize sentinel fail closed', async () => {
+  const f = fixture();
+  f.store.transaction(tx => tx.write({
+    bindingRef: 'stripe_binding-one', owner, mode: 'test', startedAt: 1,
+    stripeAccountId: 'authorize_net', authorizeNetMerchantId: null, providerId: 'stripe',
+  }));
+  await assert.rejects(f.service().status(owner), /binding_invalid_stripe_account/);
+  f.store.transaction(tx => tx.write({
+    bindingRef: 'authorize_net_binding-one', owner, mode: 'test', startedAt: 1,
+    stripeAccountId: 'acct_wrong', authorizeNetMerchantId: 'merchant-one', providerId: 'authorize_net',
+  }));
+  const authorize = createConnectionService({
+    store: f.store, provider: f.provider, mode: 'test', providerId: 'authorize_net',
+    authorizeNetMerchantId: 'merchant-one',
+  });
+  await assert.rejects(authorize.status(owner), /binding_cross_provider_fields/);
+});
+
 test('HTTP surface requires auth, separates checkout scope, and rejects caller configuration', async () => {
   const f = fixture(), scopes = [];
   const handle = createHostedHandler({ authenticate: async (request, scope) => {

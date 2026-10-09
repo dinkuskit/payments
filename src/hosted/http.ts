@@ -1,3 +1,4 @@
+import { AuthorizeNetWebhookError } from "../authorize-net/webhook.js";
 import { CheckoutError, validatePaymentRequest } from "../checkout/sessions.js";
 import { WebhookError } from "../checkout/webhook.js";
 import { assertCommercePaymentWake, WakeError, type CommercePaymentWake } from "../checkout/wakes.js";
@@ -83,6 +84,7 @@ export function createHostedHandler(options: {
   checkout?(principal: Principal): CheckoutApi;
   wakes?(principal: Principal): WakeApi;
   webhook?(payload: Uint8Array, signature: string, stripeAccount: string | null): Promise<void>;
+  authorizeNetWebhook?(payload: Uint8Array, signature: string, eventId: string, siteId: string): Promise<void>;
 }) {
   const respond = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
   return async (request: Request): Promise<Response> => {
@@ -99,6 +101,25 @@ export function createHostedHandler(options: {
       } catch (error) {
         if (error instanceof WebhookError) return respond({ error: error.message }, error.message === "raw_payload_required" || error.message === "missing_signature" ? 400 : 409);
         if (error instanceof CheckoutError) return respond({ error: error.message }, 409);
+        if (error instanceof Error && /signature/i.test(error.message)) return respond({ error: "invalid_signature" }, 400);
+        return respond({ error: "wake_failed" }, 500);
+      }
+    }
+    const authorizeNetPath = pathname.match(/^\/v1\/webhooks\/authorize-net\/([^/]+)$/);
+    if (authorizeNetPath) {
+      if (request.method !== "POST") return respond({ error: "method_not_allowed" }, 405);
+      if (!options.authorizeNetWebhook || searchParams.size) return respond({ error: "not_found" }, 404);
+      const signature = request.headers.get("x-anet-signature");
+      const eventId = request.headers.get("x-anet-notification-id");
+      if (!signature || !eventId) return respond({ error: "missing_signature" }, 400);
+      try {
+        await options.authorizeNetWebhook(new Uint8Array(await request.arrayBuffer()), signature, eventId, authorizeNetPath[1]);
+        return respond({ received: true });
+      } catch (error) {
+        if (error instanceof AuthorizeNetWebhookError || error instanceof WebhookError ||
+            (error instanceof Error && (error.message === "site_mismatch" || error.message === "invalid_invoice_reference"))) {
+          return respond({ error: error instanceof Error ? error.message : "site_mismatch" }, 400);
+        }
         if (error instanceof Error && /signature/i.test(error.message)) return respond({ error: "invalid_signature" }, 400);
         return respond({ error: "wake_failed" }, 500);
       }
