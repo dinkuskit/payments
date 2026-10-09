@@ -1281,14 +1281,26 @@
       "question": "How are Payments routes explicitly authenticated and safely identified for exact Access bypasses?",
       "rationale": "Approved bounded issue 27 delivery and coordinator admission; actual current Registry surface is admin-only.",
       "repair_required": false,
-      "review_classifications": [],
-      "review_history": [],
-      "review_ref": null,
-      "review_result": null,
-      "review_source_identity": null,
+      "review_classifications": [
+        "human_gate"
+      ],
+      "review_history": [
+        {
+          "classifications": [
+            "human_gate"
+          ],
+          "ref": "https://github.com/dinkuskit/payments/pull/28#issuecomment-6072815786",
+          "result": "findings",
+          "reviewed_at": "2026-10-09T02:44:23+00:00",
+          "source_identity": "git:4f170d7b9e692863d515bcac480cb1229fb51bb5"
+        }
+      ],
+      "review_ref": "https://github.com/dinkuskit/payments/pull/28#issuecomment-6072815786",
+      "review_result": "findings",
+      "review_source_identity": "git:4f170d7b9e692863d515bcac480cb1229fb51bb5",
       "status": "verified",
       "superseded_by": null,
-      "updated_at": "2026-10-09T01:32:47+00:00",
+      "updated_at": "2026-10-09T02:44:23+00:00",
       "verification_ref": ".grilltrack/proof/route-auth-27/PROOF.md"
     },
     {
@@ -1357,5 +1369,5 @@
   "status": "active",
   "title": "DinkusKit Payments public scaffold",
   "track_id": "gt-20260830202947-ccfe03",
-  "updated_at": "2026-10-09T01:34:44+00:00"
+  "updated_at": "2026-10-09T02:44:23+00:00"
 }
