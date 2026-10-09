@@ -4,11 +4,11 @@
   "current_focus": {
     "cadence": "sequential",
     "confirmed": true,
-    "confirmed_at": "2026-10-09T12:54:12+00:00",
-    "domain": "One payment setup screen",
-    "started_at": "2026-10-09T12:54:12+00:00",
+    "confirmed_at": "2026-10-09T13:48:36+00:00",
+    "domain": "Provider connection evidence projection",
+    "started_at": "2026-10-09T13:48:36+00:00",
     "status": "confirmed",
-    "summary": "Owner approved one setup screen with automatic supported connection checks, mandatory Commerce paid TEST order confirmation, and Ready to sell only when both pass. Preserve028; reject elaborate account equivalence; leave transition semantics unresolved. Documentation and decision PR only."
+    "summary": "Implement only additive hosted provider evidence and decoder with isolated mocked/runtime tests; preserve connect and TEST admission. No UI, provider traffic or overall readiness. Full verification and exact-source reviews before maintainer gate."
   },
   "decisions": [
     {
@@ -1386,6 +1386,78 @@
       "superseded_by": null,
       "updated_at": "2026-10-09T12:53:56+00:00",
       "verification_ref": null
+    },
+    {
+      "baseline_ref": "git:260c0a6b4a058971bd1173321b7feed1aea35537",
+      "candidate_refs": [],
+      "choice": "Add minimal provider connection evidence to authenticated /v1/status preserving legacy fields, connect responses and TEST checkout admission. Reuse Stripe account lookup with exact account and explicit mode; action and unknown fail closed. Authorize.net configured merchant identity remains unverified without guessed capabilities or provider calls. Registry status decoder accepts valid additive evidence and treats legacy evidence as absent, never inferring live readiness. No overall Ready to sell, Commerce order attestation, new Registry connection mechanism or certification protocol.",
+      "context_ref": "docs/hosted-connections.md",
+      "created_at": "2026-10-09T13:48:36+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-store-test-readiness-028",
+        "payments-one-screen-setup-029"
+      ],
+      "domain": "Provider connection evidence projection",
+      "history": [
+        {
+          "at": "2026-10-09T13:48:36+00:00",
+          "choice": "Add minimal provider connection evidence to authenticated /v1/status preserving legacy fields, connect responses and TEST checkout admission. Reuse Stripe account lookup with exact account and explicit mode; action and unknown fail closed. Authorize.net configured merchant identity remains unverified without guessed capabilities or provider calls. Registry status decoder accepts valid additive evidence and treats legacy evidence as absent, never inferring live readiness. No overall Ready to sell, Commerce order attestation, new Registry connection mechanism or certification protocol.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-09T13:58:31+00:00",
+          "choice": "Add minimal provider connection evidence to authenticated /v1/status preserving legacy fields, connect responses and TEST checkout admission. Reuse Stripe account lookup with exact account and explicit mode; action and unknown fail closed. Authorize.net configured merchant identity remains unverified without guessed capabilities or provider calls. Registry status decoder accepts valid additive evidence and treats legacy evidence as absent, never inferring live readiness. No overall Ready to sell, Commerce order attestation, new Registry connection mechanism or certification protocol.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-09T13:58:31+00:00",
+          "choice": "Add minimal provider connection evidence to authenticated /v1/status preserving legacy fields, connect responses and TEST checkout admission. Reuse Stripe account lookup with exact account and explicit mode; action and unknown fail closed. Authorize.net configured merchant identity remains unverified without guessed capabilities or provider calls. Registry status decoder accepts valid additive evidence and treats legacy evidence as absent, never inferring live readiness. No overall Ready to sell, Commerce order attestation, new Registry connection mechanism or certification protocol.",
+          "from": "implemented",
+          "implementation_ref": "src/hosted/connection.ts;src/registry/status.ts",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-connection-evidence-030",
+      "implementation_ref": "src/hosted/connection.ts;src/registry/status.ts",
+      "question": "How does status distinguish provider-verified connection evidence from configured TEST binding admission?",
+      "rationale": "Coordinator explicitly admitted this bounded implementation under approved028/029. PR23 immutable client assertStatus validates known required fields and returns full body without rejecting additive keys.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "verified",
+      "superseded_by": null,
+      "updated_at": "2026-10-09T13:58:31+00:00",
+      "verification_ref": ".grilltrack/proof/connection-evidence/PROOF.md"
     }
   ],
   "last_activation": {
@@ -1412,5 +1484,5 @@
   "status": "active",
   "title": "DinkusKit Payments public scaffold",
   "track_id": "gt-20260830202947-ccfe03",
-  "updated_at": "2026-10-09T12:54:12+00:00"
+  "updated_at": "2026-10-09T13:58:31+00:00"
 }
