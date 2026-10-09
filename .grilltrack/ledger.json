@@ -4,11 +4,11 @@
   "current_focus": {
     "cadence": "sequential",
     "confirmed": true,
-    "confirmed_at": "2026-10-09T01:25:25+00:00",
-    "domain": "Payments route authentication and exact public manifest",
-    "started_at": "2026-10-09T01:25:24+00:00",
+    "confirmed_at": "2026-10-09T01:34:44+00:00",
+    "domain": "Provider qualification and store live-readiness agreement",
+    "started_at": "2026-10-09T01:34:44+00:00",
     "status": "confirmed",
-    "summary": "Implement issue 27 explicit route authentication, separate hosted and Registry manifests, exact installation identity and denial regressions within Payments only; deliver reviewed PR to maintainer gate."
+    "summary": "Record the approved two-provider, Stripe-first qualification and mandatory per-store TEST purchase readiness agreement with Commerce ownership, proof invalidation, visible persistent TEST orders, no inventory gate and no real fulfillment. This slice only records the agreement and next contract handoff; feature design and implementation remain separate."
   },
   "decisions": [
     {
@@ -1290,6 +1290,47 @@
       "superseded_by": null,
       "updated_at": "2026-10-09T01:32:47+00:00",
       "verification_ref": ".grilltrack/proof/route-auth-27/PROOF.md"
+    },
+    {
+      "baseline_ref": "git:4f170d7b9e692863d515bcac480cb1229fb51bb5",
+      "candidate_refs": [],
+      "choice": "One Registry Payments plugin supports Stripe and Authorize.net; qualify both before launch, Stripe first for easier merchant onboarding and Authorize.net next. Exactly one server-selected provider per store, no automatic fallback. Each store must complete an end-to-end provider-confirmed TEST payment producing exactly one paid Commerce order visibly present in Commerce backend/admin before live checkout readiness. Inventory verification is excluded. Proof binds selected provider, receiving account and critical checkout/webhook bindings; changes to these invalidate readiness and require retest, ordinary product/price/catalog edits do not. Test orders persist in the normal list clearly marked TEST; no test-order filter is required. Test orders must not trigger real fulfillment/shipping. Payments owns provider verification/configuration; Commerce owns paid orders/admin and checkout gating. Schema, protocol and critical-binding enumeration remain implementation design.",
+      "context_ref": "docs/store-test-readiness.md",
+      "created_at": "2026-10-09T01:34:44+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [],
+      "domain": "Provider qualification and store live-readiness agreement",
+      "history": [
+        {
+          "at": "2026-10-09T01:34:44+00:00",
+          "choice": "One Registry Payments plugin supports Stripe and Authorize.net; qualify both before launch, Stripe first for easier merchant onboarding and Authorize.net next. Exactly one server-selected provider per store, no automatic fallback. Each store must complete an end-to-end provider-confirmed TEST payment producing exactly one paid Commerce order visibly present in Commerce backend/admin before live checkout readiness. Inventory verification is excluded. Proof binds selected provider, receiving account and critical checkout/webhook bindings; changes to these invalidate readiness and require retest, ordinary product/price/catalog edits do not. Test orders persist in the normal list clearly marked TEST; no test-order filter is required. Test orders must not trigger real fulfillment/shipping. Payments owns provider verification/configuration; Commerce owns paid orders/admin and checkout gating. Schema, protocol and critical-binding enumeration remain implementation design.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-store-test-readiness-028",
+      "implementation_ref": null,
+      "question": "What provider qualification and per-store TEST purchase are required before live checkout readiness?",
+      "rationale": "Owner explicitly confirmed the completed agreement on 2026-10-08 and requested it be recorded; this records scope, not feature implementation or traffic authorization.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "locked",
+      "superseded_by": null,
+      "updated_at": "2026-10-09T01:34:44+00:00",
+      "verification_ref": null
     }
   ],
   "last_activation": {
@@ -1316,5 +1357,5 @@
   "status": "active",
   "title": "DinkusKit Payments public scaffold",
   "track_id": "gt-20260830202947-ccfe03",
-  "updated_at": "2026-10-09T01:32:47+00:00"
+  "updated_at": "2026-10-09T01:34:44+00:00"
 }
