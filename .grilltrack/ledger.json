@@ -4,11 +4,11 @@
   "current_focus": {
     "cadence": "sequential",
     "confirmed": true,
-    "confirmed_at": "2026-10-08T23:47:00+00:00",
-    "domain": "Authorize.net webhook store-bound invoice identity",
-    "started_at": "2026-10-08T23:47:00+00:00",
+    "confirmed_at": "2026-10-09T01:25:25+00:00",
+    "domain": "Payments route authentication and exact public manifest",
+    "started_at": "2026-10-09T01:25:24+00:00",
     "status": "confirmed",
-    "summary": "Lock store-bound Authorize.net invoice references (8-hex store tag + '.' + attempt id, max 20). Webhook rejects cross-store or malformed refs after signature check and before any durable writes or paid lookup. Ryan approved 2026-10-08 7:44 PM ET: \"i agree, yes, build it in\"."
+    "summary": "Implement issue 27 explicit route authentication, separate hosted and Registry manifests, exact installation identity and denial regressions within Payments only; deliver reviewed PR to maintainer gate."
   },
   "decisions": [
     {
@@ -1221,6 +1221,75 @@
       "superseded_by": null,
       "updated_at": "2026-10-08T23:51:26+00:00",
       "verification_ref": "bin/verify-payments full: 107 node + 15 runtime + 2 plugin tests; typecheck; audit; build; plugin.mjs 645 bytes"
+    },
+    {
+      "baseline_ref": "git:22cd40442caa2c01876482fe0e1da07e4dfb086a",
+      "candidate_refs": [],
+      "choice": "Require explicit supported EmDash public boolean on every Registry route and permission on admin routes; publish installation-aware exact route manifest with no public Registry bypass while only admin exists. Classify hosted HTTP routes separately with existing payments:admin and payments:checkout scopes or provider signature verification. Preserve server-owned provider selection and authoritative amounts; verified webhooks only wake Commerce reconciliation and authoritative provider lookup precedes paid decisions. Add missing-declaration regression and runtime authentication, malformed/forged request coverage. No new Registry webhook, cross-repo changes, live traffic, Access changes or deployment.",
+      "context_ref": "github:dinkuskit/payments/issues/27",
+      "created_at": "2026-10-09T01:25:25+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [],
+      "domain": "Payments route authentication and exact public manifest",
+      "history": [
+        {
+          "at": "2026-10-09T01:25:25+00:00",
+          "choice": "Require explicit supported EmDash public boolean on every Registry route and permission on admin routes; publish installation-aware exact route manifest with no public Registry bypass while only admin exists. Classify hosted HTTP routes separately with existing payments:admin and payments:checkout scopes or provider signature verification. Preserve server-owned provider selection and authoritative amounts; verified webhooks only wake Commerce reconciliation and authoritative provider lookup precedes paid decisions. Add missing-declaration regression and runtime authentication, malformed/forged request coverage. No new Registry webhook, cross-repo changes, live traffic, Access changes or deployment.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-09T01:32:23+00:00",
+          "choice": "Require explicit supported EmDash public boolean on every Registry route and permission on admin routes; publish installation-aware exact route manifest with no public Registry bypass while only admin exists. Classify hosted HTTP routes separately with existing payments:admin and payments:checkout scopes or provider signature verification. Preserve server-owned provider selection and authoritative amounts; verified webhooks only wake Commerce reconciliation and authoritative provider lookup precedes paid decisions. Add missing-declaration regression and runtime authentication, malformed/forged request coverage. No new Registry webhook, cross-repo changes, live traffic, Access changes or deployment.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-09T01:32:47+00:00",
+          "choice": "Require explicit supported EmDash public boolean on every Registry route and permission on admin routes; publish installation-aware exact route manifest with no public Registry bypass while only admin exists. Classify hosted HTTP routes separately with existing payments:admin and payments:checkout scopes or provider signature verification. Preserve server-owned provider selection and authoritative amounts; verified webhooks only wake Commerce reconciliation and authoritative provider lookup precedes paid decisions. Add missing-declaration regression and runtime authentication, malformed/forged request coverage. No new Registry webhook, cross-repo changes, live traffic, Access changes or deployment.",
+          "from": "implemented",
+          "implementation_ref": "src/plugin.ts;src/registry/manifest.ts;src/hosted/manifest.ts;src/hosted/http.ts;docs/route-auth.md",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-route-auth-027",
+      "implementation_ref": "src/plugin.ts;src/registry/manifest.ts;src/hosted/manifest.ts;src/hosted/http.ts;docs/route-auth.md",
+      "question": "How are Payments routes explicitly authenticated and safely identified for exact Access bypasses?",
+      "rationale": "Approved bounded issue 27 delivery and coordinator admission; actual current Registry surface is admin-only.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "verified",
+      "superseded_by": null,
+      "updated_at": "2026-10-09T01:32:47+00:00",
+      "verification_ref": ".grilltrack/proof/route-auth-27/PROOF.md"
     }
   ],
   "last_activation": {
@@ -1247,5 +1316,5 @@
   "status": "active",
   "title": "DinkusKit Payments public scaffold",
   "track_id": "gt-20260830202947-ccfe03",
-  "updated_at": "2026-10-08T23:51:26+00:00"
+  "updated_at": "2026-10-09T01:32:47+00:00"
 }

@@ -7,3 +7,5 @@
   API contract, tests, and the remaining registry/account integration.
 - [Checkout sessions](checkout-sessions.md): Commerce port fixture, durable
   Stripe session mapping, webhook wake rules, and feasibility limits.
+- [Route authentication](route-auth.md): exact installed Registry and hosted paths,
+  signature and scoped authorization, and the empty Registry public bypass list.

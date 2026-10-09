@@ -4,6 +4,7 @@ import { WebhookError } from "../checkout/webhook.js";
 import { assertCommercePaymentWake, WakeError, type CommercePaymentWake } from "../checkout/wakes.js";
 import type { PaymentOutcome, PaymentRequest } from "../commerce/checkout-port.js";
 import type { Principal, createConnectionService } from "./connection.js";
+import { hostedHttpRoutes, hostedWebhookRoutes, matchAuthorizeNetWebhookSite } from "./manifest.js";
 
 type ConnectionApi = Pick<ReturnType<typeof createConnectionService>, "connect" | "status" | "checkoutBinding" | "existingBinding">;
 type CheckoutApi = {
@@ -89,8 +90,8 @@ export function createHostedHandler(options: {
   const respond = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
   return async (request: Request): Promise<Response> => {
     const { pathname, searchParams } = new URL(request.url);
-    if (pathname === "/v1/webhooks/stripe") {
-      if (request.method !== "POST") return respond({ error: "method_not_allowed" }, 405);
+    if (pathname === hostedWebhookRoutes.stripe.path) {
+      if (request.method !== hostedWebhookRoutes.stripe.method) return respond({ error: "method_not_allowed" }, 405);
       if (!options.webhook) return respond({ error: "not_found" }, 404);
       const signature = request.headers.get("stripe-signature");
       if (!signature) return respond({ error: "missing_signature" }, 400);
@@ -105,15 +106,15 @@ export function createHostedHandler(options: {
         return respond({ error: "wake_failed" }, 500);
       }
     }
-    const authorizeNetPath = pathname.match(/^\/v1\/webhooks\/authorize-net\/([^/]+)$/);
-    if (authorizeNetPath) {
-      if (request.method !== "POST") return respond({ error: "method_not_allowed" }, 405);
+    const authorizeNetSite = matchAuthorizeNetWebhookSite(pathname);
+    if (authorizeNetSite) {
+      if (request.method !== hostedWebhookRoutes.authorizeNet.method) return respond({ error: "method_not_allowed" }, 405);
       if (!options.authorizeNetWebhook || searchParams.size) return respond({ error: "not_found" }, 404);
       const signature = request.headers.get("x-anet-signature");
       const eventId = request.headers.get("x-anet-notification-id");
       if (!signature || !eventId) return respond({ error: "missing_signature" }, 400);
       try {
-        await options.authorizeNetWebhook(new Uint8Array(await request.arrayBuffer()), signature, eventId, authorizeNetPath[1]);
+        await options.authorizeNetWebhook(new Uint8Array(await request.arrayBuffer()), signature, eventId, authorizeNetSite);
         return respond({ received: true });
       } catch (error) {
         if (error instanceof AuthorizeNetWebhookError || error instanceof WebhookError ||
@@ -124,21 +125,12 @@ export function createHostedHandler(options: {
         return respond({ error: "wake_failed" }, 500);
       }
     }
-    const methods: Record<string, string> = {
-      "/v1/connect": "POST",
-      "/v1/status": "GET",
-      "/v1/checkout-binding": "GET",
-      "/v1/existing-binding": "GET",
-      "/v1/checkout/session": "POST",
-      "/v1/checkout/lookup": "POST",
-      "/v1/checkout/wakes": "GET",
-      "/v1/checkout/wakes/ack": "POST",
-    };
-    if (!methods[pathname]) return respond({ error: "not_found" }, 404);
-    if (request.method !== methods[pathname]) return respond({ error: "method_not_allowed" }, 405);
-    const checkoutScope = pathname !== "/v1/connect" && pathname !== "/v1/status";
+    const route = Object.hasOwn(hostedHttpRoutes, pathname)
+      ? hostedHttpRoutes[pathname as keyof typeof hostedHttpRoutes] : undefined;
+    if (!route) return respond({ error: "not_found" }, 404);
+    if (request.method !== route.method) return respond({ error: "method_not_allowed" }, 405);
     let principal: Principal;
-    try { principal = await options.authenticate(request, checkoutScope ? "payments:checkout" : "payments:admin"); }
+    try { principal = await options.authenticate(request, route.scope); }
     catch { return respond({ error: "unauthorized" }, 401); }
     try {
       if (pathname === "/v1/connect") {

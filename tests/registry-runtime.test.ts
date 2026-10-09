@@ -43,3 +43,23 @@ test("denies unauthenticated and insufficient-role admin requests", async () => 
     await host.dispose();
   }
 });
+
+test("built route preserves explicit private metadata and rejects non-admin token scope", async () => {
+  const host = await createPluginRuntimeTestHost();
+  try {
+    const route = host.manifest.routes?.find(route => route.name === "admin");
+    assert.equal(route?.public, false);
+    assert.equal(route?.permission, "plugins:manage");
+    const admin = await host.fixtures.user({ email: "admin-scope@example.invalid", role: "admin" });
+    const denied = await host.actions.routes.request("admin", {
+      method: "POST",
+      body: { type: "page_load", page: "/status" },
+      user: admin,
+      tokenScopes: ["content:read"],
+    });
+    assert.equal(denied.status, 403);
+    assert.deepEqual(host.http.requests(), []);
+  } finally {
+    await host.dispose();
+  }
+});
