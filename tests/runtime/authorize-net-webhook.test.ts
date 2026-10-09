@@ -190,3 +190,25 @@ test("malformed and legacy invoice references are rejected with no durable write
   expect((await attemptRecord(stub))?.transactionId ?? null).toBeNull();
   expect(await webhookEventCount(stub)).toBe(0);
 });
+
+test("public notification endpoint rejects forged and malformed bytes before durable effects", async () => {
+  const siteId = crypto.randomUUID();
+  const stub = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", siteId]));
+  await seedAttempt(stub, siteId);
+  const invoice = await buildAuthorizeNetInvoiceReference(siteId, attemptId);
+  const signed = await signedWebhook("forged-notification", invoice);
+  for (const [payload, signature] of [
+    [signed.payload, `sha512=${"0".repeat(128)}`],
+    [new TextEncoder().encode("{bad-json"), signed.signature],
+  ] as const) {
+    const response = await worker.fetch(new Request(`https://payments.example.invalid/v1/webhooks/authorize-net/${siteId}`, {
+      method: "POST",
+      headers: { "x-anet-signature": signature, "x-anet-notification-id": signed.notificationId },
+      body: payload,
+    }), configuredEnv());
+    expect(response.status).toBe(400);
+    expect(await wakeEventIds(stub)).toEqual([]);
+    expect(await webhookEventCount(stub)).toBe(0);
+    expect((await attemptRecord(stub))?.transactionId ?? null).toBeNull();
+  }
+});

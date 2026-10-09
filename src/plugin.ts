@@ -31,6 +31,7 @@ function adminPage() {
 const plugin: SandboxedPlugin = {
   routes: {
     admin: {
+      public: false,
       permission: "plugins:manage",
       methods: ["POST"],
       handler: async () => adminPage(),
