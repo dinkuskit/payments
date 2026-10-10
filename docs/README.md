@@ -7,5 +7,11 @@
   API contract, tests, and the remaining registry/account integration.
 - [Checkout sessions](checkout-sessions.md): Commerce port fixture, durable
   Stripe session mapping, webhook wake rules, and feasibility limits.
+- [Route authentication](route-auth.md): exact installed Registry and hosted paths,
+  signature and scoped authorization, and the empty Registry public bypass list.
+- [Store TEST readiness](store-test-readiness.md): approved two-provider launch
+  qualification and mandatory per-store TEST-purchase agreement.
+- [Payment setup decision](payment-setup-decision.md): approved one-screen flow,
+  independent connection and TEST-order checks, research, and remaining design.
 - [CLI specification](CLI-SPEC.md): draft `dinkus-payments` command-line
   client for the hosted API, its output contract, and non-goals.

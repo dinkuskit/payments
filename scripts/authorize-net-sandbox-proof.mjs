@@ -2,17 +2,19 @@
 import {
   AUTHORIZE_NET_SANDBOX_URL,
   authorizeNetEndpoints,
+  buildAuthorizeNetInvoiceReference,
   createAuthorizeNetGateway,
   transactionOutcome,
 } from "../src/authorize-net/checkout.ts";
 import { createAuthorizeNetWebhookHandler } from "../src/authorize-net/webhook.ts";
 
-const required = [
-  "AUTHORIZE_NET_API_LOGIN_ID",
-  "AUTHORIZE_NET_TRANSACTION_KEY",
-  "AUTHORIZE_NET_SIGNATURE_KEY",
-];
-const missing = required.filter(name => !process.env[name]);
+const credentialNames = {
+  apiLoginId: "AUTHNET_SANDBOX_API_LOGIN_ID",
+  transactionKey: "AUTHNET_SANDBOX_TRANSACTION_KEY",
+  signatureKey: "AUTHNET_SANDBOX_SIGNATURE_KEY",
+};
+const credentials = Object.fromEntries(Object.entries(credentialNames).map(([key, name]) => [key, process.env[name]]));
+const missing = Object.values(credentialNames).filter(name => !process.env[name]);
 const mode = "test";
 const endpoints = authorizeNetEndpoints(mode);
 
@@ -59,8 +61,8 @@ try {
 
 function merchantAuthentication() {
   return {
-    name: process.env.AUTHORIZE_NET_API_LOGIN_ID,
-    transactionKey: process.env.AUTHORIZE_NET_TRANSACTION_KEY,
+    name: credentials.apiLoginId,
+    transactionKey: credentials.transactionKey,
   };
 }
 
@@ -93,25 +95,29 @@ async function authenticateTestRequest() {
 }
 
 let transactionId;
-const invoiceNumber = `proof${Date.now()}`.slice(-20);
+const proofSiteId = "sandbox-proof-site";
+const proofAttemptId = `p${String(Date.now()).slice(-10)}`;
+const invoiceNumber = await buildAuthorizeNetInvoiceReference(proofSiteId, proofAttemptId);
 
 await check("authenticateTestRequest", authenticateTestRequest);
 
 const gateway = createAuthorizeNetGateway({
-  apiLoginId: process.env.AUTHORIZE_NET_API_LOGIN_ID,
-  transactionKey: process.env.AUTHORIZE_NET_TRANSACTION_KEY,
+  apiLoginId: credentials.apiLoginId,
+  transactionKey: credentials.transactionKey,
   merchantCurrency: "USD",
   mode,
 });
 
 await check("Accept Hosted token", async () => {
   const result = await gateway.createHostedPayment({
-    attemptId: invoiceNumber,
+    attemptId: proofAttemptId,
+    siteId: proofSiteId,
     total: { currency: "USD", minor: "100" },
     returnUrl: "https://example.com/checkout/success",
     cancelUrl: "https://example.com/checkout/cancel",
   });
   if (!result.token) throw new Error("missing_hosted_token");
+  if (result.identity !== invoiceNumber) throw new Error("invoice_reference_mismatch");
 });
 
 await check("sandbox transaction and authoritative lookup", async () => {
@@ -152,7 +158,7 @@ await check("webhook HMAC-SHA512", async () => {
   }));
   const key = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(process.env.AUTHORIZE_NET_SIGNATURE_KEY),
+    new TextEncoder().encode(credentials.signatureKey),
     { name: "HMAC", hash: "SHA-512" },
     false,
     ["sign"],
@@ -160,7 +166,7 @@ await check("webhook HMAC-SHA512", async () => {
   const digest = [...new Uint8Array(await crypto.subtle.sign("HMAC", key, body))]
     .map(byte => byte.toString(16).padStart(2, "0")).join("");
   const handler = createAuthorizeNetWebhookHandler({
-    signatureKey: process.env.AUTHORIZE_NET_SIGNATURE_KEY,
+    signatureKey: credentials.signatureKey,
     seenEventIds: new Set(),
     wake: async () => {},
   });

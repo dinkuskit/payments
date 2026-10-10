@@ -29,6 +29,60 @@ test('persists intent before account creation and resumes one account after proc
   assert.equal(f.saved().stripeAccountId, 'acct_one');
 });
 
+test('status reports verified and action-required Stripe evidence with one account lookup', async () => {
+  const f = fixture();
+  await f.service().connect(owner);
+  f.calls.length = 0;
+  f.setReady(true);
+  assert.deepEqual(await f.service().status(owner), {
+    state: 'ready',
+    mode: 'test',
+    bindingRef: 'stripe_binding-one',
+    connectionEvidence: { provider: 'stripe', mode: 'test', result: 'verified', accountRef: 'acct_one' },
+  });
+  assert.equal(f.calls.filter(x => x[0] === 'status').length, 1);
+  f.setReady(false);
+  assert.deepEqual(await f.service().status(owner), {
+    state: 'action_required',
+    mode: 'test',
+    bindingRef: 'stripe_binding-one',
+    connectionEvidence: { provider: 'stripe', mode: 'test', result: 'action_required', accountRef: 'acct_one' },
+  });
+  assert.equal(f.calls.filter(x => x[0] === 'status').length, 2);
+});
+
+test('live Stripe status evidence keeps the explicit live mode', async () => {
+  const f = fixture();
+  const live = createConnectionService({ store: f.store, provider: f.provider, mode: 'live', newId: () => 'binding-live' });
+  await live.connect(owner);
+  f.setReady(true);
+  assert.deepEqual(await live.status(owner), {
+    state: 'ready',
+    mode: 'live',
+    bindingRef: 'stripe_binding-live',
+    connectionEvidence: { provider: 'stripe', mode: 'live', result: 'verified', accountRef: 'acct_one' },
+  });
+});
+
+test('failed or mismatched Stripe lookup is unknown and never verified', async () => {
+  const f = fixture();
+  await f.service().connect(owner);
+  f.provider.accountStatus = async () => { throw Error('offline'); };
+  assert.deepEqual(await f.service().status(owner), {
+    state: 'checking',
+    mode: 'test',
+    bindingRef: 'stripe_binding-one',
+    connectionEvidence: { provider: 'stripe', mode: 'test', result: 'unknown', accountRef: 'acct_one' },
+  });
+  f.provider.accountStatus = async () => ({ id: 'acct_other', ready: true, actionRequired: false });
+  assert.deepEqual(await f.service().status(owner), {
+    state: 'checking',
+    mode: 'test',
+    bindingRef: 'stripe_binding-one',
+    connectionEvidence: { provider: 'stripe', mode: 'test', result: 'unknown', accountRef: 'acct_one' },
+  });
+});
+
 test('unknown account creation outcome retries the frozen idempotency identity', async () => {
   const f = fixture(); f.setDown(true);
   assert.equal((await f.service().connect(owner)).state, 'connecting');
@@ -88,6 +142,47 @@ test('another provider account response and a hostile onboarding URL fail closed
   assert.equal(await f.service().checkoutBinding(owner, 'stripe_binding-one'), null);
 });
 
+test('Authorize.net bindings use authorizeNetMerchantId and never a Stripe account sentinel', async () => {
+  const f = fixture();
+  const service = () => createConnectionService({
+    store: f.store, provider: f.provider, mode: 'test', providerId: 'authorize_net',
+    authorizeNetMerchantId: 'merchant-one', newId: () => 'binding-one',
+  });
+  assert.equal((await service().connect(owner)).state, 'ready');
+  assert.equal((await service().connect(owner)).connectionEvidence, undefined);
+  assert.deepEqual(await service().status(owner), {
+    state: 'ready',
+    mode: 'test',
+    bindingRef: 'authorize_net_binding-one',
+    connectionEvidence: { provider: 'authorize_net', mode: 'test', result: 'unsupported' },
+  });
+  assert.equal(f.calls.filter(x => x[0] === 'status').length, 0);
+  assert.deepEqual(await service().checkoutBinding(owner, 'authorize_net_binding-one'), {
+    bindingRef: 'authorize_net_binding-one', providerId: 'authorize_net',
+    authorizeNetMerchantId: 'merchant-one', mode: 'test',
+  });
+  assert.equal(f.saved().stripeAccountId, null);
+  assert.equal(f.saved().authorizeNetMerchantId, 'merchant-one');
+});
+
+test('cross-provider connection fields and the authorize sentinel fail closed', async () => {
+  const f = fixture();
+  f.store.transaction(tx => tx.write({
+    bindingRef: 'stripe_binding-one', owner, mode: 'test', startedAt: 1,
+    stripeAccountId: 'authorize_net', authorizeNetMerchantId: null, providerId: 'stripe',
+  }));
+  await assert.rejects(f.service().status(owner), /binding_invalid_stripe_account/);
+  f.store.transaction(tx => tx.write({
+    bindingRef: 'authorize_net_binding-one', owner, mode: 'test', startedAt: 1,
+    stripeAccountId: 'acct_wrong', authorizeNetMerchantId: 'merchant-one', providerId: 'authorize_net',
+  }));
+  const authorize = createConnectionService({
+    store: f.store, provider: f.provider, mode: 'test', providerId: 'authorize_net',
+    authorizeNetMerchantId: 'merchant-one',
+  });
+  await assert.rejects(authorize.status(owner), /binding_cross_provider_fields/);
+});
+
 test('HTTP surface requires auth, separates checkout scope, and rejects caller configuration', async () => {
   const f = fixture(), scopes = [];
   const handle = createHostedHandler({ authenticate: async (request, scope) => {
@@ -104,4 +199,58 @@ test('HTTP surface requires auth, separates checkout scope, and rejects caller c
   assert.equal(scopes.at(-1), 'payments:checkout');
   assert.equal((await handle(new Request('https://service.invalid/v1/connect?success=true', { headers }))).status, 405);
   assert.notEqual((await f.service().status(owner)).state, 'ready');
+});
+
+test('malformed checkout bodies are rejected before the service or durable object is touched', async () => {
+  let serviceCalls = 0;
+  let checkoutCalls = 0;
+  const handle = createHostedHandler({
+    authenticate: async () => owner,
+    service: () => { serviceCalls++; throw Error('service_must_not_run'); },
+    checkout: () => { checkoutCalls++; throw Error('checkout_must_not_run'); },
+  });
+  const response = await handle(new Request('https://service.invalid/v1/checkout/session', {
+    method: 'POST',
+    headers: { authorization: 'Bearer synthetic', 'content-type': 'application/json' },
+    body: '{"attemptId":',
+  }));
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: 'invalid_request' });
+  assert.equal(serviceCalls, 0);
+  assert.equal(checkoutCalls, 0);
+});
+
+test('authenticated status adds evidence while connect retains its legacy payload', async () => {
+  const f = fixture();
+  await f.service().connect(owner);
+  f.setReady(true);
+  const handle = createHostedHandler({
+    authenticate: async (request, scope) => {
+      assert.equal(scope, 'payments:admin');
+      if (request.headers.get('authorization') !== 'Bearer synthetic') throw Error('unauthorized');
+      return owner;
+    },
+    service: () => f.service(),
+  });
+  assert.equal((await handle(new Request('https://service.invalid/v1/status'))).status, 401);
+  const headers = { authorization: 'Bearer synthetic' };
+  const response = await handle(new Request('https://service.invalid/v1/status', { headers }));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const body = await response.json();
+  assert.equal(body.connectionEvidence.result, 'verified');
+  assert.equal(body.connectionEvidence.mode, 'test');
+  assert.equal(body.readyToSell, undefined);
+  const connected = await handle(new Request('https://service.invalid/v1/connect', { method: 'POST', headers }));
+  assert.deepEqual(await connected.json(), { state: 'ready', mode: 'test', bindingRef: 'stripe_binding-one' });
+});
+
+test('connect strips evidence when a concurrent account write resolves a failed creation', async () => {
+  const f = fixture();
+  f.setReady(true);
+  f.provider.createAccount = async () => {
+    f.store.transaction(tx => tx.write({ ...tx.read(), stripeAccountId: 'acct_one' }));
+    throw Error('lost creation response');
+  };
+  assert.deepEqual(await f.service().connect(owner), { state: 'ready', mode: 'test', bindingRef: 'stripe_binding-one' });
 });

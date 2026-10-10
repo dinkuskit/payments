@@ -20,14 +20,33 @@ test("real Durable Object storage preserves the binding across eviction and gate
   const connected = await first.startOnboarding(principal);
   expect(connected.state).toBe("setup_required");
   expect(connected.url).toBe("https://connect.stripe.com/setup/fixture");
+  expect(connected.connectionEvidence).toBeUndefined();
   await evictDurableObject(first);
   const second = env.PAYMENT_CONNECTIONS.getByName(name);
   expect((await second.startOnboarding(principal)).bindingRef).toBe(connected.bindingRef);
   expect(creates).toBe(1);
+  expect(await second.status(principal)).toMatchObject({
+    state: "setup_required",
+    mode: "test",
+    connectionEvidence: {
+      provider: "stripe",
+      mode: "test",
+      result: "unknown",
+      accountRef: "acct_fixture",
+    },
+  });
   expect(await second.checkoutBinding(principal, connected.bindingRef!)).toBeNull();
   ready = true;
+  expect(await second.status(principal)).toMatchObject({
+    state: "ready",
+    connectionEvidence: { provider: "stripe", mode: "test", result: "verified", accountRef: "acct_fixture" },
+  });
   expect(await second.checkoutBinding(principal, connected.bindingRef!)).toMatchObject({ stripeAccountId: "acct_fixture", mode: "test" });
   ready = false;
+  expect(await second.status(principal)).toMatchObject({
+    state: "setup_required",
+    connectionEvidence: { provider: "stripe", mode: "test", result: "unknown", accountRef: "acct_fixture" },
+  });
   expect(await second.checkoutBinding(principal, connected.bindingRef!)).toBeNull();
   // Catch the expected application error inside the object. The current
   // Vitest RPC wrapper reports rejected RPC calls as unhandled rejections.

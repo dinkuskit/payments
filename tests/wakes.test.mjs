@@ -79,6 +79,32 @@ test("callback cannot mutate any association field before exact acknowledgement"
   assert.deepEqual([...durable.acknowledged], ["evt_one"]);
 });
 
+test("Authorize.net wakes are consumable without an empty Stripe account", async () => {
+  const authorizeNet = {
+    eventId: "evt_anetn1",
+    attemptId: "attempt-anet",
+    siteId: "site-one",
+    bindingRef: "binding-one",
+    authorizeNetMerchantId: "merchant-one",
+    mode: "test",
+  };
+  assertWakeContext(authorizeNet);
+  assert.throws(
+    () => assertWakeContext({ ...first, stripeAccountId: "" }),
+    /invalid_wake_context/,
+  );
+  assert.throws(
+    () => assertWakeContext({ ...authorizeNet, stripeAccountId: "acct_one" }),
+    /invalid_wake_context/,
+  );
+  const durable = store([authorizeNet]);
+  assert.deepEqual(await consumeWakeBatch(durable, async context => {
+    assert.deepEqual({ ...context }, authorizeNet);
+    assert.equal(Object.prototype.hasOwnProperty.call(context, "stripeAccountId"), false);
+    return true;
+  }), { inspected: 1, acknowledged: 1 });
+});
+
 test("all six wake fields are required before reconciliation is called", async () => {
   for (const field of ["eventId", "attemptId", "siteId", "bindingRef", "stripeAccountId", "mode"]) {
     const malformed = { ...first };

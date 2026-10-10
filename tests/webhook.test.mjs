@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import Stripe from "stripe";
+import { AuthorizeNetWebhookError } from "../src/authorize-net/webhook.ts";
 import { createStripeWebhookVerifier, createWebhookHandler } from "../src/checkout/webhook.ts";
 import { createHostedHandler } from "../src/hosted/http.ts";
 
@@ -175,4 +176,19 @@ test("HTTP webhook returns 500 when durable wake fails and 400 before fields on 
     body: payload,
   }));
   assert.equal(ok.status, 200);
+});
+
+test("HTTP Authorize.net webhooks map replay and invalid events instead of 500", async () => {
+  const handle = createHostedHandler({
+    authenticate: async () => { throw new Error("unused"); },
+    service: () => { throw new Error("unused"); },
+    authorizeNetWebhook: async () => { throw new AuthorizeNetWebhookError("replayed_event"); },
+  });
+  const replayed = await handle(new Request("https://service.invalid/v1/webhooks/authorize-net/store-a", {
+    method: "POST",
+    headers: { "x-anet-signature": "sha512=ab", "x-anet-notification-id": "n-1" },
+    body: "{}",
+  }));
+  assert.equal(replayed.status, 400);
+  assert.deepEqual(await replayed.json(), { error: "replayed_event" });
 });
