@@ -25,6 +25,7 @@ export const hostedWebhookRoutes = {
 export function hostedPublicRouteManifest(siteId: string) {
   if (!/^[A-Za-z0-9_-]{1,200}$/.test(siteId)) throw new Error("invalid_site_path_segment");
   return [
+    { ...hostedHealthRoute, surface: "hosted", public: true },
     { ...hostedWebhookRoutes.stripe, surface: "hosted", public: true },
     {
       path: `${hostedWebhookRoutes.authorizeNet.prefix}${siteId}`,

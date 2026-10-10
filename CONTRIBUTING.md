@@ -10,6 +10,10 @@ public scaffold.
 5. Run `bin/verify-payments full`.
 6. State scope, proof, and explicit non-goals in the pull request.
 
-Never include credentials, webhook secrets, payment details, customer or tenant
-data, or production configuration in source, tests, logs, screenshots, issues,
-or proof.
+Never include credentials, API keys, webhook secrets, tokens, payment details,
+customer or tenant data, or private operating rationale in source, tests, logs,
+screenshots, issues, or proof. Non-secret production deploy settings may be
+committed, including Cloudflare account ID, custom domains/routes,
+auth issuer/audience/JWKS URL, return URLs, and `workers_dev`,
+`preview_urls`, or observability flags. Keep secrets in Cloudflare Worker
+secrets.
