@@ -10,8 +10,12 @@ test("loads the built registry plugin and validates its private status page", as
     assert.equal(host.manifest.admin.pages[0].path, "/status");
 
     const page = await host.admin.loadPage("/status");
-    assert.equal(page.blocks[1].type, "banner");
-    assert.match(JSON.stringify(page), /Status unavailable/);
+    assert.equal(page.blocks[0].type, "header");
+    assert.match(JSON.stringify(page), /Payment setup/);
+    assert.match(JSON.stringify(page), /Connect payments/);
+    assert.match(JSON.stringify(page), /Place a test order/);
+    assert.match(JSON.stringify(page), /Not ready to sell/);
+    assert.match(JSON.stringify(page), /paid TEST order visible in Commerce admin has not been confirmed/);
     assert.doesNotMatch(JSON.stringify(page), /"action_id":"connect"/);
     assert.deepEqual(host.http.requests(), []);
   } finally {

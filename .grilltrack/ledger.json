@@ -4,11 +4,11 @@
   "current_focus": {
     "cadence": "sequential",
     "confirmed": true,
-    "confirmed_at": "2026-10-09T13:48:36+00:00",
-    "domain": "Provider connection evidence projection",
-    "started_at": "2026-10-09T13:48:36+00:00",
+    "confirmed_at": "2026-10-10T00:10:12+00:00",
+    "domain": "Registry payment setup screen",
+    "started_at": "2026-10-10T00:10:12+00:00",
     "status": "confirmed",
-    "summary": "Implement only additive hosted provider evidence and decoder with isolated mocked/runtime tests; preserve connect and TEST admission. No UI, provider traffic or overall readiness. Full verification and exact-source reviews before maintainer gate."
+    "summary": "Implement existing private Registry setup screen and tested evidence renderer under028/029; unavailable production inputs stay visibly incomplete, no invented authority. Verify complete tests and normal-session local seeded Registry UI."
   },
   "decisions": [
     {
@@ -1458,6 +1458,78 @@
       "superseded_by": null,
       "updated_at": "2026-10-09T13:58:31+00:00",
       "verification_ref": ".grilltrack/proof/connection-evidence/PROOF.md"
+    },
+    {
+      "baseline_ref": "git:164e3f2cd303426aed229363c8bf1e9f44d97785",
+      "candidate_refs": [],
+      "choice": "Render approved Connect payments and Place a test order steps in the existing private status page, with Not ready to sell while authoritative inputs are absent. Project existing decoded connectionEvidence into provider-specific explanatory next actions; no new transport or fake evidence. Production retains unavailable status until authenticated site-bound Payments connection and Commerce qualifying TEST-order reader exist. No capability, checkout, CLI or Commerce changes.",
+      "context_ref": "docs/registry-status.md",
+      "created_at": "2026-10-10T00:10:12+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-one-screen-setup-029",
+        "payments-connection-evidence-030"
+      ],
+      "domain": "Registry payment setup screen",
+      "history": [
+        {
+          "at": "2026-10-10T00:10:12+00:00",
+          "choice": "Render approved Connect payments and Place a test order steps in the existing private status page, with Not ready to sell while authoritative inputs are absent. Project existing decoded connectionEvidence into provider-specific explanatory next actions; no new transport or fake evidence. Production retains unavailable status until authenticated site-bound Payments connection and Commerce qualifying TEST-order reader exist. No capability, checkout, CLI or Commerce changes.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-10T00:14:55+00:00",
+          "choice": "Render approved Connect payments and Place a test order steps in the existing private status page, with Not ready to sell while authoritative inputs are absent. Project existing decoded connectionEvidence into provider-specific explanatory next actions; no new transport or fake evidence. Production retains unavailable status until authenticated site-bound Payments connection and Commerce qualifying TEST-order reader exist. No capability, checkout, CLI or Commerce changes.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-10T00:14:55+00:00",
+          "choice": "Render approved Connect payments and Place a test order steps in the existing private status page, with Not ready to sell while authoritative inputs are absent. Project existing decoded connectionEvidence into provider-specific explanatory next actions; no new transport or fake evidence. Production retains unavailable status until authenticated site-bound Payments connection and Commerce qualifying TEST-order reader exist. No capability, checkout, CLI or Commerce changes.",
+          "from": "implemented",
+          "implementation_ref": "src/plugin.ts;src/registry/setup.ts",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-setup-screen-031",
+      "implementation_ref": "src/plugin.ts;src/registry/setup.ts",
+      "question": "How should the current Registry admin show setup progress while authoritative inputs are unavailable?",
+      "rationale": "",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "verified",
+      "superseded_by": null,
+      "updated_at": "2026-10-10T00:14:55+00:00",
+      "verification_ref": ".grilltrack/proof/setup-screen/PROOF.md"
     }
   ],
   "last_activation": {
@@ -1484,5 +1556,5 @@
   "status": "active",
   "title": "DinkusKit Payments public scaffold",
   "track_id": "gt-20260830202947-ccfe03",
-  "updated_at": "2026-10-09T13:58:31+00:00"
+  "updated_at": "2026-10-10T00:14:55+00:00"
 }

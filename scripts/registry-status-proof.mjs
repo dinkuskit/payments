@@ -291,8 +291,13 @@ async function verify(runDir) {
     if (response.status !== expected) fail(`${role} expected ${expected}, got ${response.status}`);
     const text = JSON.stringify(body);
     if (role === "admin") {
-      if (!text.includes("Status unavailable") || !text.includes("Not checked") || text.includes('"action_id":"connect"')) {
-        fail("admin response does not prove the read-only status page");
+      if (!text.includes("Payment setup") ||
+          !text.includes("Connect payments") ||
+          !text.includes("Place a test order") ||
+          !text.includes("Not ready to sell") ||
+          !text.includes("paid TEST order visible in Commerce admin has not been confirmed") ||
+          text.includes('"action_id":"connect"')) {
+        fail("admin response does not prove the bounded read-only setup screen");
       }
     }
     results.push({ role, status: response.status, body: role === "admin" ? body : undefined });
