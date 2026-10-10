@@ -1,8 +1,10 @@
 # `dinkus-payments` CLI Specification
 
-Status: Draft, not locked. Needs a GrillTrack decision before it is treated as a contract.
+Status: Locked for the scaffold slice (GrillTrack `payments-cli-scaffold-032`).
+The answers to the questions the draft left open are under
+[Decisions](#decisions).
 
-An unpublished scaffold executable implements this draft against the hosted
+An unpublished scaffold executable implements this specification against the hosted
 Payments API; see [Implementation status](#implementation-status). The shape
 follows the locked DinkusKit Inventory CLI specification (global flags, JSON
 envelope, plain records, exit codes, configuration precedence, and credential
@@ -41,7 +43,7 @@ Plain ESM JavaScript with zero runtime dependencies, parsed with strict
 package manifest maps `"bin": { "dinkus-payments": "./bin/dinkus-payments.mjs" }`.
 The manifest's `files` list is pinned to `dist` by the repository audit, so a
 packed artifact would not contain the CLI yet; publishing is out of scope and
-needs human approval (see [Open questions](#open-questions)).
+needs human approval (see [Decisions](#decisions)).
 
 ## Usage
 
@@ -237,8 +239,7 @@ and `\\`. Missing values are empty.
 | `wakes list` | one record per wake: `eventId attemptId bindingRef deliveryGeneration wokeAt`; no lines when empty |
 | rejected or error | `code message` |
 
-JSON and plain field names are compatibility surfaces once this draft is
-locked. New optional fields may be added within v1; changing meaning or types
+JSON and plain field names are compatibility surfaces. New optional fields may be added within v1; changing meaning or types
 needs a new schema version. Human text is not a parsing interface.
 
 ## Exit codes
@@ -437,14 +438,17 @@ stdin. They do not prove a real identity issuer, deployed service, or provider.
 End-of-input (Ctrl-D) at the interactive `connect` prompt is a refusal: nothing
 is sent and the CLI exits `4`.
 
-## Open questions
+## Decisions
 
-These need a GrillTrack decision before the draft is locked:
+The project owner locked this specification for the scaffold slice on
+2026-10-10 as GrillTrack decision `payments-cli-scaffold-032`, with these
+answers to the questions the draft left open. Each can be reopened in GrillTrack.
 
-1. Whether the site id is an acceptable `connect` confirmation value, or the
-   service should add a preview endpoint with an opaque confirmation.
-2. Whether `nextAction` and the `effect` codes are part of the v1 contract.
-3. Whether `binding show` should also expose the readiness-gated
-   `GET /v1/checkout-binding`.
-4. Packaging: the audited `files` list is `dist` only, so the CLI is not in a
-   packed artifact. Shipping it needs an approved manifest change.
+1. Typing the site id stays the `connect` confirmation value for now. A service
+   preview endpoint with an opaque confirmation is not part of this slice.
+2. `nextAction` and the `effect` codes are part of the v1 contract.
+3. `binding show` uses only `GET /v1/existing-binding`. The readiness-gated
+   `GET /v1/checkout-binding` is not exposed.
+4. The CLI is not shipped in the packed package. It runs from a repository
+   checkout; the audited `files` list stays `dist` only. Shipping it needs a
+   separate approved manifest change.

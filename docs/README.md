@@ -13,5 +13,5 @@
   qualification and mandatory per-store TEST-purchase agreement.
 - [Payment setup decision](payment-setup-decision.md): approved one-screen flow,
   independent connection and TEST-order checks, research, and remaining design.
-- [CLI specification](CLI-SPEC.md): draft `dinkus-payments` command-line
-  client for the hosted API, its output contract, and non-goals.
+- [CLI specification](CLI-SPEC.md): `dinkus-payments` command-line client for
+  the hosted API, its output contract, non-goals, and locked decisions.

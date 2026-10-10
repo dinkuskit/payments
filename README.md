@@ -92,8 +92,9 @@ for prerequisites, checks, and proof limits.
 Payments API. It reads a site's connection status, starts or resumes provider
 onboarding behind a dry run and typed confirmation, shows stored bindings,
 looks up checkout outcomes, and lists pending payment wakes. It does not
-acknowledge wakes or create checkout sessions. The interface is a draft that
-still needs a GrillTrack decision; see [the CLI specification](docs/CLI-SPEC.md).
+acknowledge wakes or create checkout sessions. The interface is locked for the
+scaffold slice (GrillTrack `payments-cli-scaffold-032`); see
+[the CLI specification](docs/CLI-SPEC.md).
 
 ```bash
 # DINKUS_PAYMENTS_TOKEN must already hold a site token from your secret

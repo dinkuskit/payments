@@ -4,11 +4,11 @@
   "current_focus": {
     "cadence": "sequential",
     "confirmed": true,
-    "confirmed_at": "2026-10-10T00:10:12+00:00",
-    "domain": "Registry payment setup screen",
-    "started_at": "2026-10-10T00:10:12+00:00",
+    "confirmed_at": "2026-10-10T02:37:44+00:00",
+    "domain": "dinkus-payments CLI over the hosted Payments API",
+    "started_at": "2026-10-10T02:37:44+00:00",
     "status": "confirmed",
-    "summary": "Implement existing private Registry setup screen and tested evidence renderer under028/029; unavailable production inputs stay visibly incomplete, no invented authority. Verify complete tests and normal-session local seeded Registry UI."
+    "summary": "The project owner (GitHub saariuslystoned) chose 'Lock it' on 2026-10-10 when asked whether to lock the dinkus-payments CLI spec with the proposed defaults for its four open questions: the site id stays the connect confirmation; nextAction and effect codes are v1 contract; binding show uses only GET /v1/existing-binding; the CLI is not shipped in the packed package. Locked for the scaffold slice only. No publication, deployment or merge is authorized by this choice."
   },
   "decisions": [
     {
@@ -1530,6 +1530,75 @@
       "superseded_by": null,
       "updated_at": "2026-10-10T00:14:55+00:00",
       "verification_ref": ".grilltrack/proof/setup-screen/PROOF.md"
+    },
+    {
+      "baseline_ref": null,
+      "candidate_refs": [],
+      "choice": "Yes, for the scaffold slice. The CLI is a separate process and package bin that calls only the hosted /v1 API with DINKUS_PAYMENTS_TOKEN from the environment, never to an endpoint from project config. (1) Typing the site id stays the connect confirmation; no service preview endpoint in this slice. (2) nextAction and the effect codes are part of the v1 contract. (3) binding show uses only GET /v1/existing-binding; GET /v1/checkout-binding is not exposed. (4) The CLI is not shipped in the packed package; the audited files list stays dist only and shipping needs a separate approved manifest change.",
+      "context_ref": null,
+      "created_at": "2026-10-10T02:37:44+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [],
+      "domain": "dinkus-payments CLI over the hosted Payments API",
+      "history": [
+        {
+          "at": "2026-10-10T02:37:45+00:00",
+          "choice": "Yes, for the scaffold slice. The CLI is a separate process and package bin that calls only the hosted /v1 API with DINKUS_PAYMENTS_TOKEN from the environment, never to an endpoint from project config. (1) Typing the site id stays the connect confirmation; no service preview endpoint in this slice. (2) nextAction and the effect codes are part of the v1 contract. (3) binding show uses only GET /v1/existing-binding; GET /v1/checkout-binding is not exposed. (4) The CLI is not shipped in the packed package; the audited files list stays dist only and shipping needs a separate approved manifest change.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-10T02:37:45+00:00",
+          "choice": "Yes, for the scaffold slice. The CLI is a separate process and package bin that calls only the hosted /v1 API with DINKUS_PAYMENTS_TOKEN from the environment, never to an endpoint from project config. (1) Typing the site id stays the connect confirmation; no service preview endpoint in this slice. (2) nextAction and the effect codes are part of the v1 contract. (3) binding show uses only GET /v1/existing-binding; GET /v1/checkout-binding is not exposed. (4) The CLI is not shipped in the packed package; the audited files list stays dist only and shipping needs a separate approved manifest change.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-10T02:39:52+00:00",
+          "choice": "Yes, for the scaffold slice. The CLI is a separate process and package bin that calls only the hosted /v1 API with DINKUS_PAYMENTS_TOKEN from the environment, never to an endpoint from project config. (1) Typing the site id stays the connect confirmation; no service preview endpoint in this slice. (2) nextAction and the effect codes are part of the v1 contract. (3) binding show uses only GET /v1/existing-binding; GET /v1/checkout-binding is not exposed. (4) The CLI is not shipped in the packed package; the audited files list stays dist only and shipping needs a separate approved manifest change.",
+          "from": "implemented",
+          "implementation_ref": "file:bin/dinkus-payments.mjs file:src/cli/ file:src/client/ file:package.json file:docs/CLI-SPEC.md",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-cli-scaffold-032",
+      "implementation_ref": "file:bin/dinkus-payments.mjs file:src/cli/ file:src/client/ file:package.json file:docs/CLI-SPEC.md",
+      "question": "Should docs/CLI-SPEC.md be the locked contract for the dinkus-payments CLI scaffold, and how are its four open questions answered?",
+      "rationale": "Each answer keeps the scaffold's current behaviour and can be reopened later; it matches how the Commerce CLI scaffold was locked (commerce-cli-scaffold-001).",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "verified",
+      "superseded_by": null,
+      "updated_at": "2026-10-10T02:39:52+00:00",
+      "verification_ref": "file:tests/cli/payments-cli.test.mjs"
     }
   ],
   "last_activation": {
@@ -1556,5 +1625,5 @@
   "status": "active",
   "title": "DinkusKit Payments public scaffold",
   "track_id": "gt-20260830202947-ccfe03",
-  "updated_at": "2026-10-10T00:14:55+00:00"
+  "updated_at": "2026-10-10T02:39:52+00:00"
 }
