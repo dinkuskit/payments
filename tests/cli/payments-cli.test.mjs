@@ -481,6 +481,29 @@ test("binding show reads the existing binding and checks it matches", async () =
 	assert.equal(tooLong.calls.length, 0);
 });
 
+test("binding show accepts each provider's recipient field and refuses the wrong one", async () => {
+	const ref = "authorize_net_binding_demo";
+	const binding = { bindingRef: ref, providerId: "authorize_net", authorizeNetMerchantId: "merchant_demo", mode: "test" };
+	const routes = { "GET /v1/existing-binding": reply(200, binding) };
+	const machine = await run(["--site", SITE, "binding", "show", ref, "--json"], { routes });
+	assert.equal(machine.code, 0, machine.stderr);
+	assert.deepEqual(machine.json().data, binding);
+	const human = await run(["--site", SITE, "binding", "show", ref], { routes });
+	assert.equal(human.stdout, "binding: authorize_net_binding_demo\nprovider: authorize_net\nmerchant: merchant_demo\nmode: test\n");
+	const plain = await run(["--site", SITE, "binding", "show", ref, "--plain"], { routes });
+	assert.match(plain.stdout, /\tproviderId=authorize_net\tauthorizeNetMerchantId=merchant_demo\tmode=test\n$/);
+
+	for (const wrong of [
+		{ bindingRef: ref, providerId: "authorize_net", stripeAccountId: "acct_demo", mode: "test" },
+		{ bindingRef: BINDING, providerId: "stripe", authorizeNetMerchantId: "merchant_demo", mode: "test" },
+		{ bindingRef: ref, providerId: "paypal", authorizeNetMerchantId: "merchant_demo", mode: "test" },
+		{ bindingRef: ref, providerId: "toString", toString: "x", mode: "test" },
+	]) {
+		const result = await run(["--site", SITE, "binding", "show", wrong.bindingRef, "--json"], { routes: { "GET /v1/existing-binding": reply(200, wrong) } });
+		assert.equal(result.code, 5, JSON.stringify(wrong));
+	}
+});
+
 const paymentRequest = {
 	attemptId: "att_demo",
 	bindingRef: BINDING,

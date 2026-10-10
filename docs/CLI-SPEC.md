@@ -87,7 +87,10 @@ The service authenticates every call; possessing the executable grants nothing.
   derives from the state. The service checks the provider live; the CLI never
   caches or infers readiness.
 - `binding show <binding-ref>` reads the stored recipient for existing
-  attempts: `bindingRef`, `providerId`, `stripeAccountId`, `mode`. It answers
+  attempts: `bindingRef`, `providerId`, the provider's recipient field, and
+  `mode`. The recipient is `stripeAccountId` for `stripe` and
+  `authorizeNetMerchantId` for `authorize_net`; any other provider, or a
+  recipient field that does not match the provider, exits `5`. It answers
   even when new checkout is not ready, because reconciliation must keep the
   original recipient. Readiness for new checkout is `status`.
 - `checkout lookup --request <file|->` asks Payments for the normalized outcome
@@ -234,7 +237,7 @@ and `\\`. Missing values are empty.
 | `status` | `clientVersion state mode bindingRef nextAction` |
 | `connect --dry-run` | `state mode bindingRef effect confirmation` |
 | `connect` | `state mode bindingRef url expiresAt nextAction` |
-| `binding show` | `bindingRef providerId stripeAccountId mode` |
+| `binding show` | `bindingRef providerId stripeAccountId mode` (Stripe) or `bindingRef providerId authorizeNetMerchantId mode` (Authorize.net) |
 | `checkout lookup` | `attemptId paymentOutcome totalCurrency totalMinor sessionId redirectUrl createdAt expiresAt paymentId` |
 | `wakes list` | one record per wake: `eventId attemptId bindingRef deliveryGeneration wokeAt`; no lines when empty |
 | rejected or error | `code message` |

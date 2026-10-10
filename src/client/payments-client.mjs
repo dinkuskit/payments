@@ -11,6 +11,8 @@ export const KNOWN_STATES = Object.freeze([
 	"disconnected", "connecting", "setup_required", "ready", "checking", "action_required", "recovery_required",
 ]);
 const MODES = new Set(["test", "live"]);
+// Each provider stores its own recipient field on a binding (src/hosted/connection.ts).
+export const BINDING_RECIPIENT = Object.freeze({ stripe: "stripeAccountId", authorize_net: "authorizeNetMerchantId" });
 const PAYMENT_OUTCOMES = new Set(["unknown", "open", "paid", "expired-unpaid", "not-created"]);
 
 // Server-side messages are codes only; these explain the 409 business answers.
@@ -159,7 +161,8 @@ export function createPaymentsClient({ endpoint, siteId, token, timeoutMs, fetch
 			const what = "binding show";
 			const body = await call("GET", "/v1/existing-binding", { what, scope: SCOPE.checkout, query: { bindingRef } });
 			if (!isObject(body) || body.bindingRef !== bindingRef) throw contract(what, "bindingRef does not match the request");
-			if (!isText(body.providerId, 100) || !isText(body.stripeAccountId, 200) || !MODES.has(body.mode)) throw contract(what, "binding fields");
+			const recipient = Object.hasOwn(BINDING_RECIPIENT, body.providerId) ? BINDING_RECIPIENT[body.providerId] : undefined;
+			if (!recipient || !isText(body[recipient], 200) || !MODES.has(body.mode)) throw contract(what, "binding fields");
 			return body;
 		},
 		// `requestText` is sent byte-for-byte; `attemptId` checks the answer.

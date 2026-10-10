@@ -4,7 +4,7 @@
 import { createReadStream } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { CliError, EXIT, sanitizeTerminal, usageError, validateEndpoint } from "./kernel.mjs";
-import { KNOWN_STATES, TOKEN_ENV, createPaymentsClient, readToken } from "../client/payments-client.mjs";
+import { BINDING_RECIPIENT, KNOWN_STATES, TOKEN_ENV, createPaymentsClient, readToken } from "../client/payments-client.mjs";
 
 const NAME = "dinkus-payments";
 const SITE_ID = /^[\x21-\x7e]{1,200}$/;
@@ -327,19 +327,20 @@ export async function bindingShow(ctx) {
 	const context = { siteId, bindingRef };
 	return inContext(context, async () => {
 		const binding = await paymentsClient(ctx, { endpoint, siteId }).existingBinding(bindingRef);
+		const recipient = BINDING_RECIPIENT[binding.providerId];
 		return {
 			context,
 			data: binding,
 			human: [
 				`binding: ${binding.bindingRef}`,
 				`provider: ${binding.providerId}`,
-				`account: ${binding.stripeAccountId}`,
+				`${binding.providerId === "stripe" ? "account" : "merchant"}: ${binding[recipient]}`,
 				`mode: ${binding.mode}`,
 			].join("\n"),
 			plain: [[
 				["bindingRef", binding.bindingRef],
 				["providerId", binding.providerId],
-				["stripeAccountId", binding.stripeAccountId],
+				[recipient, binding[recipient]],
 				["mode", binding.mode],
 			]],
 		};
