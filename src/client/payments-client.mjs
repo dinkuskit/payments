@@ -79,7 +79,8 @@ function assertPaymentOutcome(body, what, attemptId) {
 	if (body.outcome === "not-created") return;
 	assertMoney(body.total, what, "total");
 	const session = body.session;
-	if (!isObject(session) || !isText(session.sessionId, 500) || typeof session.redirectUrl !== "string" ||
+	// An Authorize.net session id is its hosted-form token, which has no fixed length (src/authorize-net/checkout.ts).
+	if (!isObject(session) || !isText(session.sessionId, Infinity) || typeof session.redirectUrl !== "string" ||
 		!Number.isSafeInteger(session.createdAt) || !Number.isSafeInteger(session.expiresAt)) {
 		throw contract(what, "session");
 	}

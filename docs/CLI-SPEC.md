@@ -100,7 +100,8 @@ The service authenticates every call; possessing the executable grants nothing.
   `expired-unpaid`, or `not-created`. Lookup never creates a checkout session.
   The request is read from a file or from stdin (`-`), checked locally to be a
   JSON object with string `attemptId` and `bindingRef` (1-200 characters) and
-  at most 1 MiB, then sent byte-for-byte. Payments validates everything else.
+  at most 128 KiB (131,072 bytes, the hosted API's checkout body limit), then
+  sent byte-for-byte. Payments validates everything else.
 - `wakes list <binding-ref>` lists unacknowledged payment wakes
   (`eventId`, `attemptId`, `bindingRef`, `deliveryGeneration`, `wokeAt` in
   epoch milliseconds), oldest first. Listing does not consume or acknowledge

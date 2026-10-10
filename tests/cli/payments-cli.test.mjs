@@ -547,6 +547,23 @@ test("checkout lookup sends the request file byte-for-byte and formats the outco
 	assert.match(unknown.stdout, /payment outcome: unknown\n.*never creates/s);
 });
 
+test("checkout lookup accepts an Authorize.net session, whose id is a long hosted-form token", async () => {
+	const file = join(scratch, "authorize-net-request.json");
+	await writeFile(file, JSON.stringify(paymentRequest));
+	const token = "T".repeat(2000);
+	const outcome = {
+		...openOutcome,
+		session: { sessionId: token, redirectUrl: `https://test.authorize.net/payment/payment?token=${token}`, createdAt: 1_791_500_000, expiresAt: 1_791_501_860 },
+	};
+	const result = await run(["--site", SITE, "checkout", "lookup", "--request", file, "--json"], { routes: { "POST /v1/checkout/lookup": reply(200, outcome) } });
+	assert.equal(result.code, 0, result.stderr);
+	assert.equal(result.json().data.session.sessionId, token);
+	const empty = await run(["--site", SITE, "checkout", "lookup", "--request", file, "--json"], {
+		routes: { "POST /v1/checkout/lookup": reply(200, { ...openOutcome, session: { ...openOutcome.session, sessionId: "" } }) },
+	});
+	assert.equal(empty.code, 5);
+});
+
 test("checkout lookup validates the request locally before sending", async () => {
 	const write = async (name, text) => {
 		const file = join(scratch, name);
@@ -569,6 +586,27 @@ test("checkout lookup validates the request locally before sending", async () =>
 	const noFlag = await run(["--site", SITE, "checkout", "lookup"]);
 	assert.equal(noFlag.code, 2);
 	assert.match(noFlag.stderr, /requires --request/);
+});
+
+test("checkout lookup sends at most the hosted API's 128 KiB body limit", async () => {
+	const hosted = await readFile(new URL("../../src/hosted/http.ts", import.meta.url), "utf8");
+	assert.match(hosted, /const MAX_CHECKOUT_BODY_BYTES = 128 \* 1024;/);
+	const sized = (bytes) => {
+		const base = JSON.stringify({ attemptId: "att_demo", bindingRef: BINDING, pad: "" });
+		return JSON.stringify({ attemptId: "att_demo", bindingRef: BINDING, pad: "x".repeat(bytes - base.length) });
+	};
+	const routes = { "POST /v1/checkout/lookup": reply(200, openOutcome) };
+	const atLimit = join(scratch, "at-limit.json");
+	await writeFile(atLimit, sized(128 * 1024));
+	const sent = await run(["--site", SITE, "checkout", "lookup", "--request", atLimit, "--json"], { routes });
+	assert.equal(sent.code, 0, sent.stderr);
+	assert.equal(Buffer.byteLength(sent.calls[0].body), 128 * 1024);
+	const overLimit = join(scratch, "over-limit.json");
+	await writeFile(overLimit, sized(128 * 1024 + 1));
+	const refused = await run(["--site", SITE, "checkout", "lookup", "--request", overLimit], { routes });
+	assert.equal(refused.code, 2);
+	assert.match(refused.stderr, /larger than 128 KiB/);
+	assert.equal(refused.calls.length, 0);
 });
 
 test("checkout lookup maps service answers to exit codes", async () => {

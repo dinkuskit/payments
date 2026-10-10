@@ -10,7 +10,8 @@ const NAME = "dinkus-payments";
 const SITE_ID = /^[\x21-\x7e]{1,200}$/;
 const REFERENCE = /^[^\x00-\x1f\x7f]{1,200}$/;
 const LIMIT = /^(?:[1-9][0-9]?|100)$/;
-const MAX_REQUEST_BYTES = 1024 * 1024;
+// The hosted API refuses checkout bodies over 128 KiB (MAX_CHECKOUT_BODY_BYTES in src/hosted/http.ts).
+const MAX_REQUEST_BYTES = 128 * 1024;
 
 // ---------------------------------------------------------------------------
 // Context, credential and client
@@ -357,7 +358,7 @@ async function readLimited(stream, label) {
 		for await (const chunk of stream) {
 			const bytes = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
 			size += bytes.length;
-			if (size > MAX_REQUEST_BYTES) throw usageError(`${label} is larger than 1 MiB.`, "invalid_request");
+			if (size > MAX_REQUEST_BYTES) throw usageError(`${label} is larger than 128 KiB, the most Payments accepts.`, "invalid_request");
 			chunks.push(bytes);
 		}
 	} catch (error) {
