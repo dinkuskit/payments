@@ -365,11 +365,11 @@ async function readLimited(stream, label) {
 		if (error instanceof CliError) throw error;
 		throw usageError(`Cannot read ${label} (${error?.code ?? "read failed"}).`, "invalid_request");
 	}
-	return Buffer.concat(chunks).toString("utf8");
+	return Buffer.concat(chunks);
 }
 
 async function readPaymentRequest(ctx, from) {
-	let text;
+	let bytes;
 	let label;
 	if (from === "-") {
 		label = "--request - (stdin)";
@@ -378,15 +378,22 @@ async function readPaymentRequest(ctx, from) {
 			throw usageError("--request - reads stdin, but stdin is a terminal and --no-input is set. Pipe the JSON in or pass a file.", "input_required");
 		}
 		if (stdin.isTTY) ctx.io.stderr.write("Reading the PaymentRequest JSON from stdin; finish with Ctrl-D.\n");
-		text = await readLimited(stdin, label);
+		bytes = await readLimited(stdin, label);
 	} else {
 		label = `--request ${from}`;
-		text = await readLimited(createReadStream(resolvePath(ctx.cwd, from)), label);
+		bytes = await readLimited(createReadStream(resolvePath(ctx.cwd, from)), label);
 	}
-	text = text.replace(/^﻿/, "");
+	// Decode strictly and keep any byte-order mark, so `text` encodes back to exactly these bytes.
+	// Payments decodes the same way and drops a leading byte-order mark before parsing.
+	let text;
+	try {
+		text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+	} catch {
+		throw usageError(`${label} is not valid UTF-8.`, "invalid_request");
+	}
 	let request;
 	try {
-		request = JSON.parse(text);
+		request = JSON.parse(text.replace(/^\uFEFF/, ""));
 	} catch {
 		throw usageError(`${label} is not valid JSON.`, "invalid_request");
 	}

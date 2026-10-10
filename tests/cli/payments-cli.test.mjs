@@ -564,6 +564,22 @@ test("checkout lookup accepts an Authorize.net session, whose id is a long hoste
 	assert.equal(empty.code, 5);
 });
 
+test("checkout lookup sends the file's exact bytes, byte-order mark included, and refuses invalid UTF-8", async () => {
+	const routes = { "POST /v1/checkout/lookup": reply(200, openOutcome) };
+	const withBom = join(scratch, "bom-request.json");
+	const bytes = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(JSON.stringify(paymentRequest))]);
+	await writeFile(withBom, bytes);
+	const sent = await run(["--site", SITE, "checkout", "lookup", "--request", withBom, "--json"], { routes });
+	assert.equal(sent.code, 0, sent.stderr);
+	assert.deepEqual(Buffer.from(sent.calls[0].body, "utf8"), bytes);
+	const invalid = join(scratch, "invalid-utf8-request.json");
+	await writeFile(invalid, Buffer.concat([Buffer.from('{"attemptId":"att_demo","bindingRef":"'), Buffer.from([0xff]), Buffer.from('"}')]));
+	const refused = await run(["--site", SITE, "checkout", "lookup", "--request", invalid], { routes });
+	assert.equal(refused.code, 2);
+	assert.match(refused.stderr, /is not valid UTF-8/);
+	assert.equal(refused.calls.length, 0);
+});
+
 test("checkout lookup validates the request locally before sending", async () => {
 	const write = async (name, text) => {
 		const file = join(scratch, name);
