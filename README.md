@@ -86,6 +86,23 @@ Run `bin/verify-payments quick` during edits and `bin/verify-payments full` befo
 delivery. See [the project verification skill](skills/payments-verification/SKILL.md)
 for prerequisites, checks, and proof limits.
 
+## Command-line client
+
+`dinkus-payments` is a dependency-free command-line client for the hosted
+Payments API. It reads a site's connection status, starts or resumes provider
+onboarding behind a dry run and typed confirmation, shows stored bindings,
+looks up checkout outcomes, and lists pending payment wakes. It does not
+acknowledge wakes or create checkout sessions. The interface is locked for the
+scaffold slice (GrillTrack `payments-cli-scaffold-032`); see
+[the CLI specification](docs/CLI-SPEC.md).
+
+```bash
+# DINKUS_PAYMENTS_TOKEN must already hold a site token from your secret
+# manager. It is never accepted as a flag or config value.
+node bin/dinkus-payments.mjs --endpoint https://payments.example.invalid \
+  --site site_demo status
+```
+
 ## Authorize.net sandbox proof
 
 The credential-gated proof runs on Node 22.23.2 from `.nvmrc`:
