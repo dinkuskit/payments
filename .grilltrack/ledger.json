@@ -1585,21 +1585,75 @@
           "review_source_identity": null,
           "to": "verified",
           "verification_ref": null
+        },
+        {
+          "at": "2026-10-10T03:15:03+00:00",
+          "choice": "Implement the reviewed website v2 protocol under private originating-admin authority: server-resolved canonical site identity, explicit Payments service consent, frozen public transaction proof, encrypted short-lived token persistence validated for Payments audience and canonical site, callback continuation and authenticated status. Keep separate grants, no refresh fallback or identity remap, no provider connect call, no Commerce TEST-order claim. Proposed capability and public route consent are code only; production activation excluded.",
+          "from": "verified",
+          "implementation_ref": "src/registry/connection.ts",
+          "note": "adjudicated review requires a fix",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "needs_reverification",
+          "verification_ref": ".grilltrack/proof/payments-shared-store-consumer-032.md"
+        },
+        {
+          "at": "2026-10-10T03:31:43+00:00",
+          "choice": "Implement the reviewed website v2 protocol under private originating-admin authority: server-resolved canonical site identity, explicit Payments service consent, frozen public transaction proof, encrypted short-lived token persistence validated for Payments audience and canonical site, callback continuation and authenticated status. Keep separate grants, no refresh fallback or identity remap, no provider connect call, no Commerce TEST-order claim. Proposed capability and public route consent are code only; production activation excluded.",
+          "from": "needs_reverification",
+          "implementation_ref": "src/registry/connection.ts",
+          "note": "bounded implementation recorded",
+          "repair_required": true,
+          "review_classifications": [
+            "required_fix"
+          ],
+          "review_ref": "https://github.com/dinkuskit/payments/pull/34#issuecomment-6093186277",
+          "review_result": "findings",
+          "review_source_identity": "git:4b30263ff14b6df2f0e8c1a1f5c18f0a5627db6a",
+          "to": "implemented",
+          "verification_ref": ".grilltrack/proof/payments-shared-store-consumer-032.md"
+        },
+        {
+          "at": "2026-10-10T03:31:43+00:00",
+          "choice": "Implement the reviewed website v2 protocol under private originating-admin authority: server-resolved canonical site identity, explicit Payments service consent, frozen public transaction proof, encrypted short-lived token persistence validated for Payments audience and canonical site, callback continuation and authenticated status. Keep separate grants, no refresh fallback or identity remap, no provider connect call, no Commerce TEST-order claim. Proposed capability and public route consent are code only; production activation excluded.",
+          "from": "implemented",
+          "implementation_ref": ".grilltrack/proof/payments-shared-store-consumer-032.md",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": ".grilltrack/proof/payments-shared-store-consumer-032.md"
         }
       ],
       "id": "payments-shared-store-consumer-032",
-      "implementation_ref": "src/registry/connection.ts",
+      "implementation_ref": ".grilltrack/proof/payments-shared-store-consumer-032.md",
       "question": "How does the Payments Registry plugin consume the reviewed shared-store service?",
       "rationale": "",
       "repair_required": false,
       "review_classifications": [],
-      "review_history": [],
+      "review_history": [
+        {
+          "classifications": [
+            "required_fix"
+          ],
+          "ref": "https://github.com/dinkuskit/payments/pull/34#issuecomment-6093186277",
+          "result": "findings",
+          "reviewed_at": "2026-10-10T03:15:03+00:00",
+          "source_identity": "git:4b30263ff14b6df2f0e8c1a1f5c18f0a5627db6a"
+        }
+      ],
       "review_ref": null,
       "review_result": null,
       "review_source_identity": null,
       "status": "verified",
       "superseded_by": null,
-      "updated_at": "2026-10-10T03:02:37+00:00",
+      "updated_at": "2026-10-10T03:31:43+00:00",
       "verification_ref": ".grilltrack/proof/payments-shared-store-consumer-032.md"
     }
   ],
@@ -1627,5 +1681,5 @@
   "status": "active",
   "title": "DinkusKit Payments public scaffold",
   "track_id": "gt-20260830202947-ccfe03",
-  "updated_at": "2026-10-10T03:02:37+00:00"
+  "updated_at": "2026-10-10T03:31:43+00:00"
 }

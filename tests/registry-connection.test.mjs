@@ -30,6 +30,7 @@ async function fixture({ testOnly, endpoint = { status: 'https://payments-proof.
       if (url === REGISTRY_CONNECT_URL) {
         f.starts++; const body = JSON.parse(init.body);
         assert.equal(body.protocol_version, 2); assert.equal(body.service, 'payments'); assert.equal('site_id' in body, false);
+        assert.equal(body.callback_uri, `${testOnly?.storeOrigin ?? 'https://shop.example'}/_emdash/admin/plugins/r_3brsc2on3bu673rn/status`);
         f.challenge = body.code_challenge;
         return json({ protocol_version: 2, site_id: f.siteId, connection_id: 'c' + f.starts, challenge: 'public-challenge', expires_at: f.now + 600_000, expires_in: 600, interval: 5,
           verification_uri: `${testOnly?.verificationOrigin ?? 'https://dinkuskit.com'}/account/connect?connection_id=c${f.starts}` });

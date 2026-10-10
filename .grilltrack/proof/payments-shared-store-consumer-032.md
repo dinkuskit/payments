@@ -32,7 +32,7 @@ value-blind path audit in the working checkout. Full verification used a clean
 source snapshot containing only tracked and intended new public files; no audit
 exclusion or cleanup was introduced.
 
-## Real installed local proof
+## Earlier seeded local proof (superseded for Registry identity)
 
 Official plugin bundle loaded through EmDash 1.2.0 Registry storage and its
 Cloudflare Worker Loader sandbox. Website came from the immutable reviewed
@@ -76,3 +76,45 @@ revocation lookup: website revocation blocks new tokens, while existing signed
 tokens expire within five minutes. Joint Inventory/Payments installed-consumer
 proof remains separate. CI, comprehensive OpenClaw and native ClawSweeper must
 qualify the immutable candidate before maintainer delivery.
+
+## Accepted native finding and actual installer repair
+
+Native review on `4b30263ff14b6df2f0e8c1a1f5c18f0a5627db6a` found native-slug
+callback/proof constants inconsistent with the derived Registry identity.
+Accepted as required_fix. Earlier slug-seeded proof did not qualify Registry
+installation identity. Consumer and manifest now share a single identity;
+regression tests and Access documentation bind the exact installed routes.
+
+Paired website source: `6c38e938fe535ebe3ffa719edd2e7bf766be3171`.
+Actual upstream `handleRegistryInstall` ran with `installRegistryAuthoritativeFixture`
+synthetic records and official packaged bytes served on localhost using the
+upstream development allowance. Checksum, archive, identity, record schema,
+declared-access and public-route consent gates remained active. No live PDS
+acquisition or provenance attestation is claimed (provenance absent-optional).
+Persisted source=registry, publisher `did:plc:ekk4pjmkh3k3ql2kfoex3qt4`, slug
+`dinkus-payments`, installed ID `r_3brsc2on3bu673rn`.
+
+Browser signup/sign-in and explicit Payments consent returned to the hashed
+callback. The website fetched the actual hashed proof route; one token exchange
+and real status HTTP200 succeeded. Consumed proof404; encrypted session observed
+without reading its value; initiating admin200/status checked, other admin200
+without session authority, subscriber403 and anonymous401. Three JWKS calls,
+two status200 calls including role verification, zero provider calls. UI remains
+Not ready to sell, no processor connected and Commerce TEST order unconfirmed.
+
+| Repair artifact | SHA256 |
+| --- | --- |
+| Official explicit-test tarball | 7851000b747cc4ace2c9c13dc98696eb26b8a655e29e49a91029a66009ee2774 |
+| Explicit-test backend | a39ae08ccfeeec33ccdd2a4ef05fc9f5e7df7b4a680c9d1fa45e5d1a37fe608a |
+| Installed identity JSON | f403560cddff267460db4ad00a45bf4f3cdd626b51c267910b3ddfb4755015b1 |
+| Checked-status screenshot | 66c0815c7626b792411f7e4565389db46dbc9273297cfe5cde35078b8dd1366d |
+
+Evidence is retained in local run `payments-registry-install-proof-20261010`:
+installed-state.json, real-integration.json, registry-record-proof.json,
+candidate-bundle and screenshots. Test bundle differences are explicit loopback
+factory configuration and reserved status-host permission. Production defaults
+remain unconfigured. Fresh exact-candidate external reviews are required.
+
+Repair clean-snapshot full verification passed: 137 Node tests, 16 runtime tests,
+three built-plugin tests, typechecks, repository audit, manifest validation,
+Worker dry-run and plugin build. Production runtime contains no test host/ports.

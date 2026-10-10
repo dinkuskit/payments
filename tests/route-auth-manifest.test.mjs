@@ -99,3 +99,13 @@ test("every hosted scoped route denies anonymous input before service/checkout/w
     assert.equal(scopes.at(-1), route.scope, path);
   }
 });
+
+test("shared-store callback, proof export and Access docs use the installed Registry identity", async () => {
+  const { REGISTRY_CALLBACK_PATH, REGISTRY_PROOF_PATH } = await import('../src/registry/connection.ts');
+  const { readFile } = await import('node:fs/promises');
+  assert.deepEqual(registryRouteManifest.publicRoutes, [REGISTRY_PROOF_PATH]);
+  assert.equal(REGISTRY_CALLBACK_PATH, `/_emdash/admin/plugins/${registryInstallationIdentity.installedPluginId}/status`);
+  const docs = await readFile(new URL('../docs/route-auth.md', import.meta.url), 'utf8');
+  assert.ok(docs.includes(REGISTRY_PROOF_PATH)); assert.ok(docs.includes(REGISTRY_CALLBACK_PATH));
+  assert.equal(docs.includes('publicRoutes` is **`[]`**'), false);
+});

@@ -1,4 +1,5 @@
 import { pluginResponse } from "emdash/plugin";
+import { registryInstallationIdentity } from "./identity.js";
 import { decodeStatus } from "./status.js";
 
 export type UserInfo = { id: string };
@@ -24,8 +25,8 @@ export const REGISTRY_JWKS_URL = `${REGISTRY_ORIGIN}/account/.well-known/jwks.js
 export const REGISTRY_CONNECT_URL = `${REGISTRY_ORIGIN}/api/store-connections`;
 export const REGISTRY_CLIENT_ID = "dinkus-payments-emdash";
 export const REGISTRY_SERVICE = "payments";
-export const REGISTRY_CALLBACK_PATH = "/_emdash/admin/plugins/dinkus-payments/status";
-export const REGISTRY_PROOF_PATH = "/_emdash/api/plugins/dinkus-payments/store-proof";
+export const REGISTRY_CALLBACK_PATH = `/_emdash/admin/plugins/${registryInstallationIdentity.installedPluginId}/status`;
+export const REGISTRY_PROOF_PATH = `/_emdash/api/plugins/${registryInstallationIdentity.installedPluginId}/store-proof`;
 export const REGISTRY_AUDIENCE = "dinkus-payments";
 export const REGISTRY_SCOPE = "payments:admin";
 
