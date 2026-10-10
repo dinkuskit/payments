@@ -5,6 +5,13 @@ import worker from '../../src/cloudflare/worker';
 
 afterEach(() => vi.restoreAllMocks());
 
+test('health is public, test-mode-only, and independent of provider configuration', async () => {
+  const response = await worker.fetch(new Request('https://payments.example.invalid/health'), env);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ status: 'ok', mode: 'test' });
+  expect(response.headers.get('Cache-Control')).toBe('no-store');
+});
+
 test('signed merchant connect accepts empty runtime streams and verifies return readiness', async () => {
   const issuer = 'https://accounts.example.invalid';
   const audience = 'payments-runtime-admin';
