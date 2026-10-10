@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "dinkus-payments",
+  "main": "src/cloudflare/worker.ts",
+  "compatibility_date": "2026-09-29",
+  "compatibility_flags": ["nodejs_compat"],
+  "account_id": "cddb32366789cab1bdf4c25584dc1920",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    { "pattern": "payments.dinkuskit.com", "custom_domain": true }
+  ],
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  "durable_objects": {
+    "bindings": [
+      { "name": "PAYMENT_CONNECTIONS", "class_name": "PaymentConnection" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["PaymentConnection"] }
+  ],
+  "vars": {
+    "ACCOUNT_ISSUER": "https://dinkuskit.com/account",
+    "ACCOUNT_AUDIENCE": "dinkus-payments",
+    "ACCOUNT_JWKS_URL": "https://dinkuskit.com/account/.well-known/jwks.json",
+    "ONBOARDING_RETURN_URL": "https://dinkuskit.com/account",
+    "ONBOARDING_REFRESH_URL": "https://dinkuskit.com/account",
+    "CHECKOUT_SUCCESS_URL": "https://dinkuskit.com/checkout/success",
+    "CHECKOUT_CANCEL_URL": "https://dinkuskit.com/checkout/cancel",
+    "PAYMENT_PROVIDER": "stripe"
+  }
+}
