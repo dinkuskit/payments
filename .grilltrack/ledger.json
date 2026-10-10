@@ -4,11 +4,11 @@
   "current_focus": {
     "cadence": "sequential",
     "confirmed": true,
-    "confirmed_at": "2026-10-10T00:10:12+00:00",
-    "domain": "Registry payment setup screen",
-    "started_at": "2026-10-10T00:10:12+00:00",
+    "confirmed_at": "2026-10-10T01:10:35+00:00",
+    "domain": "Registry shared-store Payments connection",
+    "started_at": "2026-10-10T01:10:34+00:00",
     "status": "confirmed",
-    "summary": "Implement existing private Registry setup screen and tested evidence renderer under028/029; unavailable production inputs stay visibly incomplete, no invented authority. Verify complete tests and normal-session local seeded Registry UI."
+    "summary": "Bobby authorized isolated Payments consumer implementation after reviewed immutable website v2 handoff. Implement Connect/proof/callback/encrypted session/status only, then independent real local integration, auth and Registry UI proof, full CI/OpenClaw/native review to maintainer gate. No merge/deploy/live permissions/provider requests or fabricated Commerce readiness."
   },
   "decisions": [
     {
@@ -1530,6 +1530,77 @@
       "superseded_by": null,
       "updated_at": "2026-10-10T00:14:55+00:00",
       "verification_ref": ".grilltrack/proof/setup-screen/PROOF.md"
+    },
+    {
+      "baseline_ref": "git:469eab16253f38f17b8c2370a076fe55d0a8e981",
+      "candidate_refs": [],
+      "choice": "Implement the reviewed website v2 protocol under private originating-admin authority: server-resolved canonical site identity, explicit Payments service consent, frozen public transaction proof, encrypted short-lived token persistence validated for Payments audience and canonical site, callback continuation and authenticated status. Keep separate grants, no refresh fallback or identity remap, no provider connect call, no Commerce TEST-order claim. Proposed capability and public route consent are code only; production activation excluded.",
+      "context_ref": "github:dinkuskit/dinkuskit/pull/21@c0e871e3b2b63a511c78669cb78b29bd810c51f3:docs/shared-store-connections.md",
+      "created_at": "2026-10-10T01:10:34+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-setup-screen-031"
+      ],
+      "domain": "Registry shared-store Payments connection",
+      "history": [
+        {
+          "at": "2026-10-10T01:10:34+00:00",
+          "choice": "Implement the reviewed website v2 protocol under private originating-admin authority: server-resolved canonical site identity, explicit Payments service consent, frozen public transaction proof, encrypted short-lived token persistence validated for Payments audience and canonical site, callback continuation and authenticated status. Keep separate grants, no refresh fallback or identity remap, no provider connect call, no Commerce TEST-order claim. Proposed capability and public route consent are code only; production activation excluded.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-10T03:02:36+00:00",
+          "choice": "Implement the reviewed website v2 protocol under private originating-admin authority: server-resolved canonical site identity, explicit Payments service consent, frozen public transaction proof, encrypted short-lived token persistence validated for Payments audience and canonical site, callback continuation and authenticated status. Keep separate grants, no refresh fallback or identity remap, no provider connect call, no Commerce TEST-order claim. Proposed capability and public route consent are code only; production activation excluded.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-10T03:02:37+00:00",
+          "choice": "Implement the reviewed website v2 protocol under private originating-admin authority: server-resolved canonical site identity, explicit Payments service consent, frozen public transaction proof, encrypted short-lived token persistence validated for Payments audience and canonical site, callback continuation and authenticated status. Keep separate grants, no refresh fallback or identity remap, no provider connect call, no Commerce TEST-order claim. Proposed capability and public route consent are code only; production activation excluded.",
+          "from": "implemented",
+          "implementation_ref": "src/registry/connection.ts",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-shared-store-consumer-032",
+      "implementation_ref": "src/registry/connection.ts",
+      "question": "How does the Payments Registry plugin consume the reviewed shared-store service?",
+      "rationale": "",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "verified",
+      "superseded_by": null,
+      "updated_at": "2026-10-10T03:02:37+00:00",
+      "verification_ref": ".grilltrack/proof/payments-shared-store-consumer-032.md"
     }
   ],
   "last_activation": {
@@ -1556,5 +1627,5 @@
   "status": "active",
   "title": "DinkusKit Payments public scaffold",
   "track_id": "gt-20260830202947-ccfe03",
-  "updated_at": "2026-10-10T00:14:55+00:00"
+  "updated_at": "2026-10-10T03:02:37+00:00"
 }

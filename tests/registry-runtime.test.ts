@@ -6,7 +6,7 @@ test("loads the built registry plugin and validates its private status page", as
   const host = await createPluginRuntimeTestHost();
   try {
     assert.equal(host.manifest.id, "dinkus-payments");
-    assert.equal(host.manifest.capabilities.length, 0);
+    assert.deepEqual(host.manifest.capabilities, ["network:request"]);
     assert.equal(host.manifest.admin.pages[0].path, "/status");
 
     const page = await host.admin.loadPage("/status");
@@ -16,7 +16,7 @@ test("loads the built registry plugin and validates its private status page", as
     assert.match(JSON.stringify(page), /Place a test order/);
     assert.match(JSON.stringify(page), /Not ready to sell/);
     assert.match(JSON.stringify(page), /paid TEST order visible in Commerce admin has not been confirmed/);
-    assert.doesNotMatch(JSON.stringify(page), /"action_id":"connect"/);
+    assert.match(JSON.stringify(page), /"action_id":"connect"/);
     assert.deepEqual(host.http.requests(), []);
   } finally {
     await host.dispose();

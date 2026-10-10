@@ -11,9 +11,10 @@ import { hostedHttpRoutes, hostedPublicRouteManifest } from "../src/hosted/manif
 
 test("Registry manifest is derived from explicit private route declarations", () => {
   assert.doesNotThrow(() => assertExplicitRegistryRouteAuth(plugin.routes));
-  assert.deepEqual(registryRouteManifest.publicRoutes, []);
+  assert.deepEqual(registryRouteManifest.publicRoutes, [`/_emdash/api/plugins/${registryInstallationIdentity.installedPluginId}/store-proof`]);
   assert.deepEqual(registryRouteManifest.routes, [
     { name: "admin", path: `/_emdash/api/plugins/${registryInstallationIdentity.installedPluginId}/admin`, public: false, permission: "plugins:manage", methods: ["POST"] },
+    { name: "store-proof", path: `/_emdash/api/plugins/${registryInstallationIdentity.installedPluginId}/store-proof`, public: true, methods: ["GET"] },
   ]);
   assert.equal(registryRouteManifest.installedPluginId, registryInstallationIdentity.installedPluginId);
 });
