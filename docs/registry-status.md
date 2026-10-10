@@ -1,19 +1,30 @@
-# Registry status candidate
+# Registry setup and proof
 
-The local `dinkus-payments` candidate is a private, read-only EmDash sandbox
-page. It presents one **Payment setup** screen with **Connect payments** and
-**Place a test order** steps and an overall **Not ready to sell** state.
-Production still supplies `availability: "unavailable"` and `status: null`;
-the screen explains that the payment connection is unavailable and that
-Commerce has not confirmed a provider-paid TEST order. It has no account-
-connect action, provider selection, external request, or Registry publication.
+The local `dinkus-payments` candidate presents an authenticated **Payment setup**
+page with **Connect payments** and **Place a test order** steps. Connect starts
+shared-store v2 account consent. The website reads the short-lived public
+store-proof route, returns to the installed Registry callback, and the initiating
+admin can exchange the approved grant and check Payments status. PKCE and the
+short-lived ES256 session are stored using EmDash's encrypted secret setting.
 
-The production-boundary proof uses `@emdash-cms/plugin-test@0.2.8`. Its runtime
-host builds the source with the official plugin CLI, loads the built bundle in
-workerd, validates the Block Kit page, and verifies `401` unauthenticated and
-`403` insufficient-role responses. The shared account authentication flow
-is implemented by the DinkusKit website for Inventory. Payments issuance and
-refresh integration remain separate work; this candidate does not invoke it.
+The installed identity is `r_3brsc2on3bu673rn`. Its exact callback and public
+proof paths are documented in [route authentication](route-auth.md). All other
+Registry admin access remains authenticated and permission-gated. Network
+requests use the canonical account API and a server-configured status endpoint;
+production has no configured Payments status endpoint. Processor setup and
+Commerce's paid TEST-order confirmation remain unavailable, so the overall
+state remains **Not ready to sell**. Explicit reconnect replaces expired consent;
+there is no silent refresh or provider selection from the browser.
+
+The official plugin runtime verifies Block Kit and admin role boundaries. An
+additional real local `handleRegistryInstall` run validated the official
+artifact checksum, archive, identity, declared access and public-route consent,
+persisted the publisher/slug/derived ID, and completed website consent, the
+hashed callback, token exchange and status HTTP200 through the installed plugin.
+This uses the upstream synthetic authoritative-record helper and localhost
+artifact allowance; it does not prove live signed PDS acquisition, publication,
+production Access configuration or provider traffic. See the
+[shared-store consumer proof](../.grilltrack/proof/payments-shared-store-consumer-032.md).
 
 ## Reusable seeded post-install proof harness
 
@@ -49,7 +60,8 @@ Browser recipe: open `http://127.0.0.1:4387/fixture-role?role=admin`,
 then `http://127.0.0.1:4387/_emdash/admin/plugins/dinkus-payments/status`, and capture
 desktop at 1440×1000 CSS pixels and mobile at 480×844 CSS pixels. The page
 must show the two setup steps, unavailable connection explanation, unconfirmed
-Commerce TEST order, overall not-ready state, and no connect control. Repeat
+Commerce TEST order, overall not-ready state, and a Connect control. This slug-seeded harness does not qualify the account
+consent flow, whose registered callback uses the derived installed ID. Repeat
 with `fixture-role?role=subscriber` for the permission error. `anonymous` is covered by the
 HTTP verifier and should redirect through the normal login boundary. The
 fixture only permits the fixed roles on loopback and is not a deployable
@@ -67,9 +79,9 @@ loopback/private PDS addresses are rejected. Registry client's direct PDS
 reader also rejects HTTP endpoints before fetching records. EmDash's exported
 `installRegistryAuthoritativeFixture` replaces that reader with supplied
 records, so it does not prove signed CAR acquisition. The artifact downloader's
-development allowance for localhost does not relax the PDS reader. A genuine
-installer proof therefore needs an approved reachable signed test release or
-upstream support for a local verifier-preserving fixture. This harness changes
+development allowance for localhost does not relax the PDS reader. The actual local installer proof described above uses that upstream fixture
+while retaining artifact verification and consent gates. Live signed PDS
+acquisition remains a separate qualification. This seeded harness changes
 neither the verifier nor the install-consent path.
 
 ## Local verification
@@ -83,8 +95,9 @@ providers.
 The committed source tests prove the private status contract and official
 runtime host behavior. The reusable harness records fresh artifact hashes in
 each explicitly supplied external run directory; no generated proof packet is
-committed here. This proves neither Registry publication nor genuine installer
-verification.
+committed here. This seeded harness alone proves neither Registry publication nor actual
+installer verification; the separately recorded actual installer run covers
+the local installation path with the limits described above.
 
 Hosted Worker and plugin typechecks are separate because importing EmDash's
 browser declarations into the Worker compilation introduces incompatible

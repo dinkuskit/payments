@@ -296,8 +296,8 @@ async function verify(runDir) {
           !text.includes("Place a test order") ||
           !text.includes("Not ready to sell") ||
           !text.includes("paid TEST order visible in Commerce admin has not been confirmed") ||
-          text.includes('"action_id":"connect"')) {
-        fail("admin response does not prove the bounded read-only setup screen");
+          !text.includes('"action_id":"connect"')) {
+        fail("admin response does not prove the bounded setup screen");
       }
     }
     results.push({ role, status: response.status, body: role === "admin" ? body : undefined });

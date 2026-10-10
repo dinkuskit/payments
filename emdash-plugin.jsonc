@@ -3,8 +3,12 @@
   "slug": "dinkus-payments",
   "version": "0.0.0",
   "license": "MIT",
-  "capabilities": [],
-  "allowedHosts": [],
+  "capabilities": [
+    "network:request"
+  ],
+  "allowedHosts": [
+    "dinkuskit.com"
+  ],
   "admin": {
     "pages": [
       {
@@ -12,7 +16,14 @@
         "label": "Payments status",
         "icon": "activity"
       }
-    ]
+    ],
+    "settingsSchema": {
+      "registry_session": {
+        "label": "Payments Registry session",
+        "description": "Encrypted short-lived Payments Registry session. Managed by the connection flow.",
+        "type": "secret"
+      }
+    }
   },
   "name": "DinkusKit Payments",
   "description": "Private local Payments status surface.",

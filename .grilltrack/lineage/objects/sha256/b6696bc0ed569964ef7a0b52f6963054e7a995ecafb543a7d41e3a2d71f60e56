@@ -1,0 +1,436 @@
+{
+  "composed_review": false,
+  "composed_verification": false,
+  "decision_ids": [
+    "merchant-hosted-service-003",
+    "merchant-stripe-onboarding-002",
+    "merchant-stripe-ownership-001",
+    "payments-authenticated-wake-transport-001",
+    "payments-authorize-net-binding-003",
+    "payments-authorize-net-invoice-ref-004",
+    "payments-authorize-net-provider-002",
+    "payments-checkout-pricing-v1-001",
+    "payments-checkout-sessions-001",
+    "payments-checkout-window-proposal-002",
+    "payments-cli-scaffold-032",
+    "payments-connection-evidence-030",
+    "payments-demo-currency-002",
+    "payments-one-screen-setup-029",
+    "payments-plugin-topology-001",
+    "payments-public-scaffold-003",
+    "payments-route-auth-027",
+    "payments-setup-screen-031",
+    "payments-shared-store-consumer-032",
+    "payments-store-test-readiness-028",
+    "payments-stripe-test-mode-003",
+    "payments-test-event-wakes-001"
+  ],
+  "decision_provenance": {
+    "merchant-hosted-service-003": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "merchant-stripe-onboarding-002": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "merchant-stripe-ownership-001": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-authenticated-wake-transport-001": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-authorize-net-binding-003": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-authorize-net-invoice-ref-004": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-authorize-net-provider-002": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-checkout-pricing-v1-001": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-checkout-sessions-001": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-checkout-window-proposal-002": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-cli-scaffold-032": [
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-connection-evidence-030": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-demo-currency-002": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-one-screen-setup-029": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-plugin-topology-001": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-public-scaffold-003": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-route-auth-027": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-setup-screen-031": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-shared-store-consumer-032": [
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-store-test-readiness-028": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-stripe-test-mode-003": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ],
+    "payments-test-event-wakes-001": [
+      {
+        "role": "base",
+        "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "current",
+        "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+        "track_id": "gt-20260830202947-ccfe03"
+      },
+      {
+        "role": "incoming",
+        "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
+        "track_id": "gt-20260830202947-ccfe03"
+      }
+    ]
+  },
+  "joined_track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
+  "needs_reverification": [
+    "merchant-hosted-service-003",
+    "merchant-stripe-onboarding-002",
+    "merchant-stripe-ownership-001",
+    "payments-authenticated-wake-transport-001",
+    "payments-authorize-net-binding-003",
+    "payments-authorize-net-invoice-ref-004",
+    "payments-authorize-net-provider-002",
+    "payments-checkout-pricing-v1-001",
+    "payments-checkout-sessions-001",
+    "payments-checkout-window-proposal-002",
+    "payments-cli-scaffold-032",
+    "payments-connection-evidence-030",
+    "payments-demo-currency-002",
+    "payments-one-screen-setup-029",
+    "payments-plugin-topology-001",
+    "payments-public-scaffold-003",
+    "payments-route-auth-027",
+    "payments-setup-screen-031",
+    "payments-shared-store-consumer-032",
+    "payments-store-test-readiness-028",
+    "payments-stripe-test-mode-003",
+    "payments-test-event-wakes-001"
+  ],
+  "plan_id": "c940502e43043ae187f9f0bfc182a8e91afaf66135e6d97cf4b6e1f1cc3219aa",
+  "refs": {
+    "base": "77da719a4e132464c25fd4917300ff9511decd53",
+    "current": "1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
+    "incoming": "b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4"
+  },
+  "retention": {
+    "lineage": {},
+    "schema": "grilltrack/retained/v2"
+  },
+  "schema": "grilltrack/reconcile/v2",
+  "snapshot_ref": ".grilltrack/lineage/c940502e43043ae187f9f0bfc182a8e91afaf66135e6d97cf4b6e1f1cc3219aa",
+  "snapshots": {
+    "base": {
+      "events.jsonl": "9aba1a23357476cc0715643f586fd79c003e94357ee1c6d8b40f6ca68c908fe0",
+      "ledger.json": "f5c09ba4b1435010d4c3ba8e3eff6c060546967071d95543cb0effe59b26f0e9"
+    },
+    "current": {
+      "events.jsonl": "e16c93c01514c8af36647f861152bca6d5267d0840c605d6c9eaebb1cc0c2fc7",
+      "ledger.json": "6cefcd3a92431e59ada2e6b1a083fc3c810ad0ceb1e93e8afe48dff143004d39"
+    },
+    "incoming": {
+      "events.jsonl": "d0a3b2fcde754ad06041408441124bda09db0bf82ff1a4f5be314f47ce8cfe81",
+      "ledger.json": "a9fbd901cd26f2ffef6c9f6900aa9b305db10086deef66e8d3e5b0d72902dcc3"
+    }
+  },
+  "title": "Join Payments Registry consumer and merged CLI scaffold"
+}

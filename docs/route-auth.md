@@ -1,20 +1,24 @@
 # Payments route authentication
 
-## Registry plugin: no public bypasses
+## Registry plugin: one exact public proof route
 
 EmDash 1.2 supports `public: boolean` plus `permission`; it has no `admin`
 classification field. Every Payments plugin route must explicitly declare
-`public`. Private routes also declare a permission. The only current route is:
+`public`. Private routes also declare a permission. The current routes are:
 
 | Method | Installed Registry path | Access | EmDash authorization |
 | --- | --- | --- | --- |
 | POST | `/_emdash/api/plugins/r_3brsc2on3bu673rn/admin` | Keep protected | `public: false`, `plugins:manage` |
+| GET | `/_emdash/api/plugins/r_3brsc2on3bu673rn/store-proof` | Exact public exception for ownership proof | `public: true`, redacted short-lived receipt |
 
 `src/registry/manifest.ts` exports `registryRouteManifest`, derived from the
-same route object as `src/plugin.ts`. Its `publicRoutes` is **`[]`**. There is
-no Registry webhook or shopper endpoint today. Never add a plugin-wide or
-`/_emdash/api/plugins/*` bypass. When checkout is off, keep all `/_emdash*`
-behind Access. Enabling checkout does not make this admin route public.
+same route object as `src/plugin.ts`. Its `publicRoutes` contains only
+`/_emdash/api/plugins/r_3brsc2on3bu673rn/store-proof`. If an operator separately
+authorizes Access configuration, only that exact GET route may bypass it for
+website ownership verification. Keep the admin route and callback
+`/_emdash/admin/plugins/r_3brsc2on3bu673rn/status` protected. Never add a
+plugin-wide or `/_emdash/api/plugins/*` bypass. Checkout does not change this
+boundary; there is no Registry shopper or webhook route in this slice.
 
 The publisher DID in `emdash-plugin.jsonc` and slug `dinkus-payments` derive the
 opaque Registry installation ID above. EmDash's `makeRegistryPluginId` uses
@@ -24,11 +28,13 @@ and checks the package metadata. A changed publisher or slug requires a fresh
 manifest and installed-state check. The ID identifies a package; it does not
 prove that the package is installed on a site.
 
-A native or seeded installation can use `dinkus-payments`, whose admin path is
-`/_emdash/api/plugins/dinkus-payments/admin`. The existing status harness seeds
-that identity; it does not prove the hashed Registry installation identity or
-installation flow. Read the actual installed `plugin_states.plugin_id` and its
-publisher/slug provenance before applying a site's route configuration.
+The shared-store Registry client uses that exact derived identity for its
+callback and proof paths. Native-slug or slug-seeded installations do not
+satisfy this client contract. The package publisher/slug identity is single-sourced
+in `src/registry/identity.ts`, verified against pinned EmDash derivation and
+package metadata. The website must register the same exact paths. Read the actual
+`_plugin_state.plugin_id`, `registry_publisher_did` and `registry_slug` before
+applying a site's route configuration.
 
 EmDash's production dispatcher checks user permission, admin token scope and
 session CSRF before invoking private handlers, independently of Access.
@@ -74,19 +80,19 @@ and PaymentIntent evidence; Authorize.net uses `getTransactionDetails` and
 checks store/attempt identity and amounts. Provider selection stays server-owned
 with no cross-provider fallback.
 
-## Next installation qualification
+## Installation qualification
 
-The seeded post-install harness proves bundle loading and private status
-behavior, not signed Registry release acquisition or install consent. The
-smallest next slice is a genuine installation of this status-only artifact:
-verify approved signed publisher/release records, consent, installed hashed
-identity, artifact hash and private-route denials. It needs a reachable signed
-test release or an upstream verifier-preserving fixture; do not bypass the
-HTTPS/SSRF reader or consent controls to simulate success.
+The route repair was exercised through EmDash 1.2.0's actual Registry installer
+with its upstream synthetic authoritative-record fixture. The installer checked
+the official artifact checksum, archive, package identity, declared access and
+public-route consent, then persisted the derived ID, publisher DID and slug.
+The real local website consent returned to the hashed callback and fetched the
+hashed public proof route; the installed plugin exchanged the token and checked
+Payments status. See the shared-store consumer proof for hashes and limits.
 
-A sandbox purchase then needs shared account issuance/refresh and a verified
-store/provider binding, a functioning Registry-to-hosted-service bridge,
-Commerce checkout/wake/reconciliation integration, and an explicitly selected
-and authorized test provider. Those are absent from the current status-only
-Registry bundle. Provider choice and sandbox traffic authorization remain
-pending; this PR makes no installation or purchase claim.
+This is local installer and consumer proof, not live signed PDS publication or
+production DNS/Access qualification. The older seeded harness covers only
+post-install sandbox behavior. A sandbox purchase still needs a verified
+store/provider binding, Commerce checkout/wake/reconciliation integration and
+an explicitly authorized test provider. Processor setup, Commerce integration
+and live service configuration remain outside this consent/status consumer.

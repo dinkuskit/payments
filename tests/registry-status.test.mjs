@@ -168,13 +168,14 @@ test("setup projection gives truthful provider next actions and fails closed", (
   assert.match(malformed.steps[0].description, /unavailable/);
 });
 
-test("setup renderer has one screen and no actions or provider selector", () => {
+test("setup renderer has one screen with a usable connect action and no provider selector", () => {
   const serialized = JSON.stringify(renderSetupScreen(unavailableStatusProjection()));
   assert.match(serialized, /Payment setup/);
   assert.match(serialized, /Connect payments/);
   assert.match(serialized, /Place a test order/);
   assert.match(serialized, /Not ready to sell/);
-  assert.doesNotMatch(serialized, /action_id|provider selector|Authorize\.net.*Stripe/);
+  assert.match(serialized, /"action_id":"connect"/);
+  assert.doesNotMatch(serialized, /provider selector|Authorize\.net.*Stripe/);
 });
 
 test("admin route is read-only and browser input cannot change output", async () => {
@@ -199,8 +200,13 @@ test("admin route is read-only and browser input cannot change output", async ()
           ready: true,
         },
       },
+      user: { id: "admin" },
     },
-    {},
+    {
+      site: { url: "https://shop.example" },
+      kv: { async get() { return null; }, async getVersioned() { return null; }, async compareAndSet() { return { applied: false }; }, async compareAndDelete() { return { applied: false }; } },
+      settings: { async get() { return null; }, async getVersioned() { return null; }, async compareAndSet() { return { applied: false }; }, async compareAndDelete() { return { applied: false }; } },
+    },
   );
   const serialized = JSON.stringify(response);
   assert.match(serialized, /Payment setup/);

@@ -11,9 +11,10 @@ import { hostedHttpRoutes, hostedPublicRouteManifest } from "../src/hosted/manif
 
 test("Registry manifest is derived from explicit private route declarations", () => {
   assert.doesNotThrow(() => assertExplicitRegistryRouteAuth(plugin.routes));
-  assert.deepEqual(registryRouteManifest.publicRoutes, []);
+  assert.deepEqual(registryRouteManifest.publicRoutes, [`/_emdash/api/plugins/${registryInstallationIdentity.installedPluginId}/store-proof`]);
   assert.deepEqual(registryRouteManifest.routes, [
     { name: "admin", path: `/_emdash/api/plugins/${registryInstallationIdentity.installedPluginId}/admin`, public: false, permission: "plugins:manage", methods: ["POST"] },
+    { name: "store-proof", path: `/_emdash/api/plugins/${registryInstallationIdentity.installedPluginId}/store-proof`, public: true, methods: ["GET"] },
   ]);
   assert.equal(registryRouteManifest.installedPluginId, registryInstallationIdentity.installedPluginId);
 });
@@ -97,4 +98,14 @@ test("every hosted scoped route denies anonymous input before service/checkout/w
     assert.equal(response.status, 401, path);
     assert.equal(scopes.at(-1), route.scope, path);
   }
+});
+
+test("shared-store callback, proof export and Access docs use the installed Registry identity", async () => {
+  const { REGISTRY_CALLBACK_PATH, REGISTRY_PROOF_PATH } = await import('../src/registry/connection.ts');
+  const { readFile } = await import('node:fs/promises');
+  assert.deepEqual(registryRouteManifest.publicRoutes, [REGISTRY_PROOF_PATH]);
+  assert.equal(REGISTRY_CALLBACK_PATH, `/_emdash/admin/plugins/${registryInstallationIdentity.installedPluginId}/status`);
+  const docs = await readFile(new URL('../docs/route-auth.md', import.meta.url), 'utf8');
+  assert.ok(docs.includes(REGISTRY_PROOF_PATH)); assert.ok(docs.includes(REGISTRY_CALLBACK_PATH));
+  assert.equal(docs.includes('publicRoutes` is **`[]`**'), false);
 });
