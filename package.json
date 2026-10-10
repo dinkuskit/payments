@@ -4,9 +4,6 @@
   "description": "The open-source payment-provider plugin for EmDash commerce sites",
   "type": "module",
   "private": true,
-  "bin": {
-    "dinkus-payments": "./bin/dinkus-payments.mjs"
-  },
   "files": [
     "dist"
   ],

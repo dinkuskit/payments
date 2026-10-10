@@ -7,6 +7,8 @@ description: Check a site's DinkusKit Payments connection with dinkus-payments, 
 
 The mechanics live in the CLI and [the CLI spec](../../docs/CLI-SPEC.md);
 `dinkus-payments <command> --help` is the reference. This skill covers judgment.
+The CLI runs from a checkout of this repository, so `dinkus-payments` below
+means `node bin/dinkus-payments.mjs`.
 
 1. **Check status first.** Run
    `dinkus-payments --site <site-id> status --json`. Pass the endpoint with

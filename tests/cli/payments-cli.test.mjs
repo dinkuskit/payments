@@ -17,7 +17,8 @@ const ENDPOINT = "https://payments.example.invalid";
 const SITE = "site_demo";
 const BINDING = "stripe_binding_demo";
 const BIN = fileURLToPath(new URL("../../bin/dinkus-payments.mjs", import.meta.url));
-const { version } = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
+const manifest = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
+const { version } = manifest;
 
 let scratch;
 let emptyDir;
@@ -80,6 +81,12 @@ const ready = { "GET /v1/status": reply(200, { state: "ready", mode: "test", bin
 
 // ---------------------------------------------------------------------------
 // Help and version
+
+// Decision 4 in docs/CLI-SPEC.md: npm always packs a manifest's `bin` targets, so a `bin` entry would ship the CLI.
+test("the package manifest does not ship the CLI", () => {
+	assert.equal(Object.hasOwn(manifest, "bin"), false);
+	assert.deepEqual(manifest.files, ["dist"]);
+});
 
 test("help works at every depth, ignores other arguments, and never calls the service", async () => {
 	const cases = [

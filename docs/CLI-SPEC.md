@@ -39,11 +39,13 @@ tests/cli/                       node:test tests, run by npm test
 ```
 
 Plain ESM JavaScript with zero runtime dependencies, parsed with strict
-`node:util.parseArgs`, so it runs from a checkout without a build step. The
-package manifest maps `"bin": { "dinkus-payments": "./bin/dinkus-payments.mjs" }`.
-The manifest's `files` list is pinned to `dist` by the repository audit, so a
-packed artifact would not contain the CLI yet; publishing is out of scope and
-needs human approval (see [Decisions](#decisions)).
+`node:util.parseArgs`, so it runs from a checkout without a build step:
+`node bin/dinkus-payments.mjs` (or `bin/dinkus-payments.mjs`, which is
+executable). The package manifest has no `bin` entry, because npm always packs
+a manifest's `bin` targets whatever `files` says; with no entry, and `files`
+pinned to `dist` by the repository audit, a packed artifact does not contain the
+CLI. Shipping it is out of scope and needs human approval (see
+[Decisions](#decisions)).
 
 ## Usage
 
