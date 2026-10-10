@@ -1,8 +1,9 @@
 # Payments Registry v2 consumer
 
 The Registry connection is an explicit, server-owned Payments consent flow.
-The default plugin has no Payments service status origin configured; it never
-guesses a host or accepts a browser-supplied endpoint.
+The default plugin uses the server-owned Payments status origin
+`https://payments.dinkuskit.com/v1/status`. It never guesses a host or accepts
+a browser-supplied endpoint.
 
 Connect starts protocol v2 with the registered Payments client and service,
 freezes the canonical site identity and PKCE transaction, and exposes only a
@@ -29,9 +30,16 @@ and organization authority survive reconnect, which never silently remaps them.
 The server-owned factory accepts an explicit test-only loopback configuration
 for a separate local proof build. Account API and JWKS URLs remain canonical;
 the proof host routes those exact requests to the real local website handler.
+Operators packaging the plugin for another Payments service must override the
+endpoint at build time:
+
+```ts
+createPaymentsPlugin({ endpoint: { status: "https://payments.example/v1/status" } });
+```
+
 The default export never reads an endpoint from settings, request input or
-environment variables. Provisioning a production endpoint and matching manifest
-allowlist remains a separate reviewed, human-approved change.
+environment variables. The override is not a browser- or site-selectable
+fallback; it is an explicit operator-owned build configuration.
 
 This slice does not initiate processor setup, issue checkout grants, create
 payments, verify a Commerce TEST order, or activate live service. The hosted
