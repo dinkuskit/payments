@@ -39,14 +39,18 @@ configuration or Astro routes) is a developer and test setup only. It may not
 offer features the Registry build lacks, except temporary gaps listed here with
 the work that closes them. The project owner set this rule on 2026-10-08.
 
-Payments runs as a hosted service and has no installable plugin yet. When the
-`dinkus-payments` plugin ships, it ships as a Registry plugin under this rule.
+Payments has a hosted service and a local installable Registry candidate. The
+candidate provides an authenticated Payment setup page with explicit DinkusKit
+account consent, a short-lived public store-proof route, encrypted session
+storage and a server-configured status consumer. The production status endpoint
+is unconfigured; processor setup and a paid Commerce TEST order remain
+unconfirmed, so the screen stays **Not ready to sell**.
 
-The current local Registry candidate is a private, read-only status page. It
-reports unavailable status with `status: null`; it does not connect an account,
-select a provider, call an external service, or publish to the Registry. The
-candidate is verified from its official built bundle with EmDash's
-`@emdash-cms/plugin-test` runtime host.
+The official bundle is covered by EmDash's plugin runtime and an actual local
+Registry installer/browser consent proof using synthetic authoritative records.
+This does not establish public Registry publication or live service activation.
+See [Registry setup and proof](docs/registry-status.md) and
+[exact route authentication](docs/route-auth.md).
 
 ## Amount terminology
 

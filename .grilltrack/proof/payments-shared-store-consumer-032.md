@@ -118,3 +118,20 @@ remain unconfigured. Fresh exact-candidate external reviews are required.
 Repair clean-snapshot full verification passed: 137 Node tests, 16 runtime tests,
 three built-plugin tests, typechecks, repository audit, manifest validation,
 Worker dry-run and plugin build. Production runtime contains no test host/ports.
+
+## Overview documentation follow-up
+
+Native review on `f9a0afead9f8eb10bbdb8c79680317ee3865bceb` accepted the
+installed-route repair and behavior proof, then raised a late P3 for stale
+README, documentation index and Registry-status overview wording. Accepted as
+required_fix and corrected: the overview now describes Connect, account calls,
+public proof, encrypted sessions, unconfigured production status and actual
+local installer proof separately from the older seeded harness. Sixteen focused
+route/status tests passed and the requested stale-phrase scan found no matches.
+No runtime source, manifest or dependency changed; prior runtime proof remains
+applicable. Exact-head CI and reviews are refreshed for this documentation fix.
+
+Website PR22 merged as `f5dfac6dcdd313ca1bfd07a7c2e3200bf1892a99`; its tree
+`fe15f93973d8c2d9aba91940a4e7051faf1e2453` equals reviewed head
+`777844c7cd8e004f5166b88e7bb72c1435cf84b6`. Only ledger and proof files differ
+from the paired-test website revision. The website dependency is satisfied.
