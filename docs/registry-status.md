@@ -1,9 +1,12 @@
 # Registry status candidate
 
 The local `dinkus-payments` candidate is a private, read-only EmDash sandbox
-page. It reports `availability: "unavailable"` and `status: null`; it has no
-account-connect action, provider selection, external request, or Registry
-publication.
+page. It presents one **Payment setup** screen with **Connect payments** and
+**Place a test order** steps and an overall **Not ready to sell** state.
+Production still supplies `availability: "unavailable"` and `status: null`;
+the screen explains that the payment connection is unavailable and that
+Commerce has not confirmed a provider-paid TEST order. It has no account-
+connect action, provider selection, external request, or Registry publication.
 
 The production-boundary proof uses `@emdash-cms/plugin-test@0.2.8`. Its runtime
 host builds the source with the official plugin CLI, loads the built bundle in
@@ -45,7 +48,8 @@ does not kill unrelated processes or clean shared caches.
 Browser recipe: open `http://127.0.0.1:4387/fixture-role?role=admin`,
 then `http://127.0.0.1:4387/_emdash/admin/plugins/dinkus-payments/status`, and capture
 desktop at 1440×1000 CSS pixels and mobile at 480×844 CSS pixels. The page
-must show the unavailable/not-checked status and no connect control. Repeat
+must show the two setup steps, unavailable connection explanation, unconfirmed
+Commerce TEST order, overall not-ready state, and no connect control. Repeat
 with `fixture-role?role=subscriber` for the permission error. `anonymous` is covered by the
 HTTP verifier and should redirect through the normal login boundary. The
 fixture only permits the fixed roles on loopback and is not a deployable
