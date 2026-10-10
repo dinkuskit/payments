@@ -26,7 +26,7 @@
     "currencyConversion": false
   },
   "scripts": {
-    "test": "node --import tsx --test tests/*.test.mjs",
+    "test": "node --import tsx --test tests/*.test.mjs tests/cli/*.test.mjs",
     "audit:repo": "node scripts/repo-contract.mjs",
     "plugin:validate": "emdash-plugin validate",
     "plugin:build": "emdash-plugin build --out-dir dist/registry",

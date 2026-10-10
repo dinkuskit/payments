@@ -15,3 +15,5 @@
   independent connection and TEST-order checks, research, and remaining design.
 - [Registry setup and proof](registry-status.md): account consent, encrypted
   session/status behavior, actual local installation proof and seeded harness limits.
+- [CLI specification](CLI-SPEC.md): `dinkus-payments` command-line client for
+  the hosted API, its output contract, non-goals, and locked decisions.
