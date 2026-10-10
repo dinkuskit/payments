@@ -3,7 +3,10 @@ import { createRegistryConnection, type RegistryConfig, safeResponse } from "./r
 import { renderSetupScreen } from "./registry/setup.js";
 
 export type PaymentsPluginConfig = RegistryConfig;
-const DEFAULT_CONFIG: PaymentsPluginConfig = Object.freeze({ endpoint: null });
+export const PRODUCTION_STATUS_ENDPOINT = "https://payments.dinkuskit.com/v1/status";
+const DEFAULT_CONFIG: PaymentsPluginConfig = Object.freeze({
+  endpoint: { status: PRODUCTION_STATUS_ENDPOINT },
+});
 
 function buildConnection(ctx: {
   kv: Parameters<typeof createRegistryConnection>[0]["kv"];

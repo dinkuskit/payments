@@ -25,9 +25,14 @@ anything missing; read that report before running project scripts.
 
 ## Public-safe boundary
 
-- Never commit credentials, environment files, webhook secrets, customer or
-  tenant data, payment details, production configuration, private repository
-  coordinates, or private operating rationale.
+- Never commit credentials, environment files, API keys, webhook secrets, tokens,
+  customer or tenant data, payment details, or private operating rationale.
+- Non-secret production deploy settings may live in this public repository,
+  including the Cloudflare account ID, custom domains/routes, auth
+  issuer/audience/JWKS URL, return URLs, and `workers_dev`, `preview_urls`, or
+  observability flags (for example in `wrangler.production.jsonc` or
+  `DEPLOY.md`). Secrets remain Cloudflare Worker secrets and must never be
+  committed.
 - The CLI-maintained `.grilltrack/ledger.json`, event log, and same-repository
   closed-track archives are public product-decision lineage. Keep them
   public-safe and do not import another repository's ledger or history.

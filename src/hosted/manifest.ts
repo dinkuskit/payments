@@ -10,6 +10,12 @@ export const hostedHttpRoutes = {
   "/v1/checkout/wakes/ack": { method: "POST", scope: "payments:checkout" },
 } as const;
 
+export const hostedHealthRoute = {
+  path: "/health",
+  method: "GET",
+  authentication: "none",
+} as const;
+
 export const hostedWebhookRoutes = {
   stripe: { path: "/v1/webhooks/stripe", method: "POST", authentication: "stripe-signature" },
   authorizeNet: { prefix: "/v1/webhooks/authorize-net/", method: "POST", authentication: "hmac-sha512" },
@@ -19,6 +25,7 @@ export const hostedWebhookRoutes = {
 export function hostedPublicRouteManifest(siteId: string) {
   if (!/^[A-Za-z0-9_-]{1,200}$/.test(siteId)) throw new Error("invalid_site_path_segment");
   return [
+    { ...hostedHealthRoute, surface: "hosted", public: true },
     { ...hostedWebhookRoutes.stripe, surface: "hosted", public: true },
     {
       path: `${hostedWebhookRoutes.authorizeNet.prefix}${siteId}`,

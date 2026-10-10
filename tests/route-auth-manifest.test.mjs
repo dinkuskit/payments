@@ -53,8 +53,15 @@ test("Registry installation identity verifies the derived ID, not the native slu
 
 test("hosted public manifest emits exact signature-protected paths on the hosted surface", () => {
   const routes = hostedPublicRouteManifest("site_test");
-  assert.deepEqual(routes.map(route => route.path), ["/v1/webhooks/stripe", "/v1/webhooks/authorize-net/site_test"]);
-  assert(routes.every(route => route.public && route.surface === "hosted" && route.method === "POST" && route.authentication));
+  assert.deepEqual(routes.map(route => route.path), ["/health", "/v1/webhooks/stripe", "/v1/webhooks/authorize-net/site_test"]);
+  assert.deepEqual(routes[0], {
+    path: "/health",
+    method: "GET",
+    authentication: "none",
+    surface: "hosted",
+    public: true,
+  });
+  assert(routes.slice(1).every(route => route.public && route.surface === "hosted" && route.method === "POST" && route.authentication));
   for (const site of ["*", "a/b", "..", "%2f", "a?b", ""]) {
     assert.throws(() => hostedPublicRouteManifest(site), /invalid_site_path_segment/);
   }

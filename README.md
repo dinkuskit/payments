@@ -42,8 +42,10 @@ the work that closes them. The project owner set this rule on 2026-10-08.
 Payments has a hosted service and a local installable Registry candidate. The
 candidate provides an authenticated Payment setup page with explicit DinkusKit
 account consent, a short-lived public store-proof route, encrypted session
-storage and a server-configured status consumer. The production status endpoint
-is unconfigured; processor setup and a paid Commerce TEST order remain
+storage and a server-configured status consumer. The default production status
+endpoint is `https://payments.dinkuskit.com/v1/status`; an operator packaging
+the plugin for another Payments service must provide an explicit build-time
+endpoint override. Processor setup and a paid Commerce TEST order remain
 unconfirmed, so the screen stays **Not ready to sell**.
 
 The official bundle is covered by EmDash's plugin runtime and an actual local

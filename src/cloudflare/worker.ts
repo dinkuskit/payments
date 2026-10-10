@@ -323,6 +323,15 @@ function stubFor(env: Env, siteId: string) {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname === "/health") {
+      if (request.method !== "GET") {
+        return Response.json({ error: "method_not_allowed" }, { status: 405 });
+      }
+      return Response.json({ status: "ok", mode: "test" }, {
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
     const authorizeNet = (env.PAYMENT_PROVIDER as string) === "authorize_net";
     const issuerConfigured = Boolean(env.ACCOUNT_ISSUER && env.ACCOUNT_AUDIENCE && env.ACCOUNT_JWKS_URL);
     const authorizeNetConfigured = env.AUTHORIZE_NET_MODE === "test" && Boolean(env.AUTHORIZE_NET_API_LOGIN_ID && env.AUTHORIZE_NET_TRANSACTION_KEY && env.AUTHORIZE_NET_SIGNATURE_KEY);
