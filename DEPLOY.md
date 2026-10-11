@@ -35,10 +35,14 @@ The production non-secret values are in
 - JWKS: `https://dinkuskit.com/account/.well-known/jwks.json`
 
 The onboarding return values currently land on `https://dinkuskit.com/account`.
-Checkout returns currently target
-`https://dinkuskit.com/checkout/success` and
-`https://dinkuskit.com/checkout/cancel`; the site owner must confirm those
-Commerce pages exist before accepting customer traffic.
+Checkout returns go to each store's own pages: after paying,
+`https://<store>/checkout/success?session_id={CHECKOUT_SESSION_ID}` (Authorize.net
+returns to `https://<store>/checkout/success`), and after cancelling,
+`https://<store>/cart`. `<store>` is the web address DinkusKit.com checked when
+the store connected and signs into the store's pass as `site_origin`; nothing in
+a request can change it. A pass without it cannot start a checkout
+(`409 store_origin_missing`), so DinkusKit.com must be deployed with that claim
+before this Worker.
 
 ## Stripe test webhook
 

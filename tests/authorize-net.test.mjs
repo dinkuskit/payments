@@ -334,6 +334,28 @@ test("wired creation remains unknown after a lost response and can recover durab
   assert.equal(records.get("att-lost").token, "hosted-token");
 });
 
+test("a port without the store's return pages cannot start a hosted payment but still resumes one", async () => {
+  const records = new Map();
+  let requests = 0;
+  const gateway = createAuthorizeNetGateway({
+    ...credentials,
+    transport: { request: async () => { requests++; return { messages: { resultCode: "Ok" }, token: "hosted-token" }; } },
+  });
+  const port = returnPages => createAuthorizeNetPaymentPort({
+    gateway, siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL, ...returnPages,
+    store: { transaction: fn => fn({
+      read: id => structuredClone(records.get(id) ?? null),
+      write: (id, value) => records.set(id, structuredClone(value)),
+    }) },
+  });
+  await assert.rejects(port({}).ensureSession(payment), /invalid_return_url/);
+  assert.equal(requests, 0);
+  assert.equal(records.size, 0);
+  assert.equal((await port({ returnUrl: "https://store.example/checkout/success", cancelUrl: "https://store.example/cart" }).ensureSession(payment)).outcome, "open");
+  assert.equal((await port({}).ensureSession(payment)).outcome, "open");
+  assert.equal(requests, 1);
+});
+
 test("fetch transport deadline covers a late response body without AbortSignal RPC", async () => {
   const transport = createAuthorizeNetFetchTransport({ endpoint: "https://apitest.authorize.net/xml/v1/request.api", timeoutMs: 10 });
   const originalFetch = globalThis.fetch;

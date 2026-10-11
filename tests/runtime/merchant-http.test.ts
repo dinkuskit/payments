@@ -73,3 +73,62 @@ test('signed merchant connect accepts empty runtime streams and verifies return 
   expect((await call('/v1/status', { token: await issue('other-merchant') })).status).toBe(403);
   expect(providerCalls).toBe(beforeOwnerDenial);
 });
+
+test('a checkout sends shoppers back to the store address signed into its pass, never a fixed page', async () => {
+  const issuer = 'https://accounts.example.invalid';
+  const audience = 'payments-runtime-checkout';
+  const site = crypto.randomUUID();
+  const origin = 'https://shop.example.invalid';
+  const { publicKey, privateKey } = await generateKeyPair('ES256');
+  const jwk = { ...await exportJWK(publicKey), kid: 'synthetic-checkout', alg: 'ES256', use: 'sig' };
+  const created: URLSearchParams[] = [];
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = new URL(String(input));
+    if (url.href === issuer + '/jwks') return Response.json({ keys: [jwk] });
+    expect(url.origin).toBe('https://api.stripe.com');
+    if (url.pathname === '/v1/account_links') {
+      return Response.json({ object: 'account_link', url: 'https://connect.stripe.com/setup/fixture', expires_at: Math.floor(Date.now() / 1000) + 600 });
+    }
+    if (url.pathname === '/v1/checkout/sessions' && init?.method === 'POST') {
+      const params = new URLSearchParams(String(init.body));
+      created.push(params);
+      const expiresAt = Number(params.get('expires_at'));
+      return Response.json({
+        object: 'checkout.session', id: 'cs_returnpages', url: 'https://checkout.stripe.com/c/pay/cs_returnpages',
+        status: 'open', payment_status: 'unpaid', amount_total: 1200, currency: 'usd', created: expiresAt - 1860, expires_at: expiresAt,
+        livemode: false, payment_intent: null, payment_method_types: ['card'],
+        metadata: { dinkus_attempt: params.get('metadata[dinkus_attempt]'), dinkus_binding: params.get('metadata[dinkus_binding]'), dinkus_site: params.get('metadata[dinkus_site]') },
+      });
+    }
+    return Response.json({ object: 'account', id: 'acct_fixture', details_submitted: true, charges_enabled: true, payouts_enabled: true, capabilities: { card_payments: 'active' }, requirements: {} });
+  });
+  const configured = { ...env, ACCOUNT_ISSUER: issuer, ACCOUNT_AUDIENCE: audience, ACCOUNT_JWKS_URL: issuer + '/jwks' };
+  const pass = (scope: string, claims: Record<string, unknown> = {}) => new SignJWT({ site_id: site, scope, ...claims })
+    .setProtectedHeader({ alg: 'ES256', kid: 'synthetic-checkout' }).setIssuer(issuer).setAudience(audience)
+    .setSubject('synthetic-merchant').setIssuedAt().setExpirationTime('5m').sign(privateKey);
+  const call = async (path: string, token: string, body?: unknown) => worker.fetch(new Request('https://payments.example.invalid' + path, {
+    method: 'POST', headers: { authorization: `Bearer ${token}`, 'x-dinkus-site': site }, body: body === undefined ? undefined : JSON.stringify(body),
+  }), configured);
+  const connected = await (await call('/v1/connect', await pass('payments:admin'))).json<{ state: string; bindingRef: string }>();
+  expect(connected.state).toBe('ready');
+  const payment = {
+    attemptId: 'attempt-return-pages', bindingRef: connected.bindingRef,
+    lines: [{ catalogItemId: 'sku-return', quantity: 1, name: 'Hat', unitPrice: { currency: 'USD', minor: '1200' } }],
+    total: { currency: 'USD', minor: '1200' },
+    paymentWindow: { minSeconds: 1800, maxSeconds: 1860 }, paymentMethods: ['card'],
+  };
+
+  const missing = await call('/v1/checkout/session', await pass('payments:checkout'), payment);
+  expect(missing.status).toBe(409);
+  expect(await missing.json()).toEqual({ error: 'store_origin_missing' });
+  const malformed = await call('/v1/checkout/session', await pass('payments:checkout', { site_origin: origin + '/elsewhere' }), payment);
+  expect(malformed.status).toBe(401);
+  expect(created).toHaveLength(0);
+
+  const started = await call('/v1/checkout/session', await pass('payments:checkout', { site_origin: origin }), payment);
+  expect(started.status).toBe(200);
+  expect(await started.json()).toMatchObject({ outcome: 'open', session: { sessionId: 'cs_returnpages' } });
+  expect(created).toHaveLength(1);
+  expect(created[0].get('success_url')).toBe(`${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`);
+  expect(created[0].get('cancel_url')).toBe(`${origin}/cart`);
+});
