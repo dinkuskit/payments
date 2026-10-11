@@ -90,7 +90,7 @@ test("the package manifest does not ship the CLI", () => {
 
 test("help works at every depth, ignores other arguments, and never calls the service", async () => {
 	const cases = [
-		[["--help"], "dinkus-payments 0.0.0"],
+		[["--help"], `dinkus-payments ${version}`],
 		[["help"], "Commands:"],
 		[["help", "wakes"], "dinkus-payments wakes - "],
 		[["status", "--help"], "dinkus-payments status - "],
