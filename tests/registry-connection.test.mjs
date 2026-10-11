@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
-import { createRegistryConnection, REGISTRY_CONNECT_URL, REGISTRY_ISSUER, REGISTRY_SCOPE } from '../src/registry/connection.ts';
+import { readFile } from 'node:fs/promises';
+import { createRegistryConnection, REGISTRY_CONNECT_URL, REGISTRY_ISSUER, REGISTRY_JWKS_URL, REGISTRY_SCOPE } from '../src/registry/connection.ts';
+import { PRODUCTION_STATUS_ENDPOINT } from '../src/plugin.ts';
 
 function memory() {
   const values = new Map(); let revision = 0;
@@ -141,4 +143,11 @@ test('future not-before and wrong service scope fail closed', async () => {
   for (const claims of [{ nbf: 1_800_000_500 }, { scope: 'inventory:admin' }]) {
     const { f } = await fixture(); f.claims = claims; assert.equal((await f.connect()).state, 'failed');
   }
+});
+
+test('the plugin may contact exactly the hosts of its server-owned endpoints', async () => {
+  // EmDash refuses any host not listed exactly, so the status endpoint's host must be declared.
+  const manifest = JSON.parse(await readFile(new URL('../emdash-plugin.jsonc', import.meta.url), 'utf8'));
+  const hosts = new Set([REGISTRY_CONNECT_URL, REGISTRY_JWKS_URL, PRODUCTION_STATUS_ENDPOINT].map(url => new URL(url).hostname));
+  assert.deepEqual([...manifest.allowedHosts].sort(), [...hosts].sort());
 });

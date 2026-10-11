@@ -61,9 +61,16 @@ reference only as a provider identity reference. Lookup failures and account
 mismatches are `unknown`, never verified. Authorize.net reports
 `unsupported` for its configured legacy merchant binding without a readiness
 call or an inferred live claim. Status evidence always states the explicit
-`mode`; it does not create an overall Ready to sell result or attest a
-Commerce TEST order. Existing `connect` responses and TEST checkout admission
-remain unchanged. Legacy status payloads decode with evidence absent.
+`mode`; it does not create an overall Ready to sell result. Existing `connect`
+responses and TEST checkout admission remain unchanged. Legacy status payloads
+decode with evidence absent.
+
+Status responses also add `testOrder` once the current connection has a TEST
+checkout its provider confirmed as paid through Payments' own lookup:
+`{ provider, total, paidAt, state }`, where `state` is `awaiting_notice`,
+`awaiting_commerce` or `recorded`. `recorded` means Commerce acknowledged that
+checkout's payment notice, which it does only after saving the paid order. See
+[test order check](test-order-check.md).
 
 The account service owns shared identity and site grants. Payments verifies
 them with `jose`; it does not create passwords or issue an alternative account

@@ -13,6 +13,8 @@
   qualification and mandatory per-store TEST-purchase agreement.
 - [Payment setup decision](payment-setup-decision.md): approved one-screen flow,
   independent connection and TEST-order checks, research, and remaining design.
+- [Test order check](test-order-check.md): when **Place a test order** completes,
+  the `testOrder` status field, and its limits.
 - [Registry setup and proof](registry-status.md): account consent, encrypted
   session/status behavior, actual local installation proof and seeded harness limits.
 - [CLI specification](CLI-SPEC.md): `dinkus-payments` command-line client for

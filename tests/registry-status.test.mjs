@@ -87,7 +87,7 @@ test("production projection stays unavailable", () => {
   });
 });
 
-test("setup projection keeps Commerce TEST-order authority unknown", () => {
+test("setup projection asks for a test order until Commerce confirms one", () => {
   const verifiedTest = projectSetupScreen({
     availability: "available",
     status: {
@@ -105,7 +105,10 @@ test("setup projection keeps Commerce TEST-order authority unknown", () => {
   assert.equal(verifiedTest.steps[0].status, "incomplete");
   assert.match(verifiedTest.steps[0].description, /TEST payments only/);
   assert.equal(verifiedTest.steps[1].status, "incomplete");
-  assert.match(verifiedTest.steps[1].description, /paid TEST order visible in Commerce admin has not been confirmed/);
+  assert.equal(
+    verifiedTest.steps[1].description,
+    "Place an order on your store and pay with a Stripe test card. This step completes when Stripe confirms the payment and Commerce saves the order.",
+  );
 
   const verifiedLive = projectSetupScreen({
     availability: "available",
@@ -122,6 +125,7 @@ test("setup projection keeps Commerce TEST-order authority unknown", () => {
   });
   assert.equal(verifiedLive.steps[0].status, "complete");
   assert.equal(verifiedLive.steps[1].status, "incomplete");
+  assert.equal(verifiedLive.steps[1].description, "A paid TEST order visible in Commerce admin has not been confirmed.");
   assert.equal(verifiedLive.overall, "Not ready to sell");
 });
 
@@ -198,6 +202,7 @@ test("admin route is read-only and browser input cannot change output", async ()
           },
           paid: true,
           ready: true,
+          testOrder: { provider: "stripe", total: { currency: "USD", minor: "1200" }, paidAt: 1791728400000, state: "recorded" },
         },
       },
       user: { id: "admin" },
@@ -212,5 +217,125 @@ test("admin route is read-only and browser input cannot change output", async ()
   assert.match(serialized, /Payment setup/);
   assert.match(serialized, /Not ready to sell/);
   assert.match(serialized, /paid TEST order visible in Commerce admin has not been confirmed/);
-  assert.doesNotMatch(serialized, /acct_browser|"paid":true|"ready":true/);
+  assert.doesNotMatch(serialized, /acct_browser|"paid":true|"ready":true|Commerce saved it|Place a test order: Complete/);
 });
+
+const paidAt = Date.UTC(2026, 9, 11, 14, 31, 5);
+const stripeEvidence = { provider: "stripe", mode: "test", result: "verified", accountRef: "acct_one" };
+const recorded = { provider: "stripe", total: { currency: "USD", minor: "1200" }, paidAt, state: "recorded" };
+function withTestOrder(testOrder, overrides = {}) {
+  return { state: "ready", mode: "test", bindingRef: "binding-1", connectionEvidence: stripeEvidence, testOrder, ...overrides };
+}
+
+test("decodes TEST-order evidence only for the connected TEST binding and its provider", () => {
+  for (const state of ["awaiting_notice", "awaiting_commerce", "recorded"]) {
+    const value = withTestOrder({ ...recorded, state });
+    assert.deepEqual(decodeStatus(value), value);
+  }
+  const authorizeNet = withTestOrder({ ...recorded, provider: "authorize_net" }, {
+    connectionEvidence: { provider: "authorize_net", mode: "test", result: "unsupported" },
+  });
+  assert.deepEqual(decodeStatus(authorizeNet), authorizeNet);
+  // The order stays shown while the connection itself is being rechecked.
+  const checking = { state: "checking", mode: "test", bindingRef: "binding-1", testOrder: recorded };
+  assert.deepEqual(decodeStatus(checking), checking);
+
+  for (const testOrder of [
+    { ...recorded, orderNumber: "1001" },
+    { provider: "stripe", total: recorded.total, paidAt },
+    { ...recorded, provider: "paypal" },
+    { ...recorded, total: { currency: "EUR", minor: "1200" } },
+    { ...recorded, total: { currency: "USD", minor: "0" } },
+    { ...recorded, total: { currency: "USD", minor: "012" } },
+    { ...recorded, total: { currency: "USD", minor: 1200 } },
+    { ...recorded, total: { currency: "USD", minor: "9007199254740993" } },
+    { ...recorded, total: { currency: "USD", minor: "1200", tax: "0" } },
+    { ...recorded, paidAt: 0 },
+    { ...recorded, paidAt: 1.5 },
+    { ...recorded, paidAt: 8_640_000_000_000_001 },
+    { ...recorded, paidAt: "2026-10-11" },
+    { ...recorded, state: "paid" },
+    [],
+    null,
+  ]) {
+    assert.throws(() => decodeStatus(withTestOrder(testOrder)), /invalid_status/);
+  }
+  assert.throws(() => decodeStatus(withTestOrder(recorded, {
+    mode: "live", connectionEvidence: { ...stripeEvidence, mode: "live" },
+  })), /invalid_status/);
+  assert.throws(() => decodeStatus(withTestOrder(recorded, { bindingRef: undefined })), /invalid_status/);
+  assert.throws(() => decodeStatus(withTestOrder({ ...recorded, provider: "authorize_net" })), /invalid_status/);
+});
+
+test("TEST-order step completes only once Commerce saved the provider-paid order", () => {
+  const screen = state => projectSetupScreen({ availability: "available", status: withTestOrder({ ...recorded, state }) });
+  const saved = screen("recorded");
+  assert.equal(saved.steps[1].status, "complete");
+  assert.equal(
+    saved.steps[1].description,
+    "Stripe confirmed a paid TEST order of $12.00 on Oct 11, 2026 at 2:31 PM UTC, and Commerce saved it. You'll find it in Orders, marked TEST.",
+  );
+  assert.equal(saved.steps[0].status, "incomplete");
+  assert.equal(saved.overall, "Not ready to sell");
+
+  const saving = screen("awaiting_commerce");
+  assert.equal(saving.steps[1].status, "incomplete");
+  assert.equal(
+    saving.steps[1].description,
+    "Stripe confirmed a paid TEST order of $12.00 on Oct 11, 2026 at 2:31 PM UTC. Waiting for Commerce to save it; Commerce checks for payment notices every 5 minutes.",
+  );
+  const notice = screen("awaiting_notice");
+  assert.equal(notice.steps[1].status, "incomplete");
+  assert.equal(
+    notice.steps[1].description,
+    "Stripe confirmed a paid TEST order of $12.00 on Oct 11, 2026 at 2:31 PM UTC. Waiting for Stripe's payment notice to reach Payments.",
+  );
+
+  const authorizeNet = projectSetupScreen({ availability: "available", status: withTestOrder({
+    provider: "authorize_net", total: { currency: "USD", minor: "123456" }, paidAt: Date.UTC(2026, 0, 2, 0, 5), state: "awaiting_commerce",
+  }, { connectionEvidence: { provider: "authorize_net", mode: "test", result: "unsupported" } }) });
+  assert.equal(
+    authorizeNet.steps[1].description,
+    "Authorize.net confirmed a paid TEST order of $1,234.56 on Jan 2, 2026 at 12:05 AM UTC. Waiting for Commerce to save it; Commerce checks for payment notices every 5 minutes.",
+  );
+  const noon = projectSetupScreen({ availability: "available", status: withTestOrder({
+    ...recorded, total: { currency: "USD", minor: "5" }, paidAt: Date.UTC(2026, 11, 31, 12, 0),
+  }) });
+  assert.match(noon.steps[1].description, /of \$0\.05 on Dec 31, 2026 at 12:00 PM UTC, and Commerce saved it/);
+
+  const rendered = JSON.stringify(renderSetupScreen({
+    state: "ready",
+    status: { availability: "available", status: withTestOrder(recorded), message: "Payments status checked." },
+  }));
+  assert.match(rendered, /Place a test order: Complete\. Stripe confirmed a paid TEST order of \$12\.00/);
+  assert.match(rendered, /Not ready to sell/);
+});
+
+test("TEST-order step says what comes first when there is no paid TEST order", () => {
+  const step = input => projectSetupScreen(input).steps[1];
+  const authorizeNet = step({ availability: "available", status: {
+    state: "ready", mode: "test", bindingRef: "binding-1",
+    connectionEvidence: { provider: "authorize_net", mode: "test", result: "unsupported" },
+  } });
+  assert.deepEqual(authorizeNet, {
+    title: "Place a test order",
+    status: "incomplete",
+    description: "Place an order on your store and pay with an Authorize.net test card. This step completes when Authorize.net confirms the payment and Commerce saves the order.",
+  });
+  const needsAttention = step({ availability: "available", status: {
+    state: "action_required", mode: "test", bindingRef: "binding-1",
+    connectionEvidence: { provider: "stripe", mode: "test", result: "action_required", accountRef: "acct_one" },
+  } });
+  assert.equal(needsAttention.description, "A paid TEST order visible in Commerce admin has not been confirmed. Connect payments first, then place a test order.");
+  const unreachable = "A paid TEST order visible in Commerce admin has not been confirmed. It could not be checked right now. Try again shortly.";
+  assert.equal(step({ availability: "available", status: {
+    state: "checking", mode: "test", bindingRef: "binding-1",
+    connectionEvidence: { provider: "stripe", mode: "test", result: "unknown", accountRef: "acct_one" },
+  } }).description, unreachable);
+  assert.equal(step({ state: "checking" }).description, unreachable);
+  for (const input of [unavailableStatusProjection(), { state: "unconfigured" }, { state: "failed", message: "connection_unavailable" }]) {
+    assert.equal(step(input).status, "incomplete");
+    assert.equal(step(input).description, "A paid TEST order visible in Commerce admin has not been confirmed. Connect payments first, then place a test order.");
+  }
+});
+

@@ -30,6 +30,18 @@ export type Status = {
   mode: Mode;
   bindingRef?: string;
   connectionEvidence?: ConnectionEvidence;
+  testOrder?: TestOrderEvidence;
+};
+/**
+ * A TEST checkout the provider confirmed as paid through Payments' own lookup,
+ * for the current connection. `recorded` means Commerce acknowledged its
+ * payment notice, which Commerce does only after saving the paid order.
+ */
+export type TestOrderEvidence = {
+  provider: "stripe" | "authorize_net";
+  total: { currency: "USD"; minor: string };
+  paidAt: number;
+  state: "awaiting_notice" | "awaiting_commerce" | "recorded";
 };
 export type ConnectionEvidence = {
   provider: "stripe" | "authorize_net";

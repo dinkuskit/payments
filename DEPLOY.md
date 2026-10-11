@@ -89,5 +89,11 @@ receives a valid `{ state, mode: "test" }` response. A configured but
 temporarily unavailable provider should be reported as a status/checking
 state, not treated as ready.
 
+Once a store has a provider-confirmed paid TEST checkout, the status response
+adds `testOrder` ([test order check](docs/test-order-check.md)). The setup page
+built from the same version reads it; an older build rejects the unknown field
+and shows "Checking Payments setup", so deploy this Worker together with the
+matching Registry plugin build.
+
 Do not register `/health` or `/v1/status` as Stripe webhook URLs. Do not
 deploy live keys, live mode, Authorize.net keys, or coupon changes.

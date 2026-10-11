@@ -3,6 +3,8 @@
 Approved 2026-10-09. Decision: `payments-one-screen-setup-029`.
 This additive decision depends on `payments-store-test-readiness-028`; it
 preserves that agreement and its history. The feature is not implemented.
+The [test order check](test-order-check.md) (034) later set how Commerce's
+confirmation reaches the setup screen.
 
 ## Accepted merchant flow
 

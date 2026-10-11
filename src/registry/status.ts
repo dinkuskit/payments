@@ -17,11 +17,21 @@ export type ConnectionEvidence = {
   accountRef?: string;
 };
 
+export const TEST_ORDER_STATES = ["awaiting_notice", "awaiting_commerce", "recorded"] as const;
+/** A provider-confirmed paid TEST checkout; `recorded` once Commerce confirmed it saved the order. */
+export type TestOrderEvidence = {
+  provider: "stripe" | "authorize_net";
+  total: { currency: "USD"; minor: string };
+  paidAt: number;
+  state: (typeof TEST_ORDER_STATES)[number];
+};
+
 export interface PaymentsStatus {
   state: StatusState;
   mode: StatusMode;
   bindingRef?: string;
   connectionEvidence?: ConnectionEvidence;
+  testOrder?: TestOrderEvidence;
 }
 
 export interface StatusProjection {
@@ -30,8 +40,10 @@ export interface StatusProjection {
   message: string;
 }
 
-const statusKeys = new Set(["state", "mode", "bindingRef", "connectionEvidence"]);
+const statusKeys = new Set(["state", "mode", "bindingRef", "connectionEvidence", "testOrder"]);
 const evidenceKeys = new Set(["provider", "mode", "result", "accountRef"]);
+// Latest instant a JavaScript Date can show.
+const MAX_DATE_MS = 8_640_000_000_000_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -74,6 +86,25 @@ function decodeConnectionEvidence(value: unknown, status: { state: StatusState; 
   };
 }
 
+function decodeTestOrder(
+  value: unknown,
+  status: { mode: StatusMode; bindingRef?: unknown; connectionEvidence?: ConnectionEvidence },
+): TestOrderEvidence {
+  if (!isRecord(value) || Object.keys(value).sort().join() !== "paidAt,provider,state,total") throw new Error("invalid_status");
+  const { provider, total, paidAt, state } = value;
+  if ((provider !== "stripe" && provider !== "authorize_net") ||
+      !isRecord(total) || Object.keys(total).sort().join() !== "currency,minor" || total.currency !== "USD" ||
+      typeof total.minor !== "string" || !/^[1-9][0-9]{0,15}$/.test(total.minor) || !Number.isSafeInteger(Number(total.minor)) ||
+      typeof paidAt !== "number" || !Number.isSafeInteger(paidAt) || paidAt <= 0 || paidAt > MAX_DATE_MS ||
+      typeof state !== "string" || !(TEST_ORDER_STATES as readonly string[]).includes(state) ||
+      // TEST orders exist only for a TEST connection with a binding, from its own provider.
+      status.mode !== "test" || status.bindingRef === undefined ||
+      (status.connectionEvidence !== undefined && status.connectionEvidence.provider !== provider)) {
+    throw new Error("invalid_status");
+  }
+  return { provider, total: { currency: "USD", minor: total.minor }, paidAt, state: state as TestOrderEvidence["state"] };
+}
+
 export function decodeStatus(value: unknown): PaymentsStatus {
   if (!isRecord(value)) throw new Error("invalid_status");
   for (const key of Object.keys(value)) {
@@ -91,11 +122,15 @@ export function decodeStatus(value: unknown): PaymentsStatus {
   const connectionEvidence = value.connectionEvidence === undefined
     ? undefined
     : decodeConnectionEvidence(value.connectionEvidence, { state: value.state as StatusState, mode: value.mode });
+  const testOrder = value.testOrder === undefined
+    ? undefined
+    : decodeTestOrder(value.testOrder, { mode: value.mode, bindingRef: value.bindingRef, connectionEvidence });
   return {
     state: value.state as StatusState,
     mode: value.mode,
     ...(value.bindingRef === undefined ? {} : { bindingRef: value.bindingRef }),
     ...(connectionEvidence === undefined ? {} : { connectionEvidence }),
+    ...(testOrder === undefined ? {} : { testOrder }),
   };
 }
 

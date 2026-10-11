@@ -5,3 +5,13 @@
 {"action": "decision_locked", "at": "2026-10-11T12:42:58+00:00", "data": {"decision_id": "payments-store-return-pages-033"}, "event_id": "b0bdf9a3-04d7-4770-bd1e-534f910a1a99"}
 {"action": "decision_implemented", "at": "2026-10-11T12:42:59+00:00", "data": {"decision_id": "payments-store-return-pages-033"}, "event_id": "94335527-f9b3-4e76-a610-1389c1c03ed2"}
 {"action": "decision_verified", "at": "2026-10-11T12:42:59+00:00", "data": {"decision_id": "payments-store-return-pages-033"}, "event_id": "1fce7629-5618-43c8-b086-41251cbbc91f"}
+{"action": "focus_started", "at": "2026-10-11T14:34:55+00:00", "data": {"cadence": "sequential", "domain": "Payment setup TEST-order check"}, "event_id": "bf74dc21-d0f9-43e9-85d7-d5d1a5fa5a8f"}
+{"action": "shared_understanding_confirmed", "at": "2026-10-11T14:34:55+00:00", "data": {"summary": "'Place a test order' completes for the store's current payment connection when Stripe or Authorize.net confirmed a TEST checkout as paid through Payments' own lookup and Commerce acknowledged that checkout's payment notice, which Commerce does only after saving the paid order bound to it. No Commerce change and no order number. The maintainer chose 'Stripe and Commerce' on a decision card on 2026-10-11."}, "event_id": "c8a3d365-ef21-4bf7-8d33-4426dcabf8fb"}
+{"action": "decision_proposed", "at": "2026-10-11T14:35:10+00:00", "data": {"decision_id": "payments-test-order-check-034"}, "event_id": "8946c624-ebbf-4e52-bde0-1a68429de9f1"}
+{"action": "decision_locked", "at": "2026-10-11T14:35:10+00:00", "data": {"decision_id": "payments-test-order-check-034"}, "event_id": "a66b7873-f829-4eb6-9a3b-4fc03bf57a30"}
+{"action": "decision_proposed", "at": "2026-10-11T14:44:04+00:00", "data": {"decision_id": "payments-status-host-access-035"}, "event_id": "bc23baaa-200b-4936-81a1-e11cee4d5db8"}
+{"action": "decision_locked", "at": "2026-10-11T14:44:04+00:00", "data": {"decision_id": "payments-status-host-access-035"}, "event_id": "500ad717-96d7-4dcd-8d11-f7f0e406dc40"}
+{"action": "decision_implemented", "at": "2026-10-11T14:45:52+00:00", "data": {"decision_id": "payments-test-order-check-034"}, "event_id": "cadb16b8-6ca7-4548-a435-86f1d1757887"}
+{"action": "decision_implemented", "at": "2026-10-11T14:45:52+00:00", "data": {"decision_id": "payments-status-host-access-035"}, "event_id": "d4165389-dc08-4782-9781-452cf5dedb67"}
+{"action": "decision_verified", "at": "2026-10-11T14:46:03+00:00", "data": {"decision_id": "payments-test-order-check-034"}, "event_id": "de6c6132-2533-4b71-acb2-3033034176b7"}
+{"action": "decision_verified", "at": "2026-10-11T14:46:03+00:00", "data": {"decision_id": "payments-status-host-access-035"}, "event_id": "1b14dc18-251d-4688-b10e-9b59be3b0f8b"}

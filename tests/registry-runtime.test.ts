@@ -7,6 +7,7 @@ test("loads the built registry plugin and validates its private status page", as
   try {
     assert.equal(host.manifest.id, "dinkus-payments");
     assert.deepEqual(host.manifest.capabilities, ["network:request"]);
+    assert.deepEqual(host.manifest.allowedHosts, ["dinkuskit.com", "payments.dinkuskit.com"]);
     assert.equal(host.manifest.admin.pages[0].path, "/status");
 
     const page = await host.admin.loadPage("/status");

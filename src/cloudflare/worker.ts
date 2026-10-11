@@ -3,7 +3,7 @@ import { storeReturnPages, type ReturnPages } from "../checkout/return-pages.js"
 import { createCheckoutSessionService, type AttemptRecord } from "../checkout/sessions.js";
 import { createStripeWebhookVerifier, createWebhookHandler, WebhookError } from "../checkout/webhook.js";
 import { assertCommercePaymentWake, assertWakeContext, consumeWakeBatch, WakeError, type CommercePaymentWake, type ReconciliationResult, type WakeContext, type WakeEventStore } from "../checkout/wakes.js";
-import { ConnectionError, createConnectionService, type CheckoutBinding, type Connection, type Principal } from "../hosted/connection.js";
+import { ConnectionError, createConnectionService, type CheckoutBinding, type Connection, type Principal, type Status, type TestOrderEvidence } from "../hosted/connection.js";
 import { createAccountAuthenticator } from "../hosted/auth.js";
 import { createHostedHandler } from "../hosted/http.js";
 import { createStripeCheckout } from "../stripe/checkout.js";
@@ -16,9 +16,19 @@ import {
   parseAuthorizeNetInvoiceReference,
 } from "../authorize-net/checkout.js";
 import { AuthorizeNetWebhookError, createAuthorizeNetWebhookHandler } from "../authorize-net/webhook.js";
-import type { PaymentRequest } from "../commerce/checkout-port.js";
+import type { PaymentOutcome, PaymentRequest } from "../commerce/checkout-port.js";
 
 type WakeRow = Record<string, string | number | null> & WakeContext & { deliveryGeneration: number; wokeAt: number; acknowledgedAt: number | null; authorizeNetMerchantId: string | null };
+type PaidTestRow = Record<string, string | number> & { amountMinor: string; paidAt: number; noticed: number; recorded: number };
+
+// A payment notice belongs to a paid checkout only for the same attempt,
+// binding, TEST mode and receiving account.
+const SAME_PAID_CHECKOUT = "w.attempt_id=p.attempt_id AND w.binding_ref=p.binding_ref AND w.mode='test' AND " +
+  "(CASE p.provider WHEN 'authorize_net' THEN w.authorize_net_merchant_id ELSE w.stripe_account_id END)=p.account_ref";
+
+function receivingAccount(binding: CheckoutBinding): string {
+  return binding.providerId === "authorize_net" ? binding.authorizeNetMerchantId : binding.stripeAccountId;
+}
 
 export class PaymentConnection extends DurableObject<Env> {
   private readonly wakeEvents: WakeEventStore;
@@ -38,6 +48,8 @@ export class PaymentConnection extends DurableObject<Env> {
     if (!sql.exec<{ name: string }>("PRAGMA table_info(checkout_wake_events)").toArray().some(column => column.name === "delivery_generation")) {
       sql.exec("ALTER TABLE checkout_wake_events ADD COLUMN delivery_generation INTEGER NOT NULL DEFAULT 1");
     }
+    // Setup's "Place a test order" check: the first time the provider confirmed each TEST checkout as paid.
+    sql.exec("CREATE TABLE IF NOT EXISTS paid_test_checkouts (attempt_id TEXT PRIMARY KEY, binding_ref TEXT NOT NULL, provider TEXT NOT NULL, account_ref TEXT NOT NULL, amount_minor TEXT NOT NULL, currency TEXT NOT NULL, paid_at INTEGER NOT NULL)");
     this.wakeEvents = {
       pending: batchLimit => sql.exec<WakeRow>(
         "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, authorize_net_merchant_id AS authorizeNetMerchantId, mode FROM checkout_wake_events WHERE acknowledged_at IS NULL ORDER BY received_at ASC LIMIT ?",
@@ -125,24 +137,77 @@ export class PaymentConnection extends DurableObject<Env> {
     });
   }
   async startOnboarding(principal: Principal) { return this.connection().connect(principal); }
-  async status(principal: Principal) { return this.connection().status(principal); }
+  async status(principal: Principal): Promise<Status> {
+    const status = await this.connection().status(principal);
+    const testOrder = await this.testOrder(principal, status);
+    return testOrder ? { ...status, testOrder } : status;
+  }
   async checkoutBinding(principal: Principal, bindingRef: string) { return this.connection().checkoutBinding(principal, bindingRef); }
   async existingBinding(principal: Principal, bindingRef: string) { return this.connection().existingBinding(principal, bindingRef); }
   async ensureSession(principal: Principal, request: PaymentRequest) {
     if ((this.env.PAYMENT_PROVIDER as string) === "authorize_net") {
       const binding = await this.connection().checkoutBinding(principal, request.bindingRef);
       if (!binding || binding.providerId !== "authorize_net") return { outcome: "unknown" as const };
-      return this.authorizeNetCheckout(principal.siteId, storeReturnPages(principal, "authorize_net")).ensureSession(request);
+      return this.notePaid(principal, request, await this.authorizeNetCheckout(principal.siteId, storeReturnPages(principal, "authorize_net")).ensureSession(request));
     }
-    return this.checkout(storeReturnPages(principal, "stripe")).ensureSessionFor(principal, request);
+    return this.notePaid(principal, request, await this.checkout(storeReturnPages(principal, "stripe")).ensureSessionFor(principal, request));
   }
   async lookup(principal: Principal, request: PaymentRequest) {
     if ((this.env.PAYMENT_PROVIDER as string) === "authorize_net") {
       const binding = await this.connection().existingBinding(principal, request.bindingRef);
       if (!binding || binding.providerId !== "authorize_net") return { outcome: "unknown" as const };
-      return this.authorizeNetCheckout(principal.siteId).lookup(request);
+      return this.notePaid(principal, request, await this.authorizeNetCheckout(principal.siteId).lookup(request));
     }
-    return this.checkout().lookupFor(principal, request);
+    return this.notePaid(principal, request, await this.checkout().lookupFor(principal, request));
+  }
+  /**
+   * Keeps the first time the provider itself confirmed a TEST checkout as paid.
+   * Only this lookup outcome counts; a webhook or a browser return never does.
+   */
+  private async notePaid(principal: Principal, request: PaymentRequest, outcome: PaymentOutcome): Promise<PaymentOutcome> {
+    if (outcome.outcome !== "paid") return outcome;
+    const binding = await this.connection().existingBinding(principal, request.bindingRef);
+    if (binding) this.recordPaid(binding, outcome);
+    return outcome;
+  }
+  private recordPaid(binding: CheckoutBinding, outcome: Extract<PaymentOutcome, { outcome: "paid" }>): void {
+    if (binding.mode !== "test") return;
+    this.ctx.storage.sql.exec(
+      "INSERT OR IGNORE INTO paid_test_checkouts (attempt_id,binding_ref,provider,account_ref,amount_minor,currency,paid_at) VALUES (?,?,?,?,?,?,?)",
+      outcome.attemptId, binding.bindingRef, binding.providerId, receivingAccount(binding), outcome.total.minor, outcome.total.currency, Date.now(),
+    );
+  }
+  private async testOrder(principal: Principal, status: Status): Promise<TestOrderEvidence | undefined> {
+    if (status.mode !== "test" || !status.bindingRef) return undefined;
+    let binding: CheckoutBinding | null;
+    try { binding = await this.connection().existingBinding(principal, status.bindingRef); }
+    catch { return undefined; }
+    return binding ? this.paidTestCheckout(binding) : undefined;
+  }
+  /**
+   * The paid TEST checkout setup shows for this connection. Commerce
+   * acknowledges a paid checkout's payment notice only after saving the paid
+   * order bound to it, so that acknowledgement is its confirmation. A
+   * recorded checkout wins over a newer one still waiting.
+   */
+  private paidTestCheckout(binding: CheckoutBinding): TestOrderEvidence | undefined {
+    if (binding.mode !== "test") return undefined;
+    const row = this.ctx.storage.sql.exec<PaidTestRow>(
+      `SELECT p.amount_minor AS amountMinor, p.paid_at AS paidAt,
+        EXISTS (SELECT 1 FROM checkout_wake_events w WHERE ${SAME_PAID_CHECKOUT}) AS noticed,
+        EXISTS (SELECT 1 FROM checkout_wake_events w WHERE ${SAME_PAID_CHECKOUT} AND w.acknowledged_at IS NOT NULL) AS recorded
+      FROM paid_test_checkouts p
+      WHERE p.binding_ref=? AND p.provider=? AND p.account_ref=? AND p.currency='USD'
+      ORDER BY recorded DESC, p.paid_at DESC, p.attempt_id DESC LIMIT 1`,
+      binding.bindingRef, binding.providerId, receivingAccount(binding),
+    ).toArray()[0];
+    if (!row) return undefined;
+    return {
+      provider: binding.providerId,
+      total: { currency: "USD", minor: row.amountMinor },
+      paidAt: row.paidAt,
+      state: row.recorded ? "recorded" : row.noticed ? "awaiting_commerce" : "awaiting_notice",
+    };
   }
   async consumeWakes(reconcile: (context: WakeContext) => Promise<ReconciliationResult>, limit = 25) {
     return consumeWakeBatch(this.wakeEvents, reconcile, limit);

@@ -18,8 +18,57 @@ export type SetupScreenProjection = {
 
 const unavailableConnection =
   "Your payment connection is unavailable, so it could not be checked.";
-const unknownCommerceOrder =
-  "A paid TEST order visible in Commerce admin has not been confirmed. Test-order checking is not available in this build.";
+const unconfirmedCommerceOrder =
+  "A paid TEST order visible in Commerce admin has not been confirmed.";
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function providerName(provider: "stripe" | "authorize_net"): string {
+  return provider === "authorize_net" ? "Authorize.net" : "Stripe";
+}
+
+function dollars(minor: string): string {
+  const cents = BigInt(minor);
+  const whole = (cents / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `$${whole}.${String(cents % 100n).padStart(2, "0")}`;
+}
+
+// Written out by hand so every runtime prints the same words.
+function utcTime(ms: number): string {
+  const at = new Date(ms);
+  const hour = at.getUTCHours();
+  const minute = String(at.getUTCMinutes()).padStart(2, "0");
+  return `${MONTHS[at.getUTCMonth()]} ${at.getUTCDate()}, ${at.getUTCFullYear()} at ${hour % 12 || 12}:${minute} ${hour < 12 ? "AM" : "PM"} UTC`;
+}
+
+function testOrderStep(status: PaymentsStatus | null, connectionState?: string): SetupStep {
+  const title = "Place a test order";
+  const order = status?.testOrder;
+  if (order) {
+    const provider = providerName(order.provider);
+    const paid = `${provider} confirmed a paid TEST order of ${dollars(order.total.minor)} on ${utcTime(order.paidAt)}`;
+    if (order.state === "recorded") {
+      return { title, status: "complete", description: `${paid}, and Commerce saved it. You'll find it in Orders, marked TEST.` };
+    }
+    if (order.state === "awaiting_commerce") {
+      return { title, status: "incomplete", description: `${paid}. Waiting for Commerce to save it; Commerce checks for payment notices every 5 minutes.` };
+    }
+    return { title, status: "incomplete", description: `${paid}. Waiting for ${provider}'s payment notice to reach Payments.` };
+  }
+  if (status?.state === "ready") {
+    if (status.mode !== "test" || !status.connectionEvidence) return { title, status: "incomplete", description: unconfirmedCommerceOrder };
+    const provider = providerName(status.connectionEvidence.provider);
+    const card = `${provider === "Authorize.net" ? "an" : "a"} ${provider} test card`;
+    return {
+      title,
+      status: "incomplete",
+      description: `Place an order on your store and pay with ${card}. This step completes when ${provider} confirms the payment and Commerce saves the order.`,
+    };
+  }
+  if (status?.state === "checking" || (!status && connectionState === "checking")) {
+    return { title, status: "incomplete", description: `${unconfirmedCommerceOrder} It could not be checked right now. Try again shortly.` };
+  }
+  return { title, status: "incomplete", description: `${unconfirmedCommerceOrder} Connect payments first, then place a test order.` };
+}
 
 function connectionStep(status: PaymentsStatus | null, connectionState?: string): SetupStep {
   if (connectionState === "unconfigured") {
@@ -129,11 +178,7 @@ export function projectSetupScreen(input: unknown): SetupScreenProjection {
     overall: "Not ready to sell",
     steps: [
       connectionStep(status, connectionState),
-      {
-        title: "Place a test order",
-        status: "incomplete",
-        description: unknownCommerceOrder,
-      },
+      testOrderStep(status, connectionState),
     ],
   };
 }
