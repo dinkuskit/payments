@@ -12,9 +12,12 @@ proof paths are documented in [route authentication](route-auth.md). All other
 Registry admin access remains authenticated and permission-gated. Network
 requests use the canonical account API and the production status endpoint
 `https://payments.dinkuskit.com/v1/status`; local proof can inject a local
-endpoint. Processor setup and Commerce's paid TEST-order confirmation remain
-unavailable, so the overall state remains **Not ready to sell**. Explicit reconnect replaces expired consent;
-there is no silent refresh or provider selection from the browser.
+endpoint. **Place a test order** completes once the provider confirmed a paid
+TEST checkout and Commerce saved its order, as described in
+[test order check](test-order-check.md). Connect payments still needs a verified
+live connection, so the overall state remains **Not ready to sell**. Explicit
+reconnect replaces expired consent; there is no silent refresh or provider
+selection from the browser.
 
 The official plugin runtime verifies Block Kit and admin role boundaries. An
 additional real local `handleRegistryInstall` run validated the official

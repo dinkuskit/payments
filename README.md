@@ -45,8 +45,10 @@ account consent, a short-lived public store-proof route, encrypted session
 storage and a server-configured status consumer. The default production status
 endpoint is `https://payments.dinkuskit.com/v1/status`; an operator packaging
 the plugin for another Payments service must provide an explicit build-time
-endpoint override. Processor setup and a paid Commerce TEST order remain
-unconfirmed, so the screen stays **Not ready to sell**.
+endpoint override. **Place a test order** completes once the provider
+confirmed a paid TEST checkout and Commerce saved its order
+([test order check](docs/test-order-check.md)). A live connection is still
+unverified, so the screen stays **Not ready to sell**.
 
 The official bundle is covered by EmDash's plugin runtime and an actual local
 Registry installer/browser consent proof using synthetic authoritative records.
