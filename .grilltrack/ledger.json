@@ -4,11 +4,11 @@
   "current_focus": {
     "cadence": "sequential",
     "confirmed": true,
-    "confirmed_at": "2026-10-11T12:42:58+00:00",
-    "domain": "Checkout return pages",
-    "started_at": "2026-10-11T12:42:58+00:00",
+    "confirmed_at": "2026-10-11T14:34:55+00:00",
+    "domain": "Payment setup TEST-order check",
+    "started_at": "2026-10-11T14:34:55+00:00",
     "status": "confirmed",
-    "summary": "Shoppers return to the store's own /checkout/success and /cart. The store's address comes from DinkusKit.com's signed site_origin claim, never request input. The maintainer chose 'From DinkusKit.com' on a decision card on 2026-10-11. No receipt route in Payments."
+    "summary": "'Place a test order' completes for the store's current payment connection when Stripe or Authorize.net confirmed a TEST checkout as paid through Payments' own lookup and Commerce acknowledged that checkout's payment notice, which Commerce does only after saving the paid order bound to it. No Commerce change and no order number. The maintainer chose 'Stripe and Commerce' on a decision card on 2026-10-11."
   },
   "decisions": [
     {
@@ -2354,6 +2354,152 @@
       "superseded_by": null,
       "updated_at": "2026-10-11T12:42:59+00:00",
       "verification_ref": ".grilltrack/proof/store-return-pages-033/PROOF.md"
+    },
+    {
+      "baseline_ref": "git:9590ccf6fe6ca5b092070e684d37f627a18e8fba",
+      "candidate_refs": [],
+      "choice": "'Place a test order' completes when, for the store's current payment connection (provider, receiving account and binding), Payments' own Stripe or Authorize.net lookup confirmed a TEST checkout as paid and Commerce acknowledged that checkout's payment notice, which Commerce does only after saving the paid order bound to it. Payments records each provider-confirmed paid TEST checkout when a lookup first returns paid; notice receipt and Commerce's acknowledgement are read from the existing payment-notice records, never from a webhook or browser return alone. Authenticated /v1/status adds testOrder {provider, total, paidAt, state: awaiting_notice | awaiting_commerce | recorded} only when such evidence exists, preferring a recorded checkout over the newest paid one. The setup page's strict reader accepts it only in TEST mode with a binding and a matching provider. The step names the provider, amount and paid time (UTC), says what it is waiting for, and is complete only when recorded. No Commerce change, order number or new route. The overall result stays Not ready to sell while Payments runs only in TEST mode. Deploy the Worker together with the matching setup page build.",
+      "context_ref": "docs/test-order-check.md",
+      "created_at": "2026-10-11T14:35:10+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-store-test-readiness-028",
+        "payments-one-screen-setup-029",
+        "payments-setup-screen-031",
+        "payments-authenticated-wake-transport-001"
+      ],
+      "domain": "Payment setup TEST-order check",
+      "history": [
+        {
+          "at": "2026-10-11T14:35:10+00:00",
+          "choice": "'Place a test order' completes when, for the store's current payment connection (provider, receiving account and binding), Payments' own Stripe or Authorize.net lookup confirmed a TEST checkout as paid and Commerce acknowledged that checkout's payment notice, which Commerce does only after saving the paid order bound to it. Payments records each provider-confirmed paid TEST checkout when a lookup first returns paid; notice receipt and Commerce's acknowledgement are read from the existing payment-notice records, never from a webhook or browser return alone. Authenticated /v1/status adds testOrder {provider, total, paidAt, state: awaiting_notice | awaiting_commerce | recorded} only when such evidence exists, preferring a recorded checkout over the newest paid one. The setup page's strict reader accepts it only in TEST mode with a binding and a matching provider. The step names the provider, amount and paid time (UTC), says what it is waiting for, and is complete only when recorded. No Commerce change, order number or new route. The overall result stays Not ready to sell while Payments runs only in TEST mode. Deploy the Worker together with the matching setup page build.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-11T14:45:52+00:00",
+          "choice": "'Place a test order' completes when, for the store's current payment connection (provider, receiving account and binding), Payments' own Stripe or Authorize.net lookup confirmed a TEST checkout as paid and Commerce acknowledged that checkout's payment notice, which Commerce does only after saving the paid order bound to it. Payments records each provider-confirmed paid TEST checkout when a lookup first returns paid; notice receipt and Commerce's acknowledgement are read from the existing payment-notice records, never from a webhook or browser return alone. Authenticated /v1/status adds testOrder {provider, total, paidAt, state: awaiting_notice | awaiting_commerce | recorded} only when such evidence exists, preferring a recorded checkout over the newest paid one. The setup page's strict reader accepts it only in TEST mode with a binding and a matching provider. The step names the provider, amount and paid time (UTC), says what it is waiting for, and is complete only when recorded. No Commerce change, order number or new route. The overall result stays Not ready to sell while Payments runs only in TEST mode. Deploy the Worker together with the matching setup page build.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-11T14:46:03+00:00",
+          "choice": "'Place a test order' completes when, for the store's current payment connection (provider, receiving account and binding), Payments' own Stripe or Authorize.net lookup confirmed a TEST checkout as paid and Commerce acknowledged that checkout's payment notice, which Commerce does only after saving the paid order bound to it. Payments records each provider-confirmed paid TEST checkout when a lookup first returns paid; notice receipt and Commerce's acknowledgement are read from the existing payment-notice records, never from a webhook or browser return alone. Authenticated /v1/status adds testOrder {provider, total, paidAt, state: awaiting_notice | awaiting_commerce | recorded} only when such evidence exists, preferring a recorded checkout over the newest paid one. The setup page's strict reader accepts it only in TEST mode with a binding and a matching provider. The step names the provider, amount and paid time (UTC), says what it is waiting for, and is complete only when recorded. No Commerce change, order number or new route. The overall result stays Not ready to sell while Payments runs only in TEST mode. Deploy the Worker together with the matching setup page build.",
+          "from": "implemented",
+          "implementation_ref": "src/cloudflare/worker.ts;src/hosted/connection.ts;src/registry/status.ts;src/registry/setup.ts;docs/test-order-check.md",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-test-order-check-034",
+      "implementation_ref": "src/cloudflare/worker.ts;src/hosted/connection.ts;src/registry/status.ts;src/registry/setup.ts;docs/test-order-check.md",
+      "question": "When does Payments' setup page count 'Place a test order' as done, and what does it show?",
+      "rationale": "The maintainer chose 'Stripe and Commerce' on a decision card on 2026-10-11. It proves the whole Stripe, payment notice, Payments and Commerce loop v1's proof asks for, without spending Commerce's remaining bundle bytes. Stripe documents webhooks as required for fulfillment; Shopify, WooCommerce and BigCommerce treat the order landing in Orders as the test proof.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "verified",
+      "superseded_by": null,
+      "updated_at": "2026-10-11T14:46:03+00:00",
+      "verification_ref": ".grilltrack/proof/test-order-check-034/PROOF.md"
+    },
+    {
+      "baseline_ref": "git:9590ccf6fe6ca5b092070e684d37f627a18e8fba",
+      "candidate_refs": [],
+      "choice": "The Registry plugin's allowedHosts lists exactly dinkuskit.com and payments.dinkuskit.com, the hosts of its server-owned consent, signing-key and status endpoints. EmDash refuses any host not listed exactly, so without payments.dinkuskit.com the private setup page could never read /v1/status in a real store. No other host, capability, route or endpoint change; a test pins the list to those endpoints' hosts.",
+      "context_ref": "docs/registry-status.md",
+      "created_at": "2026-10-11T14:44:04+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-shared-store-consumer-032",
+        "payments-setup-screen-031"
+      ],
+      "domain": "Payment setup TEST-order check",
+      "history": [
+        {
+          "at": "2026-10-11T14:44:04+00:00",
+          "choice": "The Registry plugin's allowedHosts lists exactly dinkuskit.com and payments.dinkuskit.com, the hosts of its server-owned consent, signing-key and status endpoints. EmDash refuses any host not listed exactly, so without payments.dinkuskit.com the private setup page could never read /v1/status in a real store. No other host, capability, route or endpoint change; a test pins the list to those endpoints' hosts.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-11T14:45:52+00:00",
+          "choice": "The Registry plugin's allowedHosts lists exactly dinkuskit.com and payments.dinkuskit.com, the hosts of its server-owned consent, signing-key and status endpoints. EmDash refuses any host not listed exactly, so without payments.dinkuskit.com the private setup page could never read /v1/status in a real store. No other host, capability, route or endpoint change; a test pins the list to those endpoints' hosts.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-11T14:46:03+00:00",
+          "choice": "The Registry plugin's allowedHosts lists exactly dinkuskit.com and payments.dinkuskit.com, the hosts of its server-owned consent, signing-key and status endpoints. EmDash refuses any host not listed exactly, so without payments.dinkuskit.com the private setup page could never read /v1/status in a real store. No other host, capability, route or endpoint change; a test pins the list to those endpoints' hosts.",
+          "from": "implemented",
+          "implementation_ref": "emdash-plugin.jsonc;tests/registry-connection.test.mjs;tests/registry-runtime.test.ts",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-status-host-access-035",
+      "implementation_ref": "emdash-plugin.jsonc;tests/registry-connection.test.mjs;tests/registry-runtime.test.ts",
+      "question": "May the Registry plugin contact payments.dinkuskit.com so its setup page can read Payments' status?",
+      "rationale": "The maintainer chose 'In this PR' on a decision card on 2026-10-11 after EmDash's own sandbox fetch (@emdash-cms/cloudflare bridge-http) refused payments.dinkuskit.com for the built manifest. Nothing is published to the Registry yet, so no installed store is affected.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "verified",
+      "superseded_by": null,
+      "updated_at": "2026-10-11T14:46:03+00:00",
+      "verification_ref": ".grilltrack/proof/test-order-check-034/PROOF.md"
     }
   ],
   "last_activation": {
@@ -2376,5 +2522,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-11T12:42:59+00:00"
+  "updated_at": "2026-10-11T14:46:03+00:00"
 }
