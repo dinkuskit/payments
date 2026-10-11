@@ -12,8 +12,10 @@ proof paths are documented in [route authentication](route-auth.md). All other
 Registry admin access remains authenticated and permission-gated. Network
 requests use the canonical account API and the production status endpoint
 `https://payments.dinkuskit.com/v1/status`; local proof can inject a local
-endpoint. **Place a test order** completes once the provider confirmed a paid
-TEST checkout and Commerce saved its order, as described in
+endpoint. The plugin declares network access to exactly `dinkuskit.com` (consent
+and signing keys) and `payments.dinkuskit.com` (status); EmDash refuses any host
+not listed exactly. **Place a test order** completes once the provider confirmed
+a paid TEST checkout and Commerce saved its order, as described in
 [test order check](test-order-check.md). Connect payments still needs a verified
 live connection, so the overall state remains **Not ready to sell**. Explicit
 reconnect replaces expired consent; there is no silent refresh or provider
