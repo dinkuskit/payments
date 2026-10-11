@@ -1,6 +1,11 @@
 export type Mode = "test" | "live";
 /** Created by verified shared-account authentication, never by request JSON. */
-export interface Principal { accountId: string; siteId: string }
+export interface Principal {
+  accountId: string;
+  siteId: string;
+  /** The store's web address DinkusKit.com checked at Connect and signed into the pass. */
+  siteOrigin?: string;
+}
 export interface Connection {
   bindingRef: string;
   owner: Principal;

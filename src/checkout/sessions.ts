@@ -511,8 +511,9 @@ export function createCheckoutSessionService(options: {
   existingBinding(principal: Principal, bindingRef: string): Promise<CheckoutBinding | null> | CheckoutBinding | null;
   provider: CheckoutProvider;
   mode: Mode;
-  successUrl: string;
-  cancelUrl: string;
+  /** The store's own return pages. Only a new attempt needs them; a retry reuses the pinned ones. */
+  successUrl?: string;
+  cancelUrl?: string;
   now?: () => number;
 }): {
   ensureSessionFor(principal: Principal, request: PaymentRequest): Promise<PaymentOutcome>;
@@ -525,12 +526,14 @@ export function createCheckoutSessionService(options: {
   const successUrl = options.successUrl;
   const cancelUrl = options.cancelUrl;
   for (const value of [successUrl, cancelUrl]) {
+    if (value === undefined) continue;
     const url = new URL(value);
     if (url.protocol !== "https:" || url.username || url.password || url.hash) throw new Error("invalid_checkout_return_configuration");
   }
 
   async function claim(principal: Principal, request: PaymentRequest, binding: CheckoutBinding): Promise<AttemptRecord> {
     if (binding.providerId !== "stripe") throw new CheckoutError("binding_provider_mismatch");
+    if (!successUrl || !cancelUrl) throw new CheckoutError("return_pages_missing");
     const claimedAtMs = now();
     const handoff = paymentRequestHandoff(request);
     if (!handoff) throw new CheckoutError("invalid_request");

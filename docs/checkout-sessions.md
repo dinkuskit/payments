@@ -36,6 +36,10 @@ Existing onboarding times stay milliseconds.
   provider contact. Concurrent writers share that claim. Replay reads the record,
   not the current caller object or current service configuration. Fingerprints compare
   canonical values; line order is significant.
+- Return URLs are the store's own `/checkout/success` and `/cart`, built from the
+  `site_origin` DinkusKit.com signs into the store's pass. A new claim without them
+  fails with `return_pages_missing`; the hosted Worker refuses such a pass first with
+  `store_origin_missing`.
 - Unclaimed legacy requests return `unknown` immediately without contacting the provider.
   Existing historical legacy claims safely default policy to exact 1800 and remain recoverable.
 - Current requests may carry the exact

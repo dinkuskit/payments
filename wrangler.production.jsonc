@@ -25,8 +25,6 @@
     "ACCOUNT_JWKS_URL": "https://dinkuskit.com/account/.well-known/jwks.json",
     "ONBOARDING_RETURN_URL": "https://dinkuskit.com/account",
     "ONBOARDING_REFRESH_URL": "https://dinkuskit.com/account",
-    "CHECKOUT_SUCCESS_URL": "https://dinkuskit.com/checkout/success",
-    "CHECKOUT_CANCEL_URL": "https://dinkuskit.com/checkout/cancel",
     "PAYMENT_PROVIDER": "stripe"
   }
 }

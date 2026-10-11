@@ -70,6 +70,8 @@ async function hasBodyBytes(request: Request): Promise<boolean> {
 function checkoutErrorStatus(error: unknown): number {
   if (!(error instanceof Error)) return 503;
   if (error.message === "connection_owner_mismatch") return 403;
+  // Thrown inside the store's Durable Object; only the message survives RPC.
+  if (error.message === "store_origin_missing") return 409;
   if (error instanceof WakeError && error.message === "invalid_wake") return 400;
   if (error instanceof WakeError && error.message === "invalid_batch_limit") return 400;
   if (error instanceof WakeError) return 409;

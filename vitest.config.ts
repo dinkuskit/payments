@@ -8,8 +8,6 @@ export default defineConfig({
       STRIPE_WEBHOOK_SECRET: "whsec_synthetic_fixture",
       ONBOARDING_RETURN_URL: "https://accounts.example.invalid/stripe/return",
       ONBOARDING_REFRESH_URL: "https://accounts.example.invalid/stripe/refresh",
-      CHECKOUT_SUCCESS_URL: "https://store.example.invalid/checkout/return",
-      CHECKOUT_CANCEL_URL: "https://store.example.invalid/checkout/cancel",
       AUTHORIZE_NET_API_LOGIN_ID: "synthetic-login",
       AUTHORIZE_NET_TRANSACTION_KEY: "synthetic-transaction-key",
       AUTHORIZE_NET_SIGNATURE_KEY: "synthetic-signature-key",

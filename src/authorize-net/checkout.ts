@@ -295,8 +295,9 @@ export function transactionOutcome(transaction: AuthorizeNetTransaction, expecte
 
 export function createAuthorizeNetPaymentPort(options: {
   gateway: ReturnType<typeof createAuthorizeNetGateway>;
-  returnUrl: string;
-  cancelUrl: string;
+  /** The store's own return pages, needed only to start a new hosted payment. */
+  returnUrl?: string;
+  cancelUrl?: string;
   hostedUrl: string;
   siteId: string;
   store: {
@@ -331,6 +332,7 @@ export function createAuthorizeNetPaymentPort(options: {
         session: asSession(existing),
         };
       }
+      if (!options.returnUrl || !options.cancelUrl) throw new AuthorizeNetError("invalid_return_url");
       try {
         const created = await options.gateway.createHostedPayment({
           attemptId: request.attemptId,

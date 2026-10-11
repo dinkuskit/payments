@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { storeReturnPages, type ReturnPages } from "../checkout/return-pages.js";
 import { createCheckoutSessionService, type AttemptRecord } from "../checkout/sessions.js";
 import { createStripeWebhookVerifier, createWebhookHandler, WebhookError } from "../checkout/webhook.js";
 import { assertCommercePaymentWake, assertWakeContext, consumeWakeBatch, WakeError, type CommercePaymentWake, type ReconciliationResult, type WakeContext, type WakeEventStore } from "../checkout/wakes.js";
@@ -77,13 +78,13 @@ export class PaymentConnection extends DurableObject<Env> {
       authorizeNetMerchantId: (this.env.AUTHORIZE_NET_MERCHANT_ID as string) || this.env.AUTHORIZE_NET_API_LOGIN_ID,
     });
   }
-  private checkout() {
+  private checkout(returnPages?: ReturnPages) {
     const sql = this.ctx.storage.sql;
     const connection = this.connection();
     return createCheckoutSessionService({
       mode: "test",
-      successUrl: this.env.CHECKOUT_SUCCESS_URL,
-      cancelUrl: this.env.CHECKOUT_CANCEL_URL,
+      successUrl: returnPages?.successUrl,
+      cancelUrl: returnPages?.cancelUrl,
       store: { transaction: fn => this.ctx.storage.transactionSync(() => fn({
         read: attemptId => {
           const row = sql.exec<{ value: string }>("SELECT value FROM checkout_attempts WHERE attempt_id=?", attemptId).toArray()[0];
@@ -96,7 +97,7 @@ export class PaymentConnection extends DurableObject<Env> {
       provider: createStripeCheckout({ apiKey: this.env.STRIPE_API_KEY, mode: "test" }),
     });
   }
-  private authorizeNetCheckout(siteId: string) {
+  private authorizeNetCheckout(siteId: string, returnPages?: ReturnPages) {
     const sql = this.ctx.storage.sql;
     const gateway = createAuthorizeNetGateway({
       apiLoginId: this.env.AUTHORIZE_NET_API_LOGIN_ID,
@@ -108,8 +109,8 @@ export class PaymentConnection extends DurableObject<Env> {
       gateway,
       siteId,
       hostedUrl: authorizeNetEndpoints("test").hosted,
-      returnUrl: this.env.CHECKOUT_SUCCESS_URL,
-      cancelUrl: this.env.CHECKOUT_CANCEL_URL,
+      returnUrl: returnPages?.successUrl,
+      cancelUrl: returnPages?.cancelUrl,
       store: {
         transaction: fn => this.ctx.storage.transactionSync(() => fn({
           read: attemptId => {
@@ -131,9 +132,9 @@ export class PaymentConnection extends DurableObject<Env> {
     if ((this.env.PAYMENT_PROVIDER as string) === "authorize_net") {
       const binding = await this.connection().checkoutBinding(principal, request.bindingRef);
       if (!binding || binding.providerId !== "authorize_net") return { outcome: "unknown" as const };
-      return this.authorizeNetCheckout(principal.siteId).ensureSession(request);
+      return this.authorizeNetCheckout(principal.siteId, storeReturnPages(principal, "authorize_net")).ensureSession(request);
     }
-    return this.checkout().ensureSessionFor(principal, request);
+    return this.checkout(storeReturnPages(principal, "stripe")).ensureSessionFor(principal, request);
   }
   async lookup(principal: Principal, request: PaymentRequest) {
     if ((this.env.PAYMENT_PROVIDER as string) === "authorize_net") {
@@ -365,7 +366,7 @@ export default {
           };
         },
         webhook: async (payload, signature, stripeAccount) => {
-          if (!env.STRIPE_WEBHOOK_SECRET || !env.CHECKOUT_SUCCESS_URL || !env.CHECKOUT_CANCEL_URL) throw new Error("webhook_unconfigured");
+          if (!env.STRIPE_WEBHOOK_SECRET) throw new Error("webhook_unconfigured");
           const verifier = createStripeWebhookVerifier({ apiKey: env.STRIPE_API_KEY, webhookSecret: env.STRIPE_WEBHOOK_SECRET });
           const event = await verifier.verify(payload, signature);
           const session = event.data.object as { object?: string; metadata?: { dinkus_site?: string } };

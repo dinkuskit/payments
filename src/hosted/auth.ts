@@ -11,7 +11,17 @@ export function createAccountAuthenticator(config: { issuer: string; audience: s
       issuer: config.issuer, audience: config.audience, algorithms: ["RS256", "ES256"], requiredClaims: ["exp", "iat", "sub"], maxTokenAge: "1h",
     });
     if (typeof payload.sub !== "string" || !payload.sub.trim() || payload.sub.length > 200 || typeof payload.site_id !== "string" || !payload.site_id.trim() || payload.site_id.length > 200 || typeof payload.scope !== "string" || !payload.scope.split(" ").includes(scope) || request.headers.get("x-dinkus-site") !== payload.site_id) throw new Error("unauthorized");
+    // Store passes carry the store's web address as DinkusKit.com checked it at Connect.
+    const siteOrigin = payload.site_origin === undefined ? undefined : storeOrigin(payload.site_origin);
+    if (siteOrigin === null) throw new Error("unauthorized");
     // Same canonical subject representation as the hosted Inventory boundary.
-    return { accountId: JSON.stringify([config.issuer, payload.sub]), siteId: payload.site_id };
+    return { accountId: JSON.stringify([config.issuer, payload.sub]), siteId: payload.site_id, ...(siteOrigin ? { siteOrigin } : {}) };
   };
+}
+
+/** An https origin exactly as URL.origin writes it, with no path, query or fragment; otherwise null. */
+function storeOrigin(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 2048) return null;
+  try { const url = new URL(value); return url.protocol === "https:" && url.origin === value ? value : null; }
+  catch { return null; }
 }

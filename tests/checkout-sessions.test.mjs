@@ -386,6 +386,31 @@ test("create transport params are detached before await and replayed from the re
   assert.equal(f.calls[1][1].expiresAtSeconds, f.attempts.get("attempt-one").requestedExpiresAtSeconds);
 });
 
+test("a new attempt needs the store's return pages, and a retry reuses the pinned ones", async () => {
+  const f = fixture(); await f.ready();
+  const service = returnPages => createCheckoutSessionService({
+    store: { transaction: fn => fn({
+      read: id => structuredClone(f.attempts.get(id) ?? null),
+      write: value => { f.attempts.set(value.attemptId, structuredClone(value)); },
+    }) },
+    readyBinding: (principal, ref) => f.connectionService().checkoutBinding(principal, ref),
+    existingBinding: (principal, ref) => f.connectionService().existingBinding(principal, ref),
+    provider: f.provider, mode: "test", ...returnPages, now: () => f.time(),
+  });
+  await assert.rejects(service({}).ensureSessionFor(owner, request()), /return_pages_missing/);
+  assert.equal(f.attempts.size, 0);
+  assert.equal(f.calls.length, 0);
+  assert.equal((await service({ successUrl, cancelUrl }).ensureSessionFor(owner, request())).outcome, "open");
+  assert.equal(f.attempts.get("attempt-one").successUrl, successUrl);
+  assert.equal(f.attempts.get("attempt-one").cancelUrl, cancelUrl);
+  f.attempts.get("attempt-one").stripeSessionId = null;
+  f.attempts.get("attempt-one").redirectUrl = null;
+  assert.equal((await service({}).ensureSessionFor(owner, request())).outcome, "open");
+  assert.equal(f.calls.filter(call => call[0] === "create").length, 2);
+  assert.equal(f.calls.at(-1)[1].successUrl, successUrl);
+  assert.equal(f.calls.at(-1)[1].cancelUrl, cancelUrl);
+});
+
 test("fingerprint compares canonical values and preserves Commerce line order", async () => {
   const f = fixture(); await f.ready();
   await f.checkout().ensureSessionFor(owner, request());

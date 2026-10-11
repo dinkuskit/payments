@@ -68,7 +68,7 @@ test.each(["historical-unpriced", "priced-v1"])("SQLite mapping survives evictio
     }
     return new Response("missing", { status: 404 });
   });
-  const principal = { accountId: "synthetic-owner", siteId: crypto.randomUUID() };
+  const principal = { accountId: "synthetic-owner", siteId: crypto.randomUUID(), siteOrigin: "https://store.example.invalid" };
   const stub = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", principal.siteId]));
   const connected = await stub.startOnboarding(principal);
   ready = true;
@@ -104,6 +104,9 @@ test.each(["historical-unpriced", "priced-v1"])("SQLite mapping survives evictio
     paymentMethods: ["card"] as const,
   };
   expect((await stub.ensureSession(principal, payment)).outcome).toBe("unknown");
+  const sent = new URLSearchParams([...operations.values()][0].params);
+  expect(sent.get("success_url")).toBe("https://store.example.invalid/checkout/success?session_id={CHECKOUT_SESSION_ID}");
+  expect(sent.get("cancel_url")).toBe("https://store.example.invalid/cart");
   if (kind === "priced-v1") {
     await runInDurableObject(stub, instance => {
       const row=instance.ctx.storage.sql.exec<{value:string}>("SELECT value FROM checkout_attempts WHERE attempt_id=?",payment.attemptId).one();
@@ -309,7 +312,7 @@ test("characterization: lost create response leaves a claim unrecoverable by web
     throw new Error(`unexpected local Stripe route: ${init?.method ?? "GET"} ${path}`);
   });
 
-  const principal = { accountId: "synthetic-owner", siteId: crypto.randomUUID() };
+  const principal = { accountId: "synthetic-owner", siteId: crypto.randomUUID(), siteOrigin: "https://store.example.invalid" };
   const stub = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", principal.siteId]));
   const connected = await stub.startOnboarding(principal);
   expect(connected.state).toBe("ready");

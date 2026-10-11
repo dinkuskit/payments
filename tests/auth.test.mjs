@@ -28,3 +28,22 @@ test('shared issuer identity is verified with audience, expiry, site, and separa
     await assert.rejects(verify(request(invalidToken), 'payments:admin'));
   }
 });
+
+test('a store pass carries the web address DinkusKit.com checked, and a malformed one fails closed', async () => {
+  const { publicKey, privateKey } = await generateKeyPair('ES256');
+  const issuer = 'https://accounts.example.invalid';
+  const verify = createAccountAuthenticator({ issuer, audience: 'dinkus-payments', jwksUrl: issuer + '/jwks' }, async () => publicKey);
+  const issue = siteOrigin => new SignJWT({ site_id: 'site-a', scope: 'payments:checkout', site_origin: siteOrigin })
+    .setProtectedHeader({ alg: 'ES256' }).setIssuer(issuer).setAudience('dinkus-payments').setSubject('merchant-a')
+    .setIssuedAt().setExpirationTime('5m').sign(privateKey);
+  const request = token => new Request('https://payments.example.invalid/v1/checkout/session', { headers: { authorization: `Bearer ${token}`, 'x-dinkus-site': 'site-a' } });
+  for (const origin of ['https://shop.example.test', 'https://shop.example.test:8443']) {
+    assert.deepEqual(await verify(request(await issue(origin)), 'payments:checkout'),
+      { accountId: JSON.stringify([issuer, 'merchant-a']), siteId: 'site-a', siteOrigin: origin });
+  }
+  for (const malformed of ['', 'http://shop.example.test', 'https://shop.example.test/', 'https://shop.example.test/cart',
+    'https://shop.example.test?next=1', 'https://buyer@shop.example.test', 'https://SHOP.example.test', 'https://shop.example.test:443',
+    'javascript:alert(1)', `https://${'a'.repeat(2050)}.example`, 42, ['https://shop.example.test'], null]) {
+    await assert.rejects(verify(request(await issue(malformed)), 'payments:checkout'), /unauthorized/, JSON.stringify(malformed));
+  }
+});

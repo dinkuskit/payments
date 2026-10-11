@@ -1,7 +1,15 @@
 {
   "closeout": null,
   "created_at": "2026-10-10T04:09:17+00:00",
-  "current_focus": null,
+  "current_focus": {
+    "cadence": "sequential",
+    "confirmed": true,
+    "confirmed_at": "2026-10-11T12:42:58+00:00",
+    "domain": "Checkout return pages",
+    "started_at": "2026-10-11T12:42:58+00:00",
+    "status": "confirmed",
+    "summary": "Shoppers return to the store's own /checkout/success and /cart. The store's address comes from DinkusKit.com's signed site_origin claim, never request input. The maintainer chose 'From DinkusKit.com' on a decision card on 2026-10-11. No receipt route in Payments."
+  },
   "decisions": [
     {
       "baseline_ref": "git:28b7773443e9bee0d9f56da2035eae1063681a4d",
@@ -2273,6 +2281,79 @@
       "superseded_by": null,
       "updated_at": "2026-10-10T04:09:17+00:00",
       "verification_ref": null
+    },
+    {
+      "baseline_ref": "git:4d1fc20",
+      "candidate_refs": [],
+      "choice": "Each checkout returns to the store's own pages: Stripe success_url https://<store>/checkout/success?session_id={CHECKOUT_SESSION_ID}, Authorize.net return https://<store>/checkout/success, cancel https://<store>/cart. <store> comes only from the site_origin claim DinkusKit.com signs into the store's pass from its Connect-checked store record; Payments accepts it only as an exact https origin and never takes a return page from request input. A pass without it cannot start a checkout (409 store_origin_missing); lookups, wakes and webhooks need none. CHECKOUT_SUCCESS_URL and CHECKOUT_CANCEL_URL are removed. No receipt route: order details stay in Commerce and the store key never reaches Payments.",
+      "context_ref": "github:dinkuskit/payments/pull/37",
+      "created_at": "2026-10-11T12:42:58+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-checkout-sessions-001",
+        "payments-shared-store-consumer-032",
+        "payments-authorize-net-binding-003"
+      ],
+      "domain": "Checkout return pages",
+      "history": [
+        {
+          "at": "2026-10-11T12:42:58+00:00",
+          "choice": "Each checkout returns to the store's own pages: Stripe success_url https://<store>/checkout/success?session_id={CHECKOUT_SESSION_ID}, Authorize.net return https://<store>/checkout/success, cancel https://<store>/cart. <store> comes only from the site_origin claim DinkusKit.com signs into the store's pass from its Connect-checked store record; Payments accepts it only as an exact https origin and never takes a return page from request input. A pass without it cannot start a checkout (409 store_origin_missing); lookups, wakes and webhooks need none. CHECKOUT_SUCCESS_URL and CHECKOUT_CANCEL_URL are removed. No receipt route: order details stay in Commerce and the store key never reaches Payments.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-11T12:42:59+00:00",
+          "choice": "Each checkout returns to the store's own pages: Stripe success_url https://<store>/checkout/success?session_id={CHECKOUT_SESSION_ID}, Authorize.net return https://<store>/checkout/success, cancel https://<store>/cart. <store> comes only from the site_origin claim DinkusKit.com signs into the store's pass from its Connect-checked store record; Payments accepts it only as an exact https origin and never takes a return page from request input. A pass without it cannot start a checkout (409 store_origin_missing); lookups, wakes and webhooks need none. CHECKOUT_SUCCESS_URL and CHECKOUT_CANCEL_URL are removed. No receipt route: order details stay in Commerce and the store key never reaches Payments.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-11T12:42:59+00:00",
+          "choice": "Each checkout returns to the store's own pages: Stripe success_url https://<store>/checkout/success?session_id={CHECKOUT_SESSION_ID}, Authorize.net return https://<store>/checkout/success, cancel https://<store>/cart. <store> comes only from the site_origin claim DinkusKit.com signs into the store's pass from its Connect-checked store record; Payments accepts it only as an exact https origin and never takes a return page from request input. A pass without it cannot start a checkout (409 store_origin_missing); lookups, wakes and webhooks need none. CHECKOUT_SUCCESS_URL and CHECKOUT_CANCEL_URL are removed. No receipt route: order details stay in Commerce and the store key never reaches Payments.",
+          "from": "implemented",
+          "implementation_ref": "src/hosted/auth.ts;src/checkout/return-pages.ts;src/cloudflare/worker.ts;src/checkout/sessions.ts;src/authorize-net/checkout.ts;src/hosted/http.ts",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-store-return-pages-033",
+      "implementation_ref": "src/hosted/auth.ts;src/checkout/return-pages.ts;src/cloudflare/worker.ts;src/checkout/sessions.ts;src/authorize-net/checkout.ts;src/hosted/http.ts",
+      "question": "Where do shoppers land after paying or cancelling, and how does Payments learn each store's address?",
+      "rationale": "The maintainer (GitHub saariuslystoned) chose 'From DinkusKit.com' on a decision card on 2026-10-11, over Commerce sending its own address. One fixed dinkuskit.com page served every store, and DinkusKit.com has no such page. Signing DinkusKit.com's checked address into the pass keeps it server-owned without spending Commerce bytes or letting a caller pick where shoppers land. Deploy DinkusKit.com with the claim first.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "verified",
+      "superseded_by": null,
+      "updated_at": "2026-10-11T12:42:59+00:00",
+      "verification_ref": ".grilltrack/proof/store-return-pages-033/PROOF.md"
     }
   ],
   "last_activation": {
@@ -2295,5 +2376,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-10T04:09:17+00:00"
+  "updated_at": "2026-10-11T12:42:59+00:00"
 }
