@@ -32,3 +32,9 @@ base/head tuple. Their immutable receipts and finding dispositions are recorded
 in PR #39. Merge remains a maintainer decision. Registry/npm publication,
 deployment, and live processor or merchant traffic require separate approval.
 No tarball-install or live merchant journey is claimed by this local build proof.
+
+Native review accepted one P2 finding on stale release-facing documentation.
+README, CLI package/version examples, and the current seeded Registry artifact
+path now match `0.1.0` release preparation. Historical proof is preserved.
+Publication, deployment, and live traffic remain separate approvals. The private
+status API remains authenticated; public package metadata does not change it.

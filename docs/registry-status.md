@@ -72,12 +72,13 @@ HTTP verifier and should redirect through the normal login boundary. The
 fixture only permits the fixed roles on loopback and is not a deployable
 production authentication adapter.
 
-This is seeded post-install Registry state: it writes the normal
-`registry/dinkus-payments/0.0.0/` artifacts and an active `source=registry`
-row, then loads them through the normal local runtime. It is not installer
-proof. In particular, it does not provide authoritative publisher/release
-records, consent receipts, Registry publication, deployment, account
-connection, or provider traffic.
+This is seeded post-install Registry state for `0.1.0` release preparation: it
+writes the normal `registry/dinkus-payments/0.1.0/` artifacts and an active
+`source=registry` row, then loads them through the normal local runtime. It is
+not installer proof. In particular, it does not provide authoritative
+publisher/release records, consent receipts, Registry publication, deployment,
+account connection, or provider traffic (actual Registry publication and live
+deployment have not occurred and remain separate human approval gates).
 
 EmDash 1.2.0's normal authoritative reader uses HTTPS-only SSRF-safe fetch;
 loopback/private PDS addresses are rejected. Registry client's direct PDS
@@ -97,12 +98,13 @@ plugin validation/build, and plugin runtime tests. `prepare` additionally
 runs the official bundle command. The harness needs no credentials or live
 providers.
 
-The committed source tests prove the private status contract and official
-runtime host behavior. The reusable harness records fresh artifact hashes in
-each explicitly supplied external run directory; no generated proof packet is
-committed here. This seeded harness alone proves neither Registry publication nor actual
-installer verification; the separately recorded actual installer run covers
-the local installation path with the limits described above.
+The committed source tests prove the authenticated private status contract
+and official runtime host behavior. The reusable harness records fresh artifact
+hashes in each explicitly supplied external run directory; no generated proof
+packet is committed here. This seeded harness alone proves neither Registry
+publication nor actual installer verification; the separately recorded actual
+installer run covers the local installation path with the limits described
+above.
 
 Hosted Worker and plugin typechecks are separate because importing EmDash's
 browser declarations into the Worker compilation introduces incompatible

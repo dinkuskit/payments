@@ -9,12 +9,14 @@ churn outside Commerce core.
 
 Local hosted-connection and Checkout Session adapter. The package name is
 reserved as `@dinkuskit/payments`, the EmDash plugin ID is `dinkus-payments`,
-and the manifest remains private at `0.0.0`. The service includes persistent
+and package metadata and plugin manifests are aligned for public `0.1.0` release
+preparation while remaining unpublished. The service includes persistent
 account bindings, a readiness gate for new checkout, an existing-binding read
 for reconciliation, Stripe hosted Checkout Sessions, and raw-byte webhook
 verification that only wakes lookup. Its Worker is limited to test mode.
-There is no registry-installable plugin, deployed service, live payment path,
-package release, or production compatibility promise yet.
+Actual package publication, Registry release, service deployment, and live
+payment traffic have not occurred and remain separate human approval gates;
+there is no production compatibility promise yet.
 
 The demo direction is deliberately narrow:
 
