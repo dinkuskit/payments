@@ -1,12 +1,25 @@
 import { DurableObject } from "cloudflare:workers";
 import { storeReturnPages, type ReturnPages } from "../checkout/return-pages.js";
-import { createCheckoutSessionService, type AttemptRecord } from "../checkout/sessions.js";
+import { CheckoutError, createCheckoutSessionService, type AttemptRecord } from "../checkout/sessions.js";
 import { createStripeWebhookVerifier, createWebhookHandler, WebhookError } from "../checkout/webhook.js";
 import { assertCommercePaymentWake, assertWakeContext, consumeWakeBatch, WakeError, type CommercePaymentWake, type ReconciliationResult, type WakeContext, type WakeEventStore } from "../checkout/wakes.js";
 import { ConnectionError, createConnectionService, type CheckoutBinding, type Connection, type Principal, type Status, type TestOrderEvidence } from "../hosted/connection.js";
 import { createAccountAuthenticator } from "../hosted/auth.js";
 import { createHostedHandler } from "../hosted/http.js";
 import { createStripeCheckout } from "../stripe/checkout.js";
+import {
+  assertPlaygroundStripeKey,
+  isPlayground,
+  playgroundBinding,
+  playgroundIpKey,
+  takePlaygroundSessionSlot,
+  PLAYGROUND_BINDING_REF,
+  PLAYGROUND_IP_LIMIT,
+  PLAYGROUND_RETENTION_MS,
+  PLAYGROUND_SITE_ID,
+  PLAYGROUND_STRIPE_ACCOUNT_ID,
+  playgroundTenantLimit,
+} from "../checkout/playground.js";
 import { createStripeOnboarding } from "../stripe/onboarding.js";
 import {
   authorizeNetEndpoints,
@@ -50,6 +63,10 @@ export class PaymentConnection extends DurableObject<Env> {
     }
     // Setup's "Place a test order" check: the first time the provider confirmed each TEST checkout as paid.
     sql.exec("CREATE TABLE IF NOT EXISTS paid_test_checkouts (attempt_id TEXT PRIMARY KEY, binding_ref TEXT NOT NULL, provider TEXT NOT NULL, account_ref TEXT NOT NULL, amount_minor TEXT NOT NULL, currency TEXT NOT NULL, paid_at INTEGER NOT NULL)");
+    // Playground only: which attempts to purge, and opaque rate-limit hits.
+    sql.exec("CREATE TABLE IF NOT EXISTS playground_attempts (attempt_id TEXT PRIMARY KEY, created_at INTEGER NOT NULL)");
+    sql.exec("CREATE TABLE IF NOT EXISTS playground_rate_hits (bucket TEXT NOT NULL, at INTEGER NOT NULL)");
+    sql.exec("CREATE INDEX IF NOT EXISTS playground_rate_hits_bucket ON playground_rate_hits (bucket, at)");
     this.wakeEvents = {
       pending: batchLimit => sql.exec<WakeRow>(
         "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, authorize_net_merchant_id AS authorizeNetMerchantId, mode FROM checkout_wake_events WHERE acknowledged_at IS NULL ORDER BY received_at ASC LIMIT ?",
@@ -90,9 +107,11 @@ export class PaymentConnection extends DurableObject<Env> {
       authorizeNetMerchantId: (this.env.AUTHORIZE_NET_MERCHANT_ID as string) || this.env.AUTHORIZE_NET_API_LOGIN_ID,
     });
   }
-  private checkout(returnPages?: ReturnPages) {
+  private checkout(returnPages?: ReturnPages, playground = false) {
     const sql = this.ctx.storage.sql;
     const connection = this.connection();
+    const fixed = (principal: Principal, ref: string) =>
+      isPlayground(principal) && ref === PLAYGROUND_BINDING_REF ? playgroundBinding() : null;
     return createCheckoutSessionService({
       mode: "test",
       successUrl: returnPages?.successUrl,
@@ -104,10 +123,71 @@ export class PaymentConnection extends DurableObject<Env> {
         },
         write: record => { sql.exec("INSERT INTO checkout_attempts (attempt_id,value) VALUES (?,?) ON CONFLICT(attempt_id) DO UPDATE SET value=excluded.value", record.attemptId, JSON.stringify(record)); },
       })) },
-      readyBinding: (principal, ref) => connection.checkoutBinding(principal, ref),
-      existingBinding: (principal, ref) => connection.existingBinding(principal, ref),
-      provider: createStripeCheckout({ apiKey: this.env.STRIPE_API_KEY, mode: "test" }),
+      readyBinding: async (principal, ref) => playground ? fixed(principal, ref) : connection.checkoutBinding(principal, ref),
+      existingBinding: (principal, ref) => playground ? fixed(principal, ref) : connection.existingBinding(principal, ref),
+      provider: playground
+        // Fails closed with stripe_mode_mismatch unless the playground key is sk_test_.
+        ? createStripeCheckout({ apiKey: assertPlaygroundStripeKey(this.env.STRIPE_PLAYGROUND_SECRET_KEY), mode: "test", ownAccountId: PLAYGROUND_STRIPE_ACCOUNT_ID })
+        : createStripeCheckout({ apiKey: this.env.STRIPE_API_KEY, mode: "test" }),
     });
+  }
+  /**
+   * The shared playground tenant: a fixed sandbox binding, lookup-only status
+   * (no payment wakes), per-tenant and per-IP session limits, 24 h retention.
+   */
+  private assertPlaygroundObject(principal: Principal) {
+    if (!isPlayground(principal)) throw new CheckoutError("binding_mismatch");
+  }
+  async playgroundEnsureSession(principal: Principal, request: PaymentRequest, clientIp: string) {
+    this.assertPlaygroundObject(principal);
+    const checkout = this.checkout(storeReturnPages(principal, "stripe"), true);
+    if (!checkout.readAttempt(request.attemptId)) {
+      const ipKey = await playgroundIpKey(clientIp);
+      const sql = this.ctx.storage.sql;
+      this.ctx.storage.transactionSync(() => takePlaygroundSessionSlot({
+        hits: (bucket, since) => sql.exec<{ at: number }>("SELECT at FROM playground_rate_hits WHERE bucket=? AND at>?", bucket, since).toArray().map(row => row.at),
+        record: (bucket, at) => { sql.exec("INSERT INTO playground_rate_hits (bucket,at) VALUES (?,?)", bucket, at); },
+      }, ipKey, Date.now(), playgroundTenantLimit(this.env)));
+    }
+    const outcome = await checkout.ensureSessionFor(principal, request);
+    if (checkout.readAttempt(request.attemptId)) {
+      this.ctx.storage.sql.exec("INSERT OR IGNORE INTO playground_attempts (attempt_id,created_at) VALUES (?,?)", request.attemptId, Date.now());
+      if (await this.ctx.storage.getAlarm() === null) await this.ctx.storage.setAlarm(Date.now() + PLAYGROUND_RETENTION_MS);
+    }
+    return outcome;
+  }
+  async playgroundLookup(principal: Principal, request: PaymentRequest) {
+    this.assertPlaygroundObject(principal);
+    return this.checkout(undefined, true).lookupFor(principal, request);
+  }
+  async playgroundReceipt(principal: Principal, sessionId: string): Promise<PaymentOutcome> {
+    this.assertPlaygroundObject(principal);
+    const row = this.ctx.storage.sql.exec<{ attemptId: string }>(
+      "SELECT a.attempt_id AS attemptId FROM checkout_attempts a JOIN playground_attempts p ON p.attempt_id=a.attempt_id WHERE json_extract(a.value,'$.stripeSessionId')=? LIMIT 1",
+      sessionId,
+    ).toArray()[0];
+    if (!row) return { outcome: "unknown" };
+    return this.checkout(undefined, true).lookupAttemptFor(principal, row.attemptId);
+  }
+  /** Deletes playground checkout records and rate-limit hits older than the retention window. */
+  purgePlayground(now = Date.now()): number {
+    const sql = this.ctx.storage.sql;
+    const cutoff = now - PLAYGROUND_RETENTION_MS;
+    return this.ctx.storage.transactionSync(() => {
+      const stale = sql.exec<{ attemptId: string }>("SELECT attempt_id AS attemptId FROM playground_attempts WHERE created_at<=?", cutoff).toArray();
+      for (const { attemptId } of stale) {
+        sql.exec("DELETE FROM checkout_attempts WHERE attempt_id=?", attemptId);
+        sql.exec("DELETE FROM playground_attempts WHERE attempt_id=?", attemptId);
+      }
+      sql.exec("DELETE FROM playground_rate_hits WHERE at<=?", now - Math.max(PLAYGROUND_IP_LIMIT.windowMs, playgroundTenantLimit(this.env).windowMs));
+      return stale.length;
+    });
+  }
+  async alarm() {
+    const now = Date.now();
+    this.purgePlayground(now);
+    const next = this.ctx.storage.sql.exec<{ oldest: number | null }>("SELECT MIN(created_at) AS oldest FROM playground_attempts").toArray()[0]?.oldest;
+    if (typeof next === "number") await this.ctx.storage.setAlarm(Math.max(now + 1000, next + PLAYGROUND_RETENTION_MS));
   }
   private authorizeNetCheckout(siteId: string, returnPages?: ReturnPages) {
     const sql = this.ctx.storage.sql;
@@ -145,6 +225,8 @@ export class PaymentConnection extends DurableObject<Env> {
   async checkoutBinding(principal: Principal, bindingRef: string) { return this.connection().checkoutBinding(principal, bindingRef); }
   async existingBinding(principal: Principal, bindingRef: string) { return this.connection().existingBinding(principal, bindingRef); }
   async ensureSession(principal: Principal, request: PaymentRequest) {
+    // The playground creates sessions only through playgroundEnsureSession (rate limited).
+    if (isPlayground(principal)) throw new CheckoutError("binding_mismatch");
     if ((this.env.PAYMENT_PROVIDER as string) === "authorize_net") {
       const binding = await this.connection().checkoutBinding(principal, request.bindingRef);
       if (!binding || binding.providerId !== "authorize_net") return { outcome: "unknown" as const };
@@ -153,6 +235,7 @@ export class PaymentConnection extends DurableObject<Env> {
     return this.notePaid(principal, request, await this.checkout(storeReturnPages(principal, "stripe")).ensureSessionFor(principal, request));
   }
   async lookup(principal: Principal, request: PaymentRequest) {
+    if (isPlayground(principal)) return this.playgroundLookup(principal, request);
     if ((this.env.PAYMENT_PROVIDER as string) === "authorize_net") {
       const binding = await this.connection().existingBinding(principal, request.bindingRef);
       if (!binding || binding.providerId !== "authorize_net") return { outcome: "unknown" as const };
@@ -214,6 +297,7 @@ export class PaymentConnection extends DurableObject<Env> {
   }
   async listWakes(principal: Principal, bindingRef: string, limit: number): Promise<readonly CommercePaymentWake[]> {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new WakeError("invalid_batch_limit");
+    if (isPlayground(principal)) return [];
     const binding = await this.connection().existingBinding(principal, bindingRef);
     if (!binding) throw new WakeError("binding_not_found");
     const rows = this.ctx.storage.sql.exec<WakeRow>(
@@ -233,6 +317,7 @@ export class PaymentConnection extends DurableObject<Env> {
   }
   async acknowledgeWake(principal: Principal, wake: CommercePaymentWake): Promise<boolean> {
     assertCommercePaymentWake(wake);
+    if (isPlayground(principal)) throw new WakeError("binding_not_found");
     const binding = await this.connection().existingBinding(principal, wake.bindingRef);
     if (!binding) throw new WakeError("binding_not_found");
     return this.ctx.storage.transactionSync(() => {
@@ -290,6 +375,8 @@ export class PaymentConnection extends DurableObject<Env> {
       wake: {
         async wake(context) {
           assertWakeContext(context);
+          // The playground is lookup-only: its store confirms on the success page.
+          if (context.siteId === PLAYGROUND_SITE_ID) return;
           const existing = sql.exec<WakeRow>(
             "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, authorize_net_merchant_id AS authorizeNetMerchantId, mode FROM checkout_wake_events WHERE event_id=?",
             context.eventId,
@@ -419,8 +506,19 @@ export default {
             existingBinding: (p, ref) => stub.existingBinding(p, ref),
           };
         },
-        checkout: principal => {
+        checkout: (principal, context) => {
           const stub = stubFor(env, principal.siteId);
+          if (isPlayground(principal)) {
+            if (!env.STRIPE_PLAYGROUND_SECRET_KEY) throw new Error("playground_unconfigured");
+            return {
+              ensureSession: request => {
+                if (!context.clientIp) throw new Error("client_ip_required");
+                return stub.playgroundEnsureSession(principal, request, context.clientIp);
+              },
+              lookup: request => stub.playgroundLookup(principal, request),
+              receipt: sessionId => stub.playgroundReceipt(principal, sessionId),
+            };
+          }
           return { ensureSession: request => stub.ensureSession(principal, request), lookup: request => stub.lookup(principal, request) };
         },
         wakes: principal => {
@@ -438,6 +536,8 @@ export default {
           if (session.object !== "checkout.session") return;
           const siteId = session.metadata?.dinkus_site;
           if (!siteId) throw new WebhookError("missing_site");
+          // Lookup-only tenant: never queue wakes for the playground.
+          if (siteId === PLAYGROUND_SITE_ID) return;
           // Re-verify inside the site object. Routing uses only post-verify metadata.
           await stubFor(env, siteId).receiveWebhook(payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength) as ArrayBuffer, signature, stripeAccount);
         },

@@ -25,6 +25,8 @@
     "ACCOUNT_JWKS_URL": "https://dinkuskit.com/account/.well-known/jwks.json",
     "ONBOARDING_RETURN_URL": "https://dinkuskit.com/account",
     "ONBOARDING_REFRESH_URL": "https://dinkuskit.com/account",
-    "PAYMENT_PROVIDER": "stripe"
+    "PAYMENT_PROVIDER": "stripe",
+    "PLAYGROUND_TENANT_RATE_LIMIT": "60",
+    "PLAYGROUND_TENANT_RATE_WINDOW_SECONDS": "600"
   }
 }

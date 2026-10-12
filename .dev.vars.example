@@ -1,6 +1,8 @@
 # Host secret bindings. Set locally with real test credentials only.
 STRIPE_API_KEY=
 STRIPE_WEBHOOK_SECRET=
+# Playground tenant only: a Stripe TEST secret key (sk_test_) for the sandbox account.
+STRIPE_PLAYGROUND_SECRET_KEY=
 AUTHORIZE_NET_API_LOGIN_ID=
 AUTHORIZE_NET_TRANSACTION_KEY=
 AUTHORIZE_NET_SIGNATURE_KEY=

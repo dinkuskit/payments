@@ -2,6 +2,8 @@
 interface Env {
   STRIPE_API_KEY: string;
   STRIPE_WEBHOOK_SECRET: string;
+  /** Stripe TEST secret key of the playground sandbox account. Must be sk_test_; fails closed otherwise. */
+  STRIPE_PLAYGROUND_SECRET_KEY?: string;
   AUTHORIZE_NET_API_LOGIN_ID: string;
   AUTHORIZE_NET_TRANSACTION_KEY: string;
   AUTHORIZE_NET_SIGNATURE_KEY: string;

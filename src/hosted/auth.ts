@@ -1,5 +1,6 @@
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 import type { Principal } from "./connection.js";
+import { PLAYGROUND_SITE_ID } from "../checkout/playground.js";
 
 export function createAccountAuthenticator(config: { issuer: string; audience: string; jwksUrl: string }, key?: JWTVerifyGetKey) {
   if (new URL(config.issuer).protocol !== "https:" || new URL(config.jwksUrl).protocol !== "https:" || !config.audience) throw new Error("invalid_identity_configuration");
@@ -11,6 +12,10 @@ export function createAccountAuthenticator(config: { issuer: string; audience: s
       issuer: config.issuer, audience: config.audience, algorithms: ["RS256", "ES256"], requiredClaims: ["exp", "iat", "sub"], maxTokenAge: "1h",
     });
     if (typeof payload.sub !== "string" || !payload.sub.trim() || payload.sub.length > 200 || typeof payload.site_id !== "string" || !payload.site_id.trim() || payload.site_id.length > 200 || typeof payload.scope !== "string" || !payload.scope.split(" ").includes(scope) || request.headers.get("x-dinkus-site") !== payload.site_id) throw new Error("unauthorized");
+    // The shared playground's pass is narrow: checkout only. A pass for the
+    // playground site that also claims any other scope is rejected outright,
+    // and site_id pins it to the playground's own Durable Object.
+    if (payload.site_id === PLAYGROUND_SITE_ID && (scope !== "payments:checkout" || payload.scope !== "payments:checkout")) throw new Error("unauthorized");
     // Store passes carry the store's web address as DinkusKit.com checked it at Connect.
     const siteOrigin = payload.site_origin === undefined ? undefined : storeOrigin(payload.site_origin);
     if (siteOrigin === null) throw new Error("unauthorized");

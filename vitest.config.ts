@@ -6,6 +6,7 @@ export default defineConfig({
     miniflare: { bindings: {
       STRIPE_API_KEY: "sk_test_synthetic_fixture",
       STRIPE_WEBHOOK_SECRET: "whsec_synthetic_fixture",
+      STRIPE_PLAYGROUND_SECRET_KEY: "sk_test_synthetic_playground_fixture",
       ONBOARDING_RETURN_URL: "https://accounts.example.invalid/stripe/return",
       ONBOARDING_REFRESH_URL: "https://accounts.example.invalid/stripe/refresh",
       AUTHORIZE_NET_API_LOGIN_ID: "synthetic-login",

@@ -2500,6 +2500,49 @@
       "superseded_by": null,
       "updated_at": "2026-10-11T14:46:03+00:00",
       "verification_ref": ".grilltrack/proof/test-order-check-034/PROOF.md"
+    },
+    {
+      "baseline_ref": "git:f6f804ef9a37aa911f886eb61d2d5df5dc9bb391",
+      "candidate_refs": [],
+      "choice": "Payments hosts a shared 'playground' tenant (site id and binding ref 'playground') bound to the dedicated Stripe sandbox account acct_1UPn3tAq51efiBsg through the STRIPE_PLAYGROUND_SECRET_KEY secret binding, which must be sk_test_ and otherwise fails closed with stripe_mode_mismatch. Status is lookup-only: no payment wakes; the store confirms on its success page with POST /v1/checkout/lookup or GET /v1/checkout/receipt by session_id. New sessions are limited to 3 per 10 minutes per forwarded shopper IP (x-dinkus-client-ip, hashed) plus a tenant-wide ceiling from PLAYGROUND_TENANT_RATE_LIMIT and PLAYGROUND_TENANT_RATE_WINDOW_SECONDS (default 60 per 600 s), returning 429 playground_rate_limited. Playground records and rate hits are purged after 24 h by a Durable Object alarm. The playground Worker's pass is the existing account JWT with site_id playground and scope exactly payments:checkout, limited to session, lookup and receipt.",
+      "context_ref": "github:dinkuskit/payments/pull/41",
+      "created_at": "2026-10-12T17:44:45+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-test-order-check-034"
+      ],
+      "domain": "Payment setup TEST-order check",
+      "history": [
+        {
+          "at": "2026-10-12T18:35:45+00:00",
+          "choice": "Payments hosts a shared 'playground' tenant (site id and binding ref 'playground') bound to the dedicated Stripe sandbox account acct_1UPn3tAq51efiBsg through the STRIPE_PLAYGROUND_SECRET_KEY secret binding, which must be sk_test_ and otherwise fails closed with stripe_mode_mismatch. Status is lookup-only: no payment wakes; the store confirms on its success page with POST /v1/checkout/lookup or GET /v1/checkout/receipt by session_id. New sessions are limited to 3 per 10 minutes per forwarded shopper IP (x-dinkus-client-ip, hashed) plus a tenant-wide ceiling from PLAYGROUND_TENANT_RATE_LIMIT and PLAYGROUND_TENANT_RATE_WINDOW_SECONDS (default 60 per 600 s), returning 429 playground_rate_limited. Playground records and rate hits are purged after 24 h by a Durable Object alarm. The playground Worker's pass is the existing account JWT with site_id playground and scope exactly payments:checkout, limited to session, lookup and receipt.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-playground-tenant-036",
+      "implementation_ref": null,
+      "question": "How does Payments serve the shared public playground store's sandbox checkout?",
+      "rationale": "Lets the public try checkout safely: TEST-only funds, no merchant account, no shopper PII beyond Stripe ids, bounded abuse. The forwarded IP header is accepted for v1 because only the playground Worker holds the credential and the tenant cap bounds abuse; a service binding or signed header is a follow-up.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "locked",
+      "superseded_by": null,
+      "updated_at": "2026-10-12T18:35:45+00:00",
+      "verification_ref": null
     }
   ],
   "last_activation": {
@@ -2522,5 +2565,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-11T14:46:03+00:00"
+  "updated_at": "2026-10-12T18:35:45+00:00"
 }

@@ -36,8 +36,15 @@ export function createStripeCheckout(options: {
   apiKey: string;
   mode: Mode;
   httpClient?: Stripe.HttpClient;
+  /**
+   * When the key belongs to the receiving account itself (the playground
+   * sandbox), calls for that account go direct, without a Stripe-Account header.
+   */
+  ownAccountId?: string;
 }): CheckoutProvider {
   if (!options.apiKey.startsWith(options.mode === "test" ? "sk_test_" : "sk_live_")) throw new Error("stripe_mode_mismatch");
+  const accountOption = (stripeAccountId: string) =>
+    options.ownAccountId !== undefined && stripeAccountId === options.ownAccountId ? {} : { stripeAccount: stripeAccountId };
   const stripe = new Stripe(options.apiKey, { httpClient: options.httpClient ?? Stripe.createFetchHttpClient(), timeout: 10000, maxNetworkRetries: 0 });
   return {
     async createSession(input) {
@@ -66,14 +73,14 @@ export function createStripeCheckout(options: {
         metadata: { dinkus_attempt: input.attemptId, dinkus_binding: input.bindingRef, dinkus_site: input.siteId },
         payment_intent_data: { metadata: { dinkus_attempt: input.attemptId, dinkus_binding: input.bindingRef, dinkus_site: input.siteId } },
         line_items: lineItems,
-      }, { stripeAccount: input.stripeAccountId, idempotencyKey: input.idempotencyKey });
+      }, { ...accountOption(input.stripeAccountId), idempotencyKey: input.idempotencyKey });
       return asSession(session);
     },
     async retrieveSession(sessionId, stripeAccountId) {
-      return asSession(await stripe.checkout.sessions.retrieve(sessionId, { expand: ["payment_intent"] }, { stripeAccount: stripeAccountId }));
+      return asSession(await stripe.checkout.sessions.retrieve(sessionId, { expand: ["payment_intent"] }, accountOption(stripeAccountId)));
     },
     async retrievePaymentIntent(paymentIntentId, stripeAccountId): Promise<ProviderPaymentIntent> {
-      const intent = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ["latest_charge"] }, { stripeAccount: stripeAccountId });
+      const intent = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ["latest_charge"] }, accountOption(stripeAccountId));
       return {
         id: intent.id,
         status: intent.status,
