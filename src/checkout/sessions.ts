@@ -518,6 +518,7 @@ export function createCheckoutSessionService(options: {
 }): {
   ensureSessionFor(principal: Principal, request: PaymentRequest): Promise<PaymentOutcome>;
   lookupFor(principal: Principal, request: PaymentRequest): Promise<PaymentOutcome>;
+  lookupAttemptFor(principal: Principal, attemptId: string): Promise<PaymentOutcome>;
   readAttempt(attemptId: string): AttemptRecord | null;
   retrieveAndMatch(record: AttemptRecord): Promise<void>;
   forPrincipal(principal: Principal): CheckoutPaymentPort;
@@ -540,6 +541,8 @@ export function createCheckoutSessionService(options: {
     const isCurrent = handoff.kind === "current-bounded-1800-1860";
     const windowSeconds = isCurrent ? CURRENT_PAYMENT_WINDOW_MAX_SECONDS : LEGACY_EXACT_PAYMENT_WINDOW_SECONDS;
     const policyKind: PaymentWindowPolicyKind = handoff.kind;
+    // Stripe rejects expires_at sooner than 30 minutes out; never pin one.
+    if (windowSeconds < STRIPE_MIN_EXPIRES_AT_SECONDS) throw new CheckoutError("window_mismatch");
     const record: AttemptRecord = {
       attemptId: request.attemptId,
       bindingRef: request.bindingRef,
@@ -707,9 +710,26 @@ export function createCheckoutSessionService(options: {
     return mappedOutcome(existing);
   }
 
+  /**
+   * Lookup by a stored attempt the caller already resolved server-side (for
+   * example from a Checkout Session id). Same tenant and binding checks as
+   * lookupFor, without a full request body.
+   */
+  async function lookupAttemptFor(principal: Principal, attemptId: string): Promise<PaymentOutcome> {
+    const existing = options.store.transaction(tx => tx.read(attemptId));
+    if (!existing) return unknown();
+    if (existing.siteId !== principal.siteId) throw new CheckoutError("binding_mismatch");
+    const binding = await options.existingBinding(principal, existing.bindingRef);
+    if (!binding || binding.providerId !== "stripe" || binding.bindingRef !== existing.bindingRef ||
+        binding.stripeAccountId !== existing.stripeAccountId || binding.mode !== existing.mode) throw new CheckoutError("binding_mismatch");
+    if (!existing.stripeSessionId) return unknown();
+    return mappedOutcome(existing);
+  }
+
   return {
     ensureSessionFor,
     lookupFor,
+    lookupAttemptFor,
     readAttempt: attemptId => options.store.transaction(tx => tx.read(attemptId)),
     retrieveAndMatch,
     forPrincipal: principal => ({

@@ -1,5 +1,6 @@
 import { AuthorizeNetWebhookError } from "../authorize-net/webhook.js";
 import { CheckoutError, validatePaymentRequest } from "../checkout/sessions.js";
+import { isPlayground, PLAYGROUND_IP_LIMIT, PLAYGROUND_RATE_LIMIT_ERROR } from "../checkout/playground.js";
 import { WebhookError } from "../checkout/webhook.js";
 import { assertCommercePaymentWake, WakeError, type CommercePaymentWake } from "../checkout/wakes.js";
 import type { PaymentOutcome, PaymentRequest } from "../commerce/checkout-port.js";
@@ -10,7 +11,16 @@ type ConnectionApi = Pick<ReturnType<typeof createConnectionService>, "connect" 
 type CheckoutApi = {
   ensureSession(request: PaymentRequest): Promise<PaymentOutcome>;
   lookup(request: PaymentRequest): Promise<PaymentOutcome>;
+  /** Playground only: confirm a payment by Checkout Session id on the store's success page. */
+  receipt?(sessionId: string): Promise<PaymentOutcome>;
 };
+/** Request facts a checkout may need beyond the validated body. */
+export type CheckoutContext = { clientIp?: string };
+
+/** Only these routes are open to the playground's narrow pass. */
+const PLAYGROUND_ROUTES = new Set(["/v1/checkout/session", "/v1/checkout/lookup", "/v1/checkout/receipt"]);
+const PLAYGROUND_SESSION_ID = /^cs_test_[A-Za-z0-9]{1,200}$/;
+const CLIENT_IP = /^[0-9A-Fa-f:.]{2,45}$/;
 type WakeApi = {
   list(bindingRef: string, limit: number): Promise<readonly CommercePaymentWake[]>;
   acknowledge(wake: CommercePaymentWake): Promise<boolean>;
@@ -69,6 +79,9 @@ async function hasBodyBytes(request: Request): Promise<boolean> {
 
 function checkoutErrorStatus(error: unknown): number {
   if (!(error instanceof Error)) return 503;
+  // Thrown inside the playground Durable Object; only the message survives RPC.
+  if (error.message === PLAYGROUND_RATE_LIMIT_ERROR) return 429;
+  if (error.message === "stripe_mode_mismatch" || error.message === "playground_unconfigured") return 503;
   if (error.message === "connection_owner_mismatch") return 403;
   // Thrown inside the store's Durable Object; only the message survives RPC.
   if (error.message === "store_origin_missing") return 409;
@@ -84,7 +97,7 @@ function checkoutErrorStatus(error: unknown): number {
 export function createHostedHandler(options: {
   authenticate(request: Request, scope: "payments:admin" | "payments:checkout"): Promise<Principal>;
   service(principal: Principal): ConnectionApi;
-  checkout?(principal: Principal): CheckoutApi;
+  checkout?(principal: Principal, context: CheckoutContext): CheckoutApi;
   wakes?(principal: Principal): WakeApi;
   webhook?(payload: Uint8Array, signature: string, stripeAccount: string | null): Promise<void>;
   authorizeNetWebhook?(payload: Uint8Array, signature: string, eventId: string, siteId: string): Promise<void>;
@@ -134,6 +147,9 @@ export function createHostedHandler(options: {
     let principal: Principal;
     try { principal = await options.authenticate(request, route.scope); }
     catch { return respond({ error: "unauthorized" }, 401); }
+    const playground = isPlayground(principal);
+    if (playground && !PLAYGROUND_ROUTES.has(pathname)) return respond({ error: "forbidden" }, 403);
+    if (!playground && pathname === "/v1/checkout/receipt") return respond({ error: "not_found" }, 404);
     try {
       if (pathname === "/v1/connect") {
         const service = options.service(principal);
@@ -183,12 +199,34 @@ export function createHostedHandler(options: {
         return respond({ acknowledged: await options.wakes(principal).acknowledge(wake) });
       }
       if (!options.checkout) return respond({ error: "not_found" }, 404);
+      if (pathname === "/v1/checkout/receipt") {
+        // Validated before any Durable Object is touched.
+        const ids = searchParams.getAll("session_id");
+        if (searchParams.size !== 1 || ids.length !== 1 || !PLAYGROUND_SESSION_ID.test(ids[0])) return respond({ error: "invalid_session_id" }, 400);
+        const checkout = options.checkout(principal, {});
+        if (!checkout.receipt) return respond({ error: "not_found" }, 404);
+        return respond(await checkout.receipt(ids[0]));
+      }
       if (searchParams.size) return respond({ error: "unexpected_input" }, 400);
       const requestBody = await readCheckoutRequest(request);
-      const checkout = options.checkout(principal);
+      const context: CheckoutContext = {};
+      if (playground && pathname === "/v1/checkout/session") {
+        // The playground Worker calls server-to-server, so it forwards the
+        // shopper's IP. Without one, the per-IP limit cannot apply: fail closed.
+        const clientIp = request.headers.get("x-dinkus-client-ip")?.trim();
+        if (!clientIp || !CLIENT_IP.test(clientIp)) return respond({ error: "client_ip_required" }, 400);
+        context.clientIp = clientIp;
+      }
+      const checkout = options.checkout(principal, context);
       return respond(pathname === "/v1/checkout/session" ? await checkout.ensureSession(requestBody) : await checkout.lookup(requestBody));
     } catch (error) {
-      return respond({ error: error instanceof Error ? error.message : "service_unavailable" }, checkoutErrorStatus(error));
+      const status = checkoutErrorStatus(error);
+      if (status === 429) {
+        return Response.json({ error: PLAYGROUND_RATE_LIMIT_ERROR, message: "Too many playground checkouts. Please wait a few minutes and try again." }, {
+          status, headers: { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "Retry-After": String(PLAYGROUND_IP_LIMIT.windowMs / 1000) },
+        });
+      }
+      return respond({ error: error instanceof Error ? error.message : "service_unavailable" }, status);
     }
   };
 }

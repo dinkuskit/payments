@@ -6,6 +6,7 @@ export const hostedHttpRoutes = {
   "/v1/existing-binding": { method: "GET", scope: "payments:checkout" },
   "/v1/checkout/session": { method: "POST", scope: "payments:checkout" },
   "/v1/checkout/lookup": { method: "POST", scope: "payments:checkout" },
+  "/v1/checkout/receipt": { method: "GET", scope: "payments:checkout" },
   "/v1/checkout/wakes": { method: "GET", scope: "payments:checkout" },
   "/v1/checkout/wakes/ack": { method: "POST", scope: "payments:checkout" },
 } as const;
