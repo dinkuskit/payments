@@ -16,3 +16,4 @@
 {"action": "decision_verified", "at": "2026-10-11T14:46:03+00:00", "data": {"decision_id": "payments-test-order-check-034"}, "event_id": "de6c6132-2533-4b71-acb2-3033034176b7"}
 {"action": "decision_verified", "at": "2026-10-11T14:46:03+00:00", "data": {"decision_id": "payments-status-host-access-035"}, "event_id": "1b14dc18-251d-4688-b10e-9b59be3b0f8b"}
 {"action": "decision_proposed", "at": "2026-10-12T17:44:45+00:00", "data": {"decision_id": "payments-playground-tenant-036"}, "event_id": "b0433aa2-09e2-405a-9ede-459f2dfccedc"}
+{"action": "decision_locked", "at": "2026-10-12T18:35:45+00:00", "data": {"decision_id": "payments-playground-tenant-036"}, "event_id": "12f0e3c5-ca67-4197-88ad-0536b7bf918e"}
