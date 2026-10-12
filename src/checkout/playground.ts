@@ -12,8 +12,28 @@ export const PLAYGROUND_STRIPE_ACCOUNT_ID = "acct_1UPn3tAq51efiBsg";
 
 /** About 3 new checkout sessions per 10 minutes per shopper IP. */
 export const PLAYGROUND_IP_LIMIT = { max: 3, windowMs: 10 * 60 * 1000 } as const;
-/** Ceiling for the whole playground tenant, whatever the IP. */
+/** Default ceiling for the whole playground tenant, whatever the IP. */
 export const PLAYGROUND_TENANT_LIMIT = { max: 60, windowMs: 10 * 60 * 1000 } as const;
+export type RateRule = { max: number; windowMs: number };
+const MAX_TENANT_LIMIT = 100_000;
+const MAX_WINDOW_SECONDS = 24 * 60 * 60;
+
+/**
+ * Tenant-wide limit from the PLAYGROUND_TENANT_RATE_LIMIT (sessions) and
+ * PLAYGROUND_TENANT_RATE_WINDOW_SECONDS vars. Each value falls back to the
+ * default independently when it is missing or not a positive integer in range.
+ */
+export function playgroundTenantLimit(vars: { PLAYGROUND_TENANT_RATE_LIMIT?: unknown; PLAYGROUND_TENANT_RATE_WINDOW_SECONDS?: unknown }): RateRule {
+  const parse = (value: unknown, max: number): number | null => {
+    const text = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
+    if (!/^[1-9][0-9]{0,8}$/.test(text)) return null;
+    const n = Number(text);
+    return n <= max ? n : null;
+  };
+  const limit = parse(vars.PLAYGROUND_TENANT_RATE_LIMIT, MAX_TENANT_LIMIT);
+  const windowSeconds = parse(vars.PLAYGROUND_TENANT_RATE_WINDOW_SECONDS, MAX_WINDOW_SECONDS);
+  return { max: limit ?? PLAYGROUND_TENANT_LIMIT.max, windowMs: windowSeconds === null ? PLAYGROUND_TENANT_LIMIT.windowMs : windowSeconds * 1000 };
+}
 /** Playground checkout records are deleted after this long. */
 export const PLAYGROUND_RETENTION_MS = 24 * 60 * 60 * 1000;
 /** Stable public error code the store can show shoppers. */
@@ -56,9 +76,9 @@ export interface RateWindowStore {
  * Checks both limits, then records one hit in each bucket. Must run inside one
  * synchronous storage transaction so concurrent requests cannot both pass.
  */
-export function takePlaygroundSessionSlot(store: RateWindowStore, ipKey: string, now: number): void {
-  const checks: Array<["ip" | "tenant", string, { max: number; windowMs: number }]> = [
-    ["tenant", "tenant", PLAYGROUND_TENANT_LIMIT],
+export function takePlaygroundSessionSlot(store: RateWindowStore, ipKey: string, now: number, tenantLimit: RateRule = PLAYGROUND_TENANT_LIMIT): void {
+  const checks: Array<["ip" | "tenant", string, RateRule]> = [
+    ["tenant", "tenant", tenantLimit],
     ["ip", `ip:${ipKey}`, PLAYGROUND_IP_LIMIT],
   ];
   for (const [limit, bucket, rule] of checks) {

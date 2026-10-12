@@ -18,7 +18,7 @@ import {
   PLAYGROUND_RETENTION_MS,
   PLAYGROUND_SITE_ID,
   PLAYGROUND_STRIPE_ACCOUNT_ID,
-  PLAYGROUND_TENANT_LIMIT,
+  playgroundTenantLimit,
 } from "../checkout/playground.js";
 import { createStripeOnboarding } from "../stripe/onboarding.js";
 import {
@@ -147,7 +147,7 @@ export class PaymentConnection extends DurableObject<Env> {
       this.ctx.storage.transactionSync(() => takePlaygroundSessionSlot({
         hits: (bucket, since) => sql.exec<{ at: number }>("SELECT at FROM playground_rate_hits WHERE bucket=? AND at>?", bucket, since).toArray().map(row => row.at),
         record: (bucket, at) => { sql.exec("INSERT INTO playground_rate_hits (bucket,at) VALUES (?,?)", bucket, at); },
-      }, ipKey, Date.now()));
+      }, ipKey, Date.now(), playgroundTenantLimit(this.env)));
     }
     const outcome = await checkout.ensureSessionFor(principal, request);
     if (checkout.readAttempt(request.attemptId)) {
@@ -179,7 +179,7 @@ export class PaymentConnection extends DurableObject<Env> {
         sql.exec("DELETE FROM checkout_attempts WHERE attempt_id=?", attemptId);
         sql.exec("DELETE FROM playground_attempts WHERE attempt_id=?", attemptId);
       }
-      sql.exec("DELETE FROM playground_rate_hits WHERE at<=?", now - Math.max(PLAYGROUND_IP_LIMIT.windowMs, PLAYGROUND_TENANT_LIMIT.windowMs));
+      sql.exec("DELETE FROM playground_rate_hits WHERE at<=?", now - Math.max(PLAYGROUND_IP_LIMIT.windowMs, playgroundTenantLimit(this.env).windowMs));
       return stale.length;
     });
   }

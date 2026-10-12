@@ -53,3 +53,17 @@ test("the playground pass is checkout-only; a broader or admin pass for the play
   const merchant = await issue({ site_id: "merchant-site", scope: "payments:checkout payments:admin" });
   assert.equal((await verify(request(merchant, "merchant-site"), "payments:admin")).siteId, "merchant-site");
 });
+
+test("tenant rate limit comes from wrangler vars, validated, defaulting to 60 per 10 minutes", async () => {
+  const { playgroundTenantLimit } = await import("../src/checkout/playground.ts");
+  const fallback = { max: 60, windowMs: 600_000 };
+  assert.deepEqual(playgroundTenantLimit({}), fallback);
+  assert.deepEqual(playgroundTenantLimit({ PLAYGROUND_TENANT_RATE_LIMIT: "60", PLAYGROUND_TENANT_RATE_WINDOW_SECONDS: "600" }), fallback);
+  assert.deepEqual(playgroundTenantLimit({ PLAYGROUND_TENANT_RATE_LIMIT: " 5 ", PLAYGROUND_TENANT_RATE_WINDOW_SECONDS: "120" }), { max: 5, windowMs: 120_000 });
+  assert.deepEqual(playgroundTenantLimit({ PLAYGROUND_TENANT_RATE_LIMIT: 7 }), { max: 7, windowMs: 600_000 });
+  for (const bad of ["", "0", "-1", "1.5", "abc", "1e3", "007", "100001", null, true, {}, NaN, Infinity]) {
+    assert.deepEqual(playgroundTenantLimit({ PLAYGROUND_TENANT_RATE_LIMIT: bad, PLAYGROUND_TENANT_RATE_WINDOW_SECONDS: bad }), fallback, String(bad));
+  }
+  // Each value falls back independently; a window over 24 h is invalid.
+  assert.deepEqual(playgroundTenantLimit({ PLAYGROUND_TENANT_RATE_LIMIT: "9", PLAYGROUND_TENANT_RATE_WINDOW_SECONDS: "86401" }), { max: 9, windowMs: 600_000 });
+});

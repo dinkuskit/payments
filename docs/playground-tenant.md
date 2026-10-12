@@ -12,8 +12,10 @@ sandbox. It is a hosted-service tenant like any store, with these differences.
 - **Lookup-only status.** No payment wakes are queued. The store confirms on its
   success page with `POST /v1/checkout/lookup` or
   `GET /v1/checkout/receipt?session_id=cs_test_...` (playground only).
-- **Rate limits.** 3 new sessions per 10 minutes per shopper IP and 60 per
-  10 minutes for the whole tenant. Over the limit:
+- **Rate limits.** 3 new sessions per 10 minutes per shopper IP, and a tenant-wide
+  ceiling set by the `PLAYGROUND_TENANT_RATE_LIMIT` and
+  `PLAYGROUND_TENANT_RATE_WINDOW_SECONDS` vars (default 60 per 600 s; an
+  invalid value falls back to its default). Over the limit:
   `429 {"error":"playground_rate_limited"}` with `Retry-After: 600`. The
   playground Worker forwards the shopper IP in `x-dinkus-client-ip`; without it
   session creation fails with `400 client_ip_required`. IPs are stored only as

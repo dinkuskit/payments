@@ -188,6 +188,23 @@ test("the per-tenant limit applies across IPs", async () => {
   expect(await limited.json()).toMatchObject({ error: "playground_rate_limited" });
 });
 
+test("the tenant-wide limit follows PLAYGROUND_TENANT_RATE_LIMIT and falls back on invalid values", async () => {
+  stripeFixture();
+  const setVars = (vars: Record<string, string>) => runInDurableObject(playgroundStub(), instance => {
+    (instance as unknown as { env: Env }).env = { ...instance["env" as keyof typeof instance] as Env, ...vars } as Env;
+  });
+  await setVars({ PLAYGROUND_TENANT_RATE_LIMIT: "2", PLAYGROUND_TENANT_RATE_WINDOW_SECONDS: "600" });
+  expect((await call("/v1/checkout/session", { body: payment("pg-cfg-1"), ip: "192.0.2.61" })).status).toBe(200);
+  expect((await call("/v1/checkout/session", { body: payment("pg-cfg-2"), ip: "192.0.2.62" })).status).toBe(200);
+  const limited = await call("/v1/checkout/session", { body: payment("pg-cfg-3"), ip: "192.0.2.63" });
+  expect(limited.status).toBe(429);
+  expect(await limited.json()).toMatchObject({ error: "playground_rate_limited" });
+  // An invalid value falls back to the default 60, so the next session is allowed.
+  await setVars({ PLAYGROUND_TENANT_RATE_LIMIT: "not-a-number", PLAYGROUND_TENANT_RATE_WINDOW_SECONDS: "-5" });
+  expect((await call("/v1/checkout/session", { body: payment("pg-cfg-4"), ip: "192.0.2.64" })).status).toBe(200);
+  await setVars({ PLAYGROUND_TENANT_RATE_LIMIT: "60", PLAYGROUND_TENANT_RATE_WINDOW_SECONDS: "600" });
+});
+
 test("playground checkout records and rate hits are purged after 24 h by the alarm", async () => {
   stripeFixture();
   expect((await call("/v1/checkout/session", { body: payment("pg-old") })).status).toBe(200);
