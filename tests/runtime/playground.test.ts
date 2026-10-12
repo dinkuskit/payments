@@ -171,6 +171,13 @@ test("about 3 sessions per 10 minutes per client IP, then a stable public 429", 
   expect((await call("/v1/checkout/session", { body: payment("pg-rate-4"), ip: "198.51.100.9" })).status).toBe(200);
   // No forwarded shopper IP: fail closed before the Durable Object.
   expect((await call("/v1/checkout/session", { body: payment("pg-rate-5"), ip: null })).status).toBe(400);
+  // Malformed or overlong forwarded IPs fail closed with a clear 400 before the Durable Object.
+  for (const ip of ["abcd", "::::", "1".repeat(46)]) {
+    const rejected = await call("/v1/checkout/session", { body: payment("pg-rate-6"), ip });
+    expect(rejected.status).toBe(400);
+    expect(await rejected.json()).toMatchObject({ error: "invalid_client_ip" });
+  }
+  expect(stripe.creates).toHaveLength(4);
   // Invalid bodies are rejected before any Durable Object or limit is touched.
   const hits = await runInDurableObject(playgroundStub(), instance => instance.ctx.storage.sql.exec("SELECT COUNT(*) AS n FROM playground_rate_hits").one().n);
   expect((await call("/v1/checkout/session", { body: { ...payment("pg-bad"), total: { currency: "EUR", minor: "1200" } }, ip: "192.0.2.1" })).status).toBe(400);
@@ -249,4 +256,16 @@ test("the playground pass is checkout-only and cannot touch other tenants", asyn
   // Playground-only object methods refuse any other principal.
   const refused = await playgroundStub().playgroundLookup({ accountId: "x", siteId: "merchant-site" }, payment("pg-x") as never).then(() => null, (error: Error) => error.message);
   expect(refused).toBe("binding_mismatch");
+});
+
+test("IPv6 shoppers in one /64 and mixed-case spellings share one per-IP bucket", async () => {
+  const stripe = stripeFixture();
+  expect((await call("/v1/checkout/session", { body: payment("pg-v6-0"), ip: "2001:db8:a:b::1" })).status).toBe(200);
+  expect((await call("/v1/checkout/session", { body: payment("pg-v6-1"), ip: "2001:DB8:A:B::FFFF" })).status).toBe(200);
+  expect((await call("/v1/checkout/session", { body: payment("pg-v6-2"), ip: "2001:db8:a:b:1:2:3:4" })).status).toBe(200);
+  expect((await call("/v1/checkout/session", { body: payment("pg-v6-3"), ip: "2001:0db8:000a:000b::9" })).status).toBe(429);
+  // A different /64 and a valid IPv4 shopper still get slots.
+  expect((await call("/v1/checkout/session", { body: payment("pg-v6-4"), ip: "2001:db8:a:c::1" })).status).toBe(200);
+  expect((await call("/v1/checkout/session", { body: payment("pg-v4-0"), ip: "192.0.2.77" })).status).toBe(200);
+  expect(stripe.creates).toHaveLength(5);
 });

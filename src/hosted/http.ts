@@ -5,6 +5,7 @@ import { WebhookError } from "../checkout/webhook.js";
 import { assertCommercePaymentWake, WakeError, type CommercePaymentWake } from "../checkout/wakes.js";
 import type { PaymentOutcome, PaymentRequest } from "../commerce/checkout-port.js";
 import type { Principal, createConnectionService } from "./connection.js";
+import { clientIpRateKey } from "./client-ip.js";
 import { hostedHttpRoutes, hostedWebhookRoutes, matchAuthorizeNetWebhookSite } from "./manifest.js";
 
 type ConnectionApi = Pick<ReturnType<typeof createConnectionService>, "connect" | "status" | "checkoutBinding" | "existingBinding">;
@@ -20,7 +21,6 @@ export type CheckoutContext = { clientIp?: string };
 /** Only these routes are open to the playground's narrow pass. */
 const PLAYGROUND_ROUTES = new Set(["/v1/checkout/session", "/v1/checkout/lookup", "/v1/checkout/receipt"]);
 const PLAYGROUND_SESSION_ID = /^cs_test_[A-Za-z0-9]{1,200}$/;
-const CLIENT_IP = /^[0-9A-Fa-f:.]{2,45}$/;
 type WakeApi = {
   list(bindingRef: string, limit: number): Promise<readonly CommercePaymentWake[]>;
   acknowledge(wake: CommercePaymentWake): Promise<boolean>;
@@ -214,8 +214,12 @@ export function createHostedHandler(options: {
         // The playground Worker calls server-to-server, so it forwards the
         // shopper's IP. Without one, the per-IP limit cannot apply: fail closed.
         const clientIp = request.headers.get("x-dinkus-client-ip")?.trim();
-        if (!clientIp || !CLIENT_IP.test(clientIp)) return respond({ error: "client_ip_required" }, 400);
-        context.clientIp = clientIp;
+        if (!clientIp) return respond({ error: "client_ip_required" }, 400);
+        // Strictly parsed and normalized (lowercase, IPv6 by /64) so malformed
+        // or rotated values cannot mint fresh per-IP buckets.
+        const clientIpKey = clientIpRateKey(clientIp);
+        if (!clientIpKey) return respond({ error: "invalid_client_ip", message: "x-dinkus-client-ip must be a valid IPv4 or IPv6 address." }, 400);
+        context.clientIp = clientIpKey;
       }
       const checkout = options.checkout(principal, context);
       return respond(pathname === "/v1/checkout/session" ? await checkout.ensureSession(requestBody) : await checkout.lookup(requestBody));

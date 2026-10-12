@@ -18,8 +18,10 @@ sandbox. It is a hosted-service tenant like any store, with these differences.
   invalid value falls back to its default). Over the limit:
   `429 {"error":"playground_rate_limited"}` with `Retry-After: 600`. The
   playground Worker forwards the shopper IP in `x-dinkus-client-ip`; without it
-  session creation fails with `400 client_ip_required`. IPs are stored only as
-  SHA-256 hashes.
+  session creation fails with `400 client_ip_required`, and a value that is not
+  a strict IPv4 or IPv6 address fails with `400 invalid_client_ip`. The limit
+  key is normalized: lowercase, IPv4-mapped IPv6 as IPv4, and other IPv6 by its
+  /64 prefix. Keys are stored only as SHA-256 hashes.
 - **Retention.** Playground checkout records and rate-limit hits are deleted
   after 24 h by a Durable Object alarm. Records hold catalog lines and Stripe
   ids only.
