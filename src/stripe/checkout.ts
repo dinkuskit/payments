@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import { createStripeClient } from "./onboarding.js";
 import type { CheckoutProvider, LatestCharge, ProviderPaymentIntent, ProviderSession } from "../checkout/sessions.js";
 import { createPricedChargeLines } from "../checkout/charge-lines.js";
 import type { Mode } from "../hosted/connection.js";
@@ -45,7 +46,7 @@ export function createStripeCheckout(options: {
   if (!options.apiKey.startsWith(options.mode === "test" ? "sk_test_" : "sk_live_")) throw new Error("stripe_mode_mismatch");
   const accountOption = (stripeAccountId: string) =>
     options.ownAccountId !== undefined && stripeAccountId === options.ownAccountId ? {} : { stripeAccount: stripeAccountId };
-  const stripe = new Stripe(options.apiKey, { httpClient: options.httpClient ?? Stripe.createFetchHttpClient(), timeout: 10000, maxNetworkRetries: 0 });
+  const stripe = createStripeClient(options.apiKey, options.mode, options.httpClient);
   return {
     async createSession(input) {
       const priced = input.pricing ? createPricedChargeLines(input.lines, input.pricing, input.total.minor) : undefined;
@@ -63,7 +64,8 @@ export function createStripeCheckout(options: {
           },
         }));
       if (lineItems.length > 100) throw new Error("stripe_line_item_limit");
-      const session = await stripe.checkout.sessions.create({
+      // Preserve the pre-migration card-only Checkout contract on the pinned v1 API.
+      const params: Stripe.Checkout.SessionCreateParams & { payment_method_types: ["card"] } = {
         mode: "payment",
         payment_method_types: ["card"],
         expires_at: input.expiresAtSeconds,
@@ -73,7 +75,8 @@ export function createStripeCheckout(options: {
         metadata: { dinkus_attempt: input.attemptId, dinkus_binding: input.bindingRef, dinkus_site: input.siteId },
         payment_intent_data: { metadata: { dinkus_attempt: input.attemptId, dinkus_binding: input.bindingRef, dinkus_site: input.siteId } },
         line_items: lineItems,
-      }, { ...accountOption(input.stripeAccountId), idempotencyKey: input.idempotencyKey });
+      };
+      const session = await stripe.checkout.sessions.create(params, { ...accountOption(input.stripeAccountId), idempotencyKey: input.idempotencyKey });
       return asSession(session);
     },
     async retrieveSession(sessionId, stripeAccountId) {

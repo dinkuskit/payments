@@ -22,7 +22,7 @@ test("compiled setup retains its verified link and diagnostics within ten bridge
       } as never);
     }
     const saved = await snapshot(host);
-    const link = "https://connect.stripe.com/setup/synthetic-budget";
+    const link = "https://accounts.stripe.com/r/acct_synthetic#alu_test_budget";
     await f.prepareSetupDiagnostics("connecting", { state: "connecting", mode: "test", processorAccountPresent: false, evidence: "unobserved" });
     await host.http.respond("https://payments.dinkuskit.com/v1/connect", Response.json({ state: "setup_required", mode: "test", bindingRef: "synthetic-binding", url: link, expiresAt: Date.now() + 60_000 }));
     const page = JSON.stringify(await f.action("setup_processor"));

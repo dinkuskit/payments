@@ -1,3 +1,4 @@
+import { validOnboardingUrl } from "../onboarding-url.js";
 import { decodeProviderIdentityDiagnostic, type ProviderIdentityDiagnostic } from "../provider-identity.js";
 import { decodeDiagnostics, type ConnectionDiagnostics } from "../connection-diagnostics.js";
 import { pluginResponse } from "emdash/plugin";
@@ -306,8 +307,7 @@ export function createRegistryConnection(options: {
       }
       if (!["setup_required", "action_required"].includes(body.state as string) || !safeString(body.bindingRef, 200)) return { state: "setup_unconfirmed" };
       if (typeof body.url !== "string" || typeof body.expiresAt !== "number" || !Number.isSafeInteger(body.expiresAt) || body.expiresAt <= now() || body.expiresAt > now() + 3_600_000) return { state: "setup_unconfirmed" };
-      const link = new URL(body.url);
-      if (!body.url.startsWith("https://connect.stripe.com/setup/") || link.protocol !== "https:" || link.hostname !== "connect.stripe.com" || link.port || link.username || link.password || link.hash || !link.pathname.startsWith("/setup/")) return { state: "setup_unconfirmed" };
+      if (!validOnboardingUrl(body.url, body.mode as "test" | "live")) return { state: "setup_unconfirmed" };
       const checked = await readStatus(c, c.binding, verified.token, endpoint);
       if (checked.state === "check_failed") return { state: "setup_unconfirmed", checkFailure: checked.checkFailure };
       if (checked.state === "ready" && ((checked.status as { status?: { mode?: string; bindingRef?: string } })?.status?.mode !== body.mode || (checked.status as { status?: { bindingRef?: string } })?.status?.bindingRef !== body.bindingRef)) return { state: "setup_unconfirmed" };

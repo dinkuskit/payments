@@ -1,3 +1,4 @@
+import { stripeV2Account, stripeV2Link } from "../helpers/stripe-v2.js";
 import { env } from 'cloudflare:workers';
 import { afterEach, expect, test, vi } from 'vitest';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
@@ -21,16 +22,17 @@ test('signed merchant connect accepts empty runtime streams and verifies return 
   let ready = false, unavailable = false, creates = 0, links = 0, providerCalls = 0;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
     const url = new URL(String(input));
+    if (url.hostname === "api.stripe.com" && url.pathname === "/v1/account") return Response.json({ object: "account", id: "acct_platform" });
     if (url.href === issuer + '/jwks') return Response.json({ keys: [jwk] });
     expect(url.origin).toBe('https://api.stripe.com');
     providerCalls++;
     if (unavailable) throw new Error('synthetic_provider_unavailable');
-    if (url.pathname === '/v1/account_links') {
+    if (url.pathname === '/v2/core/account_links') {
       links++;
-      return Response.json({ object: 'account_link', url: 'https://connect.stripe.com/setup/fixture', expires_at: Math.floor(Date.now() / 1000) + 600 });
+      return Response.json(stripeV2Link());
     }
-    if (url.pathname === '/v1/accounts') creates++;
-    return Response.json({ object: 'account', id: 'acct_fixture', details_submitted: ready, charges_enabled: ready, payouts_enabled: ready, capabilities: { card_payments: ready ? 'active' : 'pending' }, requirements: {} });
+    if (url.pathname === '/v2/core/accounts') creates++;
+    return Response.json(stripeV2Account("acct_fixture", ready));
   });
   const configured = { ...env, ACCOUNT_ISSUER: issuer, ACCOUNT_AUDIENCE: audience, ACCOUNT_JWKS_URL: issuer + '/jwks' };
   const issue = (subject = 'synthetic-merchant', claimSite = site, scope = 'payments:admin') => new SignJWT({ site_id: claimSite, scope })
@@ -60,7 +62,7 @@ test('signed merchant connect accepts empty runtime streams and verifies return 
   const connected = await call('/v1/connect', { emptyStream: true });
   expect(connected.status).toBe(200);
   const snapshot = await connected.json<{ state: string; bindingRef: string; url: string }>();
-  expect(snapshot).toMatchObject({ state: 'setup_required', mode: 'test', url: 'https://connect.stripe.com/setup/fixture' });
+  expect(snapshot).toMatchObject({ state: 'setup_required', mode: 'test', url: 'https://accounts.stripe.com/r/acct_fixture#alu_test_synthetic' });
   expect(connected.headers.get('Cache-Control')).toBe('no-store');
   // The authenticated refresh operation resumes the same binding/account.
   expect(await (await call('/v1/connect', { emptyStream: true })).json()).toMatchObject({ bindingRef: snapshot.bindingRef, state: 'setup_required' });
@@ -91,10 +93,11 @@ test('a checkout sends shoppers back to the store address signed into its pass, 
   const created: URLSearchParams[] = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = new URL(String(input));
+    if (url.hostname === "api.stripe.com" && url.pathname === "/v1/account") return Response.json({ object: "account", id: "acct_platform" });
     if (url.href === issuer + '/jwks') return Response.json({ keys: [jwk] });
     expect(url.origin).toBe('https://api.stripe.com');
-    if (url.pathname === '/v1/account_links') {
-      return Response.json({ object: 'account_link', url: 'https://connect.stripe.com/setup/fixture', expires_at: Math.floor(Date.now() / 1000) + 600 });
+    if (url.pathname === '/v2/core/account_links') {
+      return Response.json(stripeV2Link());
     }
     if (url.pathname === '/v1/checkout/sessions' && init?.method === 'POST') {
       const params = new URLSearchParams(String(init.body));
@@ -107,7 +110,7 @@ test('a checkout sends shoppers back to the store address signed into its pass, 
         metadata: { dinkus_attempt: params.get('metadata[dinkus_attempt]'), dinkus_binding: params.get('metadata[dinkus_binding]'), dinkus_site: params.get('metadata[dinkus_site]') },
       });
     }
-    return Response.json({ object: 'account', id: 'acct_fixture', details_submitted: true, charges_enabled: true, payouts_enabled: true, capabilities: { card_payments: 'active' }, requirements: {} });
+    return Response.json(stripeV2Account("acct_fixture", true));
   });
   const configured = { ...env, ACCOUNT_ISSUER: issuer, ACCOUNT_AUDIENCE: audience, ACCOUNT_JWKS_URL: issuer + '/jwks' };
   const pass = (scope: string, claims: Record<string, unknown> = {}) => new SignJWT({ site_id: site, scope, ...claims })

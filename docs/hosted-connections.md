@@ -106,20 +106,33 @@ an already acknowledged snapshot is idempotently true.
 One SQLite Durable Object owns a site's payment connection. The first valid
 merchant becomes its binding owner; a different owner is rejected. There is
 no automatic ownership transfer or account-switch operation. Each binding has
-a random immutable reference and a fixed Stripe creation idempotency key.
+a random immutable reference. New account operations record the Accounts v2
+protocol and the actual Stripe platform identity before creation. Explicit
+retries retain the same v2 idempotency key and cannot switch platform scope.
 
-If account creation returns an unknown outcome, retry that key for at most
-23 hours after the first attempt. After that, return `recovery_required` and
-preserve state. Stripe may discard idempotency results after 24 hours; silently
-starting over could create a duplicate. No automatic recovery or account
-deletion is included. Changing the Stripe platform credential to a different
-platform requires an explicit migration assessment, not a routine key rotation.
+Unknown v2 creation outcomes may be explicitly retried for at most 23 hours
+from the first attempt. This conservative application window remains even
+though Accounts v2 documents a longer idempotency lifetime. An older operation
+without a saved account and without the v2 protocol marker returns
+`recovery_required` without provider I/O. Upgrading code does not authorize a
+new operation on another API or platform. Preserve unresolved state; no reset,
+automatic reconciliation or account deletion is included. See the
+[Accounts v2 migration](accounts-v2-migration.md) for the rollout boundary.
 
-Once an account is known, resume produces a fresh one-use onboarding link.
-Readiness requires submitted details, active card payments, enabled charges,
-enabled payouts, and no provider-disabled reason. A provider outage returns
-`checking` and refuses a new checkout binding. Test readiness is labeled
-`mode: test`; it is not permission to accept live payments.
+Existing saved account IDs remain in place and are read through their v2 view.
+Readiness requires an applied merchant configuration, active card-payment and
+payout capabilities, and no user requirements that are currently or past due.
+The read includes `configuration.merchant` and `requirements`; missing or
+unrecognized data never grants readiness. A provider outage returns `checking`
+and refuses a new checkout binding. A valid incomplete account can still
+receive a fresh hosted onboarding link; a browser return never proves ready.
+
+Links use the validated `https://accounts.stripe.com/r/acct_...#alu_test_...`
+format in TEST mode with an ISO expiry from Stripe. The account, mode, host,
+path, fragment and expiry are checked. The legacy `connect.stripe.com/setup/`
+URL format remains accepted for compatibility. Links are ephemeral, never
+stored, and every resume requests a new link for the same account. Test
+readiness is labeled `mode: test`; it is not permission to accept live payments.
 
 The new-checkout readiness gate must not become a reconciliation gate for
 existing payments. The future Payments adapter must persist the original
@@ -128,17 +141,19 @@ when new payments are disabled. It must never substitute another account.
 
 ## Stripe integration scope
 
-The local adapter uses the official Stripe SDK and its pinned stable API,
-with Accounts v1 Standard onboarding. It requests no application fee and
-does not implement subscription billing. Standard account availability and
-the platform's live configuration must be verified with Stripe before live
-activation. This is a test implementation, not a locked geography, fee, loss,
-or platform eligibility policy. Existing-account OAuth linkage is not claimed.
+The account lifecycle uses the official Stripe SDK 23.0.0 with Accounts v2
+on API `2026-09-30.endive`: creation, readiness reads and hosted account links.
+It requests merchant card payments, full Stripe Dashboard access, and Stripe
+fee collection/negative balance responsibility. It leaves identity details
+and account currency to hosted onboarding. Direct-charge Checkout and
+platform diagnostics retain API `2026-08-26.dahlia`. No application fee,
+subscription billing, embedded component or existing-account OAuth linkage is
+introduced. Provider eligibility and live activation remain separate gates.
 
-The Worker is explicitly test-only. It refuses a live API key. Configuration
-contains empty identity and callback settings, has no deployment routes, and
-uses no real credentials. The Stripe key belongs in the host's secret binding;
-it is never written to this repository or supplied to the registry plugin.
+The Worker is explicitly TEST-only and refuses a live API key. Non-secret
+production deployment settings are documented in `DEPLOY.md` and
+`wrangler.production.jsonc`; keys and webhook secrets remain host bindings,
+never repository content or Registry plugin input.
 
 ## Remaining delivery work
 
@@ -159,7 +174,7 @@ repository audit, local workerd/SQLite tests, and an offline Worker bundle.
 Tests use synthetic signed tokens and intercepted Stripe transport. They prove
 backend behavior, not real identity-provider or Stripe account activation.
 
-- [Stripe hosted onboarding](https://docs.stripe.com/connect/hosted-onboarding)
+- [Stripe v2 hosted onboarding](https://docs.stripe.com/connect/saas/tasks/onboard)
 - [Stripe SaaS platforms](https://docs.stripe.com/connect/saas)
-- [Stripe idempotency](https://docs.stripe.com/api/idempotent_requests)
+- [Stripe API v2 and idempotency](https://docs.stripe.com/api-v2-overview)
 - [Durable Object SQLite](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/)

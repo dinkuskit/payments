@@ -68,6 +68,7 @@ test("official Stripe checkout transport pins idempotency, connected account, ca
   assert.equal(created.id, "cs_fixture");
   assert.equal(calls[0].headers.get("idempotency-key"), "dinkus-checkout:attempt-one");
   assert.equal(calls[0].headers.get("stripe-account"), "acct_one");
+  assert.equal(calls[0].headers.get("stripe-version"), "2026-08-26.dahlia");
   const params = new URLSearchParams(calls[0].body);
   assert.equal(params.get("mode"), "payment");
   assert.equal(params.get("expires_at"), "1800001860");

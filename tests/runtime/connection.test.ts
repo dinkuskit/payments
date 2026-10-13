@@ -1,3 +1,4 @@
+import { stripeV2Account, stripeV2Link } from "../helpers/stripe-v2.js";
 import { env, exports } from "cloudflare:workers";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { afterEach, expect, test, vi } from "vitest";
@@ -8,10 +9,11 @@ test("real Durable Object storage preserves the binding across eviction and gate
   let ready = false, creates = 0;
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const path = new URL(String(input)).pathname;
-    if (path === "/v1/accounts" && init?.method === "POST") creates++;
-    const body = path === "/v1/account_links"
-      ? { object: "account_link", url: "https://connect.stripe.com/setup/fixture", expires_at: Math.floor(Date.now() / 1000) + 600 }
-      : { object: "account", id: "acct_fixture", details_submitted: ready, charges_enabled: ready, payouts_enabled: ready, capabilities: { card_payments: ready ? "active" : "pending" }, requirements: {} };
+    if (path === "/v1/account") return Response.json({ object: "account", id: "acct_platform" });
+    if (path === "/v2/core/accounts" && init?.method === "POST") creates++;
+    const body = path === "/v2/core/account_links"
+      ? stripeV2Link()
+      : stripeV2Account("acct_fixture", ready);
     return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
   });
   const principal = { accountId: "synthetic-owner", siteId: crypto.randomUUID() };
@@ -19,7 +21,7 @@ test("real Durable Object storage preserves the binding across eviction and gate
   const first = env.PAYMENT_CONNECTIONS.getByName(name);
   const connected = await first.startOnboarding(principal);
   expect(connected.state).toBe("setup_required");
-  expect(connected.url).toBe("https://connect.stripe.com/setup/fixture");
+  expect(connected.url).toBe("https://accounts.stripe.com/r/acct_fixture#alu_test_synthetic");
   expect(connected.connectionEvidence).toBeUndefined();
   await evictDurableObject(first);
   const second = env.PAYMENT_CONNECTIONS.getByName(name);
@@ -66,7 +68,7 @@ test("unconfigured shared identity returns unavailable, never a fake signed-in i
 
 test("persisted create failure diagnostics survive eviction without another provider request", async () => {
   let calls = 0;
-  vi.spyOn(globalThis, "fetch").mockImplementation(async () => { calls++; throw Error("synthetic-private-provider-material"); });
+  vi.spyOn(globalThis, "fetch").mockImplementation(async input => { if (new URL(String(input)).pathname === "/v1/account") return Response.json({object:"account",id:"acct_platform"}); calls++; throw Error("synthetic-private-provider-material"); });
   const principal = { accountId: "synthetic-diagnostic-owner", siteId: crypto.randomUUID() };
   const stub = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", principal.siteId]));
   expect((await stub.startOnboarding(principal)).state).toBe("connecting");

@@ -16,10 +16,14 @@ belongs in source, Wrangler vars, Commerce requests, or storefront code.
    `/checkout/success` or `/cart`, at the address signed into its pass (see
    `DEPLOY.md`).
 3. Authenticate as the store owner and call `POST /v1/connect` with no query
-   parameters and no body. Payments creates a Stripe Connect Standard test
-   account, returns a Stripe-hosted onboarding link, and persists the
+   parameters and no body. For a new binding, Payments creates a merchant
+   account through Accounts v2, returns a validated Stripe-hosted onboarding
+   link, and persists the
    server-owned `bindingRef`. Repeat the call to resume setup; do not accept an
-   account ID from checkout input.
+   account ID from checkout input. An unresolved legacy operation returns
+   `recovery_required` and must not be reset or treated as a new v2 operation.
+   Existing saved account IDs remain unchanged; readiness uses v2 merchant
+   capabilities and requirements. See [Accounts v2 migration](accounts-v2-migration.md).
 4. Register the test webhook URL
    `/v1/webhooks/stripe` in Stripe for the connected test account. Stripe
    events must carry the connected account in the signed `account` field.
