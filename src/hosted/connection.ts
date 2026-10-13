@@ -1,3 +1,5 @@
+import { creationFailure } from "./creation-failure.js";
+import { decodeDiagnostics, type ConnectionDiagnostics, type CreationFailure } from "../connection-diagnostics.js";
 export type Mode = "test" | "live";
 /** Created by verified shared-account authentication, never by request JSON. */
 export interface Principal {
@@ -14,6 +16,7 @@ export interface Connection {
   stripeAccountId: string | null;
   authorizeNetMerchantId: string | null;
   providerId?: "stripe" | "authorize_net";
+  creationFailure?: CreationFailure;
 }
 export interface ConnectionStore {
   /** Atomic across processes; the callback must be synchronous. */
@@ -177,12 +180,22 @@ export function createConnectionService(options: {
       if (now() - record.startedAt >= CREATION_RETRY_WINDOW_MS) return { state: "recovery_required", mode, bindingRef: record.bindingRef };
       let accountId: string;
       try { accountId = await provider.createAccount(record.bindingRef); }
-      catch { return withoutEvidence(await status(principal)); }
+      catch (error) {
+        const failure = creationFailure(error, now());
+        store.transaction(tx => {
+          const current = tx.read();
+          if (current && current.bindingRef === record.bindingRef && current.owner.accountId === principal.accountId && current.owner.siteId === principal.siteId && !current.stripeAccountId) {
+            tx.write({ ...current, creationFailure: failure });
+          }
+        });
+        return withoutEvidence(await status(principal));
+      }
       if (!/^acct_[a-zA-Z0-9]+$/.test(accountId)) return { state: "checking", mode, bindingRef: record.bindingRef };
       store.transaction(tx => {
         const current = tx.read();
         if (!current || current.bindingRef !== record.bindingRef || (current.stripeAccountId && current.stripeAccountId !== accountId)) throw new ConnectionError("connection_conflict");
-        tx.write({ ...current, stripeAccountId: accountId });
+        const { creationFailure: _failure, ...cleared } = current;
+        tx.write({ ...cleared, stripeAccountId: accountId });
       });
     }
     const current = read(principal)!;
@@ -214,5 +227,19 @@ export function createConnectionService(options: {
     if (providerId === "authorize_net" && record.authorizeNetMerchantId) return { bindingRef, providerId, authorizeNetMerchantId: record.authorizeNetMerchantId, mode };
     throw new ConnectionError("binding_missing_provider_field");
   }
-  return { connect, status, checkoutBinding, existingBinding };
+  function diagnostics(principal: Principal): ConnectionDiagnostics {
+    if (!principal.accountId || !principal.siteId) throw new ConnectionError("unauthorized");
+    // Unlike read(), this never normalizes or writes a legacy connection.
+    const record = store.transaction(tx => tx.read());
+    if (record && (record.owner.accountId !== principal.accountId || record.owner.siteId !== principal.siteId || record.mode !== mode)) throw new ConnectionError("connection_owner_mismatch");
+    if (record && (record.providerId ?? "stripe") !== providerId) throw new ConnectionError("binding_provider_mismatch");
+    const present = Boolean(record && (providerId === "stripe" ? record.stripeAccountId : record.authorizeNetMerchantId));
+    const result: ConnectionDiagnostics = {
+      state: !record ? "disconnected" : present ? "account_present" : now() - record.startedAt >= CREATION_RETRY_WINDOW_MS ? "recovery_required" : "connecting",
+      mode, processorAccountPresent: present, evidence: record?.creationFailure ? "observed" : "unobserved",
+      ...(record?.creationFailure ? { lastFailure: record.creationFailure } : {}),
+    };
+    return decodeDiagnostics(result, now());
+  }
+  return { connect, status, diagnostics, checkoutBinding, existingBinding };
 }

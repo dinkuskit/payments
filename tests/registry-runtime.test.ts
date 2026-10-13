@@ -314,3 +314,27 @@ test("compiled processor setup starts/resumes separately from consent and reject
     assert.deepEqual(host.http.requests(), []);
   } finally { await host.dispose(); }
 });
+
+
+test("compiled diagnostics explain connecting and recovery without retry or false reconnect advice", async () => {
+  const f = await fixture(); const { host } = f;
+  try {
+    await f.prepareStart("diagnostic-flow"); await f.action("connect"); await f.pollDue();
+    await f.prepareExchange(); await f.action("continue"); host.http.clear();
+    const diagnosis = { state: "connecting", mode: "test", processorAccountPresent: false, evidence: "observed", lastFailure: { category: "permission", status: 403, at: Date.now() - 1000 } };
+    await f.prepareDiagnostics("connecting", diagnosis);
+    const observed = JSON.stringify(await f.page());
+    assert.match(observed, /Stripe refused/); assert.match(observed, /Your DinkusKit authorization is connected/);
+    assert.doesNotMatch(observed, /Connect your DinkusKit account to continue/);
+    for (const reply of [{ payload: { error: "not_found" }, code: 404 }, { payload: { ...diagnosis, raw: "private-diagnostic-material" }, code: 200 }]) {
+      await f.prepareDiagnostics("connecting", reply.payload, reply.code);
+      const unavailable = JSON.stringify(await f.page());
+      assert.match(unavailable, /No recorded failure detail/); assert.doesNotMatch(unavailable, /private-diagnostic-material/);
+    }
+    await f.prepareDiagnostics("recovery_required", { ...diagnosis, state: "recovery_required" });
+    const recovery = JSON.stringify(await f.page());
+    assert.match(recovery, /safe setup retry window has ended/);
+    assert.doesNotMatch(recovery, /"action_id":"setup_processor"/);
+    assert.equal(host.http.requests().filter(r => r.url.endsWith("/v1/connect")).length, 0);
+  } finally { await host.dispose(); }
+});

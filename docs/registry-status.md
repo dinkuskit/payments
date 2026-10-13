@@ -72,8 +72,8 @@ HTTP verifier and should redirect through the normal login boundary. The
 fixture only permits the fixed roles on loopback and is not a deployable
 production authentication adapter.
 
-This is seeded post-install Registry state for `0.2.1` release preparation: it
-writes the normal `registry/dinkus-payments/0.2.1/` artifacts and an active
+This is seeded post-install Registry state for `0.2.2` release preparation: it
+writes the normal `registry/dinkus-payments/0.2.2/` artifacts and an active
 `source=registry` row, then loads them through the normal local runtime. It is
 not installer proof. In particular, it does not provide authoritative
 publisher/release records, consent receipts, Registry publication, deployment,
@@ -111,7 +111,7 @@ browser declarations into the Worker compilation introduces incompatible
 ambient Web Crypto types. The unchanged baseline passes using the same added
 dependencies; both target checks pass with the separation.
 
-## Processor setup (0.2.1 preparation)
+## Processor setup (0.2.2 preparation)
 
 After DinkusKit authorization, an unconnected Stripe account has a separate
 **Set up or resume Stripe** action. This sends a bodyless authenticated request
@@ -124,3 +124,19 @@ explicit DinkusKit reconnect; no credentials are entered in this screen.
 
 This release is prepared locally, not published or deployed by this change.
 Synthetic compiled-runtime proof is in `proof/registry-onboarding/PROOF.md`.
+
+## Account-creation diagnostics (0.2.2 preparation)
+
+For a processor connection still connecting or requiring recovery, the Registry
+reads `/v1/connect/diagnostics` separately from `/v1/status`. This authenticated,
+merchant/site-owned GET only reads local state. It returns no account or binding
+identifiers and never calls Stripe. Old hosts returning 404 leave the normal
+status visible, with failure detail explicitly unavailable.
+
+An explicit account-create failure records only a closed category, an optional
+allowlisted HTTP status and a timestamp. Raw errors and provider material are
+never retained. Historical swallowed errors remain unobserved. Successful
+account-ID persistence clears the unresolved diagnostic. No diagnostic read or
+page load retries account creation, changes the binding, or extends the existing
+23-hour safety window. The existing connect and status response shapes remain
+compatible with Registry 0.2.1.

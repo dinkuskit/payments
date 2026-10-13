@@ -1,6 +1,7 @@
 /** Hosted service routes are not EmDash plugin routes. */
 export const hostedHttpRoutes = {
   "/v1/connect": { method: "POST", scope: "payments:admin" },
+  "/v1/connect/diagnostics": { method: "GET", scope: "payments:admin" },
   "/v1/status": { method: "GET", scope: "payments:admin" },
   "/v1/checkout-binding": { method: "GET", scope: "payments:checkout" },
   "/v1/existing-binding": { method: "GET", scope: "payments:checkout" },

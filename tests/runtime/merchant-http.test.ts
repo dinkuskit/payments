@@ -38,7 +38,7 @@ test('signed merchant connect accepts empty runtime streams and verifies return 
     .setSubject(subject).setIssuedAt().setExpirationTime('5m').sign(privateKey);
   const token = await issue();
   const call = async (path: string, options: { token?: string; site?: string; body?: string; emptyStream?: boolean } = {}) => {
-    const method = path.startsWith('/v1/connect') ? 'POST' : 'GET';
+    const method = path.split('?')[0] === '/v1/connect' ? 'POST' : 'GET';
     const headers = { authorization: `Bearer ${options.token ?? token}`, 'x-dinkus-site': options.site ?? site };
     const body = options.emptyStream ? new ReadableStream<Uint8Array>({ start(controller) { controller.close(); } }) : options.body;
     const request = new Request('https://payments.example.invalid' + path, { method, headers, body });
@@ -47,7 +47,11 @@ test('signed merchant connect accepts empty runtime streams and verifies return 
   };
   expect((await call('/v1/status')).status).toBe(200);
   expect(await (await call('/v1/status')).json()).toMatchObject({ state: 'disconnected', mode: 'test' });
+  const unobserved = await call('/v1/connect/diagnostics');
+  expect(await unobserved.json()).toEqual({ state: 'disconnected', mode: 'test', processorAccountPresent: false, evidence: 'unobserved' });
   const deniedCalls = providerCalls;
+  expect((await call('/v1/connect/diagnostics?raw=1')).status).toBe(400);
+  expect((await call('/v1/connect/diagnostics', { token: await issue('synthetic-merchant', site, 'payments:checkout') })).status).toBe(401);
   expect((await call('/v1/connect', { emptyStream: true, site: 'another-site' })).status).toBe(401);
   expect((await call('/v1/connect', { token: await issue('synthetic-merchant', site, 'payments:checkout') })).status).toBe(401);
   expect((await call('/v1/connect', { body: '{}' })).status).toBe(400);
@@ -71,6 +75,9 @@ test('signed merchant connect accepts empty runtime streams and verifies return 
   unavailable = false;
   const beforeOwnerDenial = providerCalls;
   expect((await call('/v1/status', { token: await issue('other-merchant') })).status).toBe(403);
+  expect((await call('/v1/connect/diagnostics', { token: await issue('other-merchant') })).status).toBe(403);
+  const present = await call('/v1/connect/diagnostics');
+  expect(await present.json()).toEqual({ state: 'account_present', mode: 'test', processorAccountPresent: true, evidence: 'unobserved' });
   expect(providerCalls).toBe(beforeOwnerDenial);
 });
 

@@ -62,3 +62,20 @@ test("unconfigured shared identity returns unavailable, never a fake signed-in i
   expect(response.status).toBe(503);
   expect(await response.json()).toEqual({ error: "payments_service_unconfigured" });
 });
+
+
+test("persisted create failure diagnostics survive eviction without another provider request", async () => {
+  let calls = 0;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async () => { calls++; throw Error("synthetic-private-provider-material"); });
+  const principal = { accountId: "synthetic-diagnostic-owner", siteId: crypto.randomUUID() };
+  const stub = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", principal.siteId]));
+  expect((await stub.startOnboarding(principal)).state).toBe("connecting");
+  expect(calls).toBe(1);
+  await evictDurableObject(stub);
+  const restored = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", principal.siteId]));
+  const first = await restored.connectionDiagnostics(principal);
+  expect(first).toMatchObject({ state: "connecting", mode: "test", processorAccountPresent: false, evidence: "observed", lastFailure: { category: "transport_unknown" } });
+  expect(JSON.stringify(first)).not.toContain("synthetic-private-provider-material");
+  expect(await restored.connectionDiagnostics(principal)).toEqual(first);
+  expect(calls).toBe(1);
+});

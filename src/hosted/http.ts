@@ -8,7 +8,7 @@ import type { Principal, createConnectionService } from "./connection.js";
 import { clientIpRateKey } from "./client-ip.js";
 import { hostedHttpRoutes, hostedWebhookRoutes, matchAuthorizeNetWebhookSite } from "./manifest.js";
 
-type ConnectionApi = Pick<ReturnType<typeof createConnectionService>, "connect" | "status" | "checkoutBinding" | "existingBinding">;
+type ConnectionApi = Pick<ReturnType<typeof createConnectionService>, "connect" | "status" | "checkoutBinding" | "existingBinding"> & { diagnostics?(principal: Principal): ReturnType<ReturnType<typeof createConnectionService>["diagnostics"]> | Promise<ReturnType<ReturnType<typeof createConnectionService>["diagnostics"]>> };
 type CheckoutApi = {
   ensureSession(request: PaymentRequest): Promise<PaymentOutcome>;
   lookup(request: PaymentRequest): Promise<PaymentOutcome>;
@@ -158,6 +158,12 @@ export function createHostedHandler(options: {
         // have a non-null, exhausted stream. No caller input is buffered.
         if (searchParams.size || await hasBodyBytes(request)) return respond({ error: "unexpected_input" }, 400);
         return respond(await service.connect(principal));
+      }
+      if (pathname === "/v1/connect/diagnostics") {
+        if (searchParams.size || await hasBodyBytes(request)) return respond({ error: "unexpected_input" }, 400);
+        const service = options.service(principal);
+        if (!service.diagnostics) return respond({ error: "not_found" }, 404);
+        return respond(await service.diagnostics(principal));
       }
       if (pathname === "/v1/status") {
         const service = options.service(principal);
