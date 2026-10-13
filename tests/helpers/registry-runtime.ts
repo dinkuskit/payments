@@ -91,7 +91,12 @@ export async function fixture() {
     await prepareStatus(disconnected);
     await host.http.respond(JWKS, Response.json({ keys: [jwk] }));
   }
-  return { host, admin, action, page, receipt, prepareStart, pollDue, prepareExchange, prepareStatus, prepareProcessorStatus };
+  async function prepareDiagnostics(state: "connecting" | "recovery_required", diagnostics: unknown, status = 200) {
+    await host.http.respond(JWKS, Response.json({ keys: [jwk] }));
+    await host.http.respond(STATUS, Response.json({ state, mode: "test", bindingRef: "synthetic-binding" }));
+    await host.http.respond("https://payments.dinkuskit.com/v1/connect/diagnostics", Response.json(diagnostics, { status }));
+  }
+  return { host, admin, action, page, receipt, prepareStart, pollDue, prepareExchange, prepareStatus, prepareProcessorStatus, prepareDiagnostics };
 }
 
 export async function snapshot(host: Host) {

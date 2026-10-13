@@ -1,3 +1,4 @@
+import type { ConnectionDiagnostics } from "../connection-diagnostics.js";
 import {
   decodeStatus,
   type PaymentsStatus,
@@ -70,7 +71,20 @@ function testOrderStep(status: PaymentsStatus | null, connectionState?: string):
   return { title, status: "incomplete", description: `${unconfirmedCommerceOrder} Connect payments first, then place a test order.` };
 }
 
-function connectionStep(status: PaymentsStatus | null, connectionState?: string): SetupStep {
+function connectionStep(status: PaymentsStatus | null, connectionState?: string, diagnostics?: ConnectionDiagnostics): SetupStep {
+  if (status?.state === "connecting" || status?.state === "recovery_required") {
+    const messages = {
+      authentication: "The payment service could not authenticate with Stripe. Contact support; reconnecting your DinkusKit account will not fix this.",
+      permission: "Stripe refused the payment service's permission to create the account. Contact support.",
+      platform_required: "Stripe requires payment platform setup before this account can be created. Contact support.",
+      rate_limited: "Stripe limited the account setup request. No automatic retry was made.",
+      provider_unavailable: "Stripe was unavailable during account setup. The result is not confirmed; no automatic retry was made.",
+      transport_unknown: "The account setup response could not be confirmed. No automatic retry was made.",
+      unknown: "Account setup failed, but no safe detailed cause is available. Contact support.",
+    };
+    const description = diagnostics?.lastFailure ? messages[diagnostics.lastFailure.category] : "The payment account has not been confirmed. No recorded failure detail is available for this attempt.";
+    return { title: "Connect payments", status: "incomplete", description: `${description} ${status.state === "recovery_required" ? "The safe setup retry window has ended. Contact support to recover this connection; do not start another account." : "Your DinkusKit authorization is connected. Check status before deciding whether to explicitly resume setup."}` };
+  }
   if (connectionState === "unconfigured") {
     return {
       title: "Connect payments",
@@ -156,7 +170,7 @@ function connectionStep(status: PaymentsStatus | null, connectionState?: string)
   };
 }
 
-export function projectSetupScreen(input: unknown): SetupScreenProjection {
+export function projectSetupScreen(input: unknown, diagnostics?: ConnectionDiagnostics): SetupScreenProjection {
   let status: PaymentsStatus | null = null;
   let connectionState: string | undefined;
   if (typeof input === "object" && input !== null && !Array.isArray(input)) {
@@ -177,7 +191,7 @@ export function projectSetupScreen(input: unknown): SetupScreenProjection {
     title: "Payment setup",
     overall: "Not ready to sell",
     steps: [
-      connectionStep(status, connectionState),
+      connectionStep(status, connectionState, diagnostics),
       testOrderStep(status, connectionState),
     ],
   };
@@ -185,13 +199,15 @@ export function projectSetupScreen(input: unknown): SetupScreenProjection {
 
 export function renderSetupScreen(input: unknown) {
   const nested = input && typeof input === "object" && "state" in input && "status" in input ? input.status : input;
-  const projection = projectSetupScreen(nested);
+  const projection = projectSetupScreen(nested, input && typeof input === "object" && "diagnostics" in input ? input.diagnostics as ConnectionDiagnostics : undefined);
   const state = typeof input === "object" && input !== null && !Array.isArray(input) &&
     typeof (input as { state?: unknown }).state === "string" ? (input as { state: string }).state : "disconnected";
   const action = state === "pending" || state === "connecting" ? "continue" : state === "checking" || state === "ready" || state === "processor_setup" ? "check" : "connect";
   const statusValue = nested && typeof nested === "object" && "status" in nested ? nested.status : null;
+  const processorPending = statusValue && typeof statusValue === "object" && "state" in statusValue && ["connecting", "recovery_required"].includes(statusValue.state as string);
+  const needsRecovery = statusValue && typeof statusValue === "object" && "state" in statusValue && statusValue.state === "recovery_required";
   const evidence = statusValue && typeof statusValue === "object" && "connectionEvidence" in statusValue ? statusValue.connectionEvidence : null;
-  const canSetup = (state === "ready" || state === "processor_setup") &&
+  const canSetup = !needsRecovery && (state === "ready" || state === "processor_setup") &&
     (!evidence || typeof evidence !== "object" || !("provider" in evidence) ||
       (evidence.provider === "stripe" && "result" in evidence && evidence.result !== "verified"));
   const actionLabel = action === "continue" ? "Continue" : action === "check" ? "Check connection" : "Connect";
@@ -218,7 +234,7 @@ export function renderSetupScreen(input: unknown) {
             ? [{ type: "link", label: "Continue setup at Stripe", target: { kind: "external", url: input.onboardingUrl } }] : []),
           ...(canSetup ? [{ type: "button", label: "Set up or resume Stripe", action_id: "setup_processor" }] : []),
           { type: "button", label: actionLabel, action_id: action },
-          ...(action === "check" ? [{ type: "button", label: "Reconnect", action_id: "connect" }] : []),
+          ...(action === "check" && !processorPending ? [{ type: "button", label: "Reconnect", action_id: "connect" }] : []),
         ],
       },
     ],

@@ -1,3 +1,4 @@
+import { decodeDiagnostics, type ConnectionDiagnostics } from "../connection-diagnostics.js";
 import { pluginResponse } from "emdash/plugin";
 import { registryInstallationIdentity } from "./identity.js";
 import { decodeStatus } from "./status.js";
@@ -56,8 +57,8 @@ type Control = {
   interval?: number; nextPollAt?: number; secretHash?: string;
 };
 export type RegistryFlowResult =
-  | { state: "unconfigured" | "disconnected" | "connecting" | "ready" | "checking" | "action_required" | "recovery_required"; receipt?: ProofReceipt; status?: unknown }
-  | { state: "processor_setup"; onboardingUrl: string; expiresAt: number; status?: unknown }
+  | { state: "unconfigured" | "disconnected" | "connecting" | "ready" | "checking" | "action_required" | "recovery_required"; receipt?: ProofReceipt; status?: unknown; diagnostics?: ConnectionDiagnostics }
+  | { state: "processor_setup"; onboardingUrl: string; expiresAt: number; status?: unknown; diagnostics?: ConnectionDiagnostics }
   | { state: "pending"; verificationUri: string; interval: number; expiresAt: number }
   | { state: "failed"; message: "restart_required" | "connection_unavailable" };
 
@@ -239,7 +240,19 @@ export function createRegistryConnection(options: {
       const result = await options.http.fetch(configured, noRedirect({ headers: { Authorization: `Bearer ${verified.token}`, "X-Dinkus-Site": c.binding.siteId } }));
       if (result.status === 401 || result.status === 403) return { state: "action_required" };
       if (!result.ok) return { state: "checking" };
-      return { state: "ready", status: { availability: "available", status: decodeStatus(await result.json()), message: "Payments status checked." } };
+      const decoded = decodeStatus(await result.json());
+      let diagnostics: ConnectionDiagnostics | undefined;
+      if (decoded.state === "connecting" || decoded.state === "recovery_required") {
+        try {
+          const response = await options.http.fetch(`${url.origin}/v1/connect/diagnostics`, noRedirect({ headers: { Authorization: `Bearer ${verified.token}`, "X-Dinkus-Site": c.binding.siteId } }));
+          if (response.ok) {
+            const value = decodeDiagnostics(await response.json(), now());
+            if (value.mode === decoded.mode && value.state === decoded.state) diagnostics = value;
+          }
+        } catch { /* Legacy or unavailable diagnostics leave the verified status intact. */ }
+        if ((await current())?.value.flowId !== c.flowId || c.expiresAt <= now()) return { state: "action_required" };
+      }
+      return { state: "ready", status: { availability: "available", status: decoded, message: "Payments status checked." }, ...(diagnostics ? { diagnostics } : {}) };
     } catch { return { state: "checking" }; }
   }
   async function setupProcessor(user: UserInfo): Promise<RegistryFlowResult> {
@@ -270,7 +283,7 @@ export function createRegistryConnection(options: {
       const checked = await status(user);
       if (checked.state === "ready" && ((checked.status as { status?: { mode?: string; bindingRef?: string } })?.status?.mode !== body.mode || (checked.status as { status?: { bindingRef?: string } })?.status?.bindingRef !== body.bindingRef)) return { state: "checking" };
       if (checked.state !== "ready" || (await current())?.revision !== prior!.revision || c.expiresAt <= now() || body.expiresAt <= now()) return checked.state === "ready" ? { state: "action_required" } : checked;
-      return { state: "processor_setup", onboardingUrl: body.url, expiresAt: body.expiresAt, status: checked.status };
+      return { state: "processor_setup", onboardingUrl: body.url, expiresAt: body.expiresAt, status: checked.status, diagnostics: checked.diagnostics };
     } catch { return { state: "checking" }; }
   }
   return { start, receipt, exchange, status, setupProcessor, proofPath: REGISTRY_PROOF_PATH };

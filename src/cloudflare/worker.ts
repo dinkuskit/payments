@@ -216,6 +216,7 @@ export class PaymentConnection extends DurableObject<Env> {
       },
     });
   }
+  async connectionDiagnostics(principal: Principal) { return this.connection().diagnostics(principal); }
   async startOnboarding(principal: Principal) { return this.connection().connect(principal); }
   async status(principal: Principal): Promise<Status> {
     const status = await this.connection().status(principal);
@@ -502,6 +503,7 @@ export default {
           return {
             connect: p => stub.startOnboarding(p),
             status: p => stub.status(p),
+            diagnostics: p => stub.connectionDiagnostics(p),
             checkoutBinding: (p, ref) => stub.checkoutBinding(p, ref),
             existingBinding: (p, ref) => stub.existingBinding(p, ref),
           };
