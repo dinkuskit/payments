@@ -96,7 +96,6 @@ export async function fixture(options: { installedId?: string } = {}) {
   }
   async function prepareProcessorStatus(disconnected: boolean | "setup" = "setup") {
     await prepareStatus(disconnected);
-    await host.http.respond(JWKS, Response.json({ keys: [jwk] }));
   }
   async function prepareDiagnostics(state: "connecting" | "recovery_required", diagnostics: unknown, status = 200) {
     await host.http.respond(JWKS, Response.json({ keys: [jwk] }));
@@ -107,7 +106,13 @@ export async function fixture(options: { installedId?: string } = {}) {
     await host.http.respond(JWKS, Response.json({ keys: [jwk] }));
     await host.http.respond(STATUS, Response.json(payload, { status }));
   }
-  return { host, admin, action, page, receipt, prepareStart, pollDue, prepareExchange, prepareStatus, prepareProcessorStatus, prepareDiagnostics, prepareStatusResponse };
+  async function prepareSetupDiagnostics(state: "connecting" | "recovery_required", diagnostics: unknown) {
+    await prepareDiagnostics(state, diagnostics);
+  }
+  async function prepareSetupStatusResponse(payload: unknown, status = 200) {
+    await prepareStatusResponse(payload, status);
+  }
+  return { host, admin, action, page, receipt, prepareStart, pollDue, prepareExchange, prepareStatus, prepareProcessorStatus, prepareDiagnostics, prepareStatusResponse, prepareSetupDiagnostics, prepareSetupStatusResponse };
 }
 
 export async function snapshot(host: Host) {

@@ -180,10 +180,10 @@ test('processor setup rejects unsafe links, malformed expiry, mismatched mode an
     { expiresAt: 1 }, { expiresAt: 1_800_100_000_000 }, { expiresAt: 'later' }, { mode: 'live' }, { state: 'unknown' },
   ]) {
     const { f, connection } = await fixture(); await f.connect(); Object.assign(f.setupReply, change);
-    assert.equal((await connection.setupProcessor({ id: 'admin' })).state, 'checking');
+    assert.equal((await connection.setupProcessor({ id: 'admin' })).state, 'setup_unconfirmed');
   }
   for (const code of [401, 403, 500]) {
     const { f, connection } = await fixture(); await f.connect(); f.setupStatus = code;
-    assert.equal((await connection.setupProcessor({ id: 'admin' })).state, code === 500 ? 'checking' : 'action_required');
+    assert.equal((await connection.setupProcessor({ id: 'admin' })).state, code === 500 ? 'setup_unconfirmed' : 'action_required');
   }
 });

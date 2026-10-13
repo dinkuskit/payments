@@ -22,8 +22,11 @@ export function readStatusCheckFailure(value: unknown): StatusCheckFailure | nul
   return { stage: record.stage as StatusCheckStage, ...(record.httpStatus === undefined ? {} : { httpStatus: record.httpStatus as number }) };
 }
 
-export function describeStatusCheckFailure(value: unknown): string {
+export function describeStatusCheckFailure(value: unknown, setupRequested = false): string {
   const failure = readStatusCheckFailure(value);
   const detail = failure ? `${STAGES[failure.stage]} Support code: status_${failure.stage}${failure.httpStatus === undefined ? "" : ` (HTTP ${failure.httpStatus})`}.` : "The connection status could not be confirmed.";
-  return `Payments setup check failed. ${detail} No processor setup was attempted by this check. Use Check connection to try again.`;
+  const next = setupRequested
+    ? "Processor setup was requested, but its final result is not confirmed. Use Check connection before attempting setup again."
+    : "No processor setup was attempted by this check. Use Check connection to try again.";
+  return `Payments setup check failed. ${detail} ${next}`;
 }
