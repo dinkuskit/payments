@@ -25,6 +25,7 @@ that claim. The backend cannot make an untrusted identity issuer safe.
 | Endpoint | Scope | Result |
 | --- | --- | --- |
 | `POST /v1/connect` with no body or query | `payments:admin` | Resume the existing account or persist a new binding before starting creation; optionally return a fresh Stripe onboarding URL |
+| `GET /v1/connect/diagnostics` with no body or query | `payments:admin` | Read-only local account-creation evidence for the authenticated site and stored owner; no provider calls or state writes |
 | `GET /v1/status` | `payments:admin` | Current provider-verified state; no cached ready fallback |
 | `GET /v1/checkout-binding?bindingRef=...` | `payments:checkout` | Exact immutable recipient binding for a new checkout, or `409 payments_not_ready` |
 | `GET /v1/existing-binding?bindingRef=...` | `payments:checkout` | Exact stored recipient for an existing attempt, even if new checkout is not ready |
@@ -41,6 +42,18 @@ Responses use `Cache-Control: no-store`. Onboarding URLs are not stored. The
 client must treat them as short-lived sensitive links and open them only for
 the authenticated merchant. No caller may supply an account ID, provider,
 mode, or callback URL. Callback URLs are trusted operator configuration.
+
+Diagnostics use the same signed site claim, `X-Dinkus-Site` match and stored-owner
+checks as the connection. They return `state` (`disconnected`, `connecting`,
+`recovery_required` or `account_present`), `mode`, `processorAccountPresent` and
+`evidence` (`observed` or `unobserved`). An observed failure adds `lastFailure`
+with a closed `category`, optional allowlisted HTTP `status`, and timestamp `at`.
+Categories are `authentication`, `permission`, `platform_required`,
+`rate_limited`, `provider_unavailable`, `transport_unknown` and `unknown`.
+No account/binding identifiers, raw provider data or URLs are exposed. Legacy
+attempts without recorded failure evidence remain `unobserved`; reading them
+neither reconstructs a cause nor retries setup. This separate response does not
+change the legacy `/v1/status` or `/v1/connect` shapes.
 
 Authenticated status responses may add this minimal `connectionEvidence`
 object without changing the legacy `state`, `mode`, or `bindingRef` fields:

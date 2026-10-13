@@ -52,6 +52,7 @@ Commerce service is admitted to checkout operations.
 | Method | Hosted path | Authentication |
 | --- | --- | --- |
 | POST | `/v1/connect` | `payments:admin` JWT |
+| GET | `/v1/connect/diagnostics` | `payments:admin` JWT; authenticated site and stored owner must match |
 | GET | `/v1/status` | `payments:admin` JWT |
 | GET | `/v1/checkout-binding` | `payments:checkout` JWT |
 | GET | `/v1/existing-binding` | `payments:checkout` JWT |
@@ -61,6 +62,14 @@ Commerce service is admitted to checkout operations.
 | POST | `/v1/checkout/wakes/ack` | `payments:checkout` JWT |
 | POST | `/v1/webhooks/stripe` | Stripe raw-byte signature |
 | POST | `/v1/webhooks/authorize-net/{siteId}` | Authorize.net raw-byte HMAC-SHA512 |
+
+`GET /v1/connect/diagnostics` rejects body bytes and query parameters. It reads
+local connection state without provider calls or state writes, using the existing
+JWT/site checks and stored-owner boundary. Its sanitized response contains
+`state`, `mode`, `processorAccountPresent`, `evidence`, and an optional
+`lastFailure` with only a closed category, allowlisted HTTP status and timestamp.
+It returns no identifiers, raw provider data or URLs. Diagnostics are separate
+from the unchanged `/v1/status` response.
 
 The last two routes are public ingress with provider authentication, not
 anonymous trust. `hostedPublicRouteManifest(siteId)` emits the two concrete
