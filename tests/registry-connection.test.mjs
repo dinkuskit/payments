@@ -25,7 +25,7 @@ const json = (body, status = 200) => Response.json(body, { status });
 async function fixture({ testOnly, endpoint = { status: 'https://payments-proof.invalid/v1/status' } } = {}) {
   const store = memory(); const { privateKey, publicKey } = await generateKeyPair('ES256');
   const jwk = { ...await exportJWK(publicKey), kid: 'test-key', alg: 'ES256' };
-  const f = { now: 1_800_000_000_000, starts: 0, exchanges: 0, statuses: 0, approved: false, siteId: 'site', subject: 'org', error: null, calls: [], gate: null, claims: {} };
+  const f = { now: 1_800_000_000_000, starts: 0, exchanges: 0, statuses: 0, approved: false, siteId: 'site', subject: 'org', error: null, calls: [], gate: null, claims: {}, setupReply: { state: 'setup_required', mode: 'test', bindingRef: 'synthetic-binding', url: 'https://connect.stripe.com/setup/synthetic', expiresAt: 1_800_000_300_000 }, setupStatus: 200 };
   const connection = createRegistryConnection({ ...store, config: { endpoint, testOnly }, site: { url: testOnly?.storeOrigin ?? 'https://shop.example' }, now: () => f.now,
     http: { async fetch(url, init) {
       assert.equal(init.redirect, 'manual'); f.calls.push({ url, init });
@@ -50,8 +50,9 @@ async function fixture({ testOnly, endpoint = { status: 'https://payments-proof.
         return json({ access_token: token, token_type: 'Bearer', site_id: f.siteId, expires_in: 300 });
       }
       if (url.endsWith('/jwks.json')) return json({ keys: [jwk] });
+      if (url.endsWith('/v1/connect')) return json(f.setupReply, f.setupStatus);
       f.statuses++; assert.equal(init.headers['X-Dinkus-Site'], f.siteId); assert.match(init.headers.Authorization, /^Bearer /);
-      return json({ state: 'disconnected', mode: 'test' });
+      return json({ state: 'disconnected', mode: 'test', bindingRef: 'synthetic-binding' });
     } },
   });
   f.connect = async () => { assert.equal((await connection.start({ id: 'admin' })).state, 'pending'); f.now += 5000; f.approved = true; return connection.exchange({ id: 'admin' }); };
@@ -150,4 +151,39 @@ test('the plugin may contact exactly the hosts of its server-owned endpoints', a
   const manifest = JSON.parse(await readFile(new URL('../emdash-plugin.jsonc', import.meta.url), 'utf8'));
   const hosts = new Set([REGISTRY_CONNECT_URL, REGISTRY_JWKS_URL, PRODUCTION_STATUS_ENDPOINT].map(url => new URL(url).hostname));
   assert.deepEqual([...manifest.allowedHosts].sort(), [...hosts].sort());
+});
+
+
+test('processor setup uses a verified bodyless session and never persists the link', async () => {
+  const { f, connection, store } = await fixture();
+  await f.connect();
+  for (let i = 0; i < 2; i++) {
+    const result = await connection.setupProcessor({ id: 'admin' });
+    assert.equal(result.state, 'processor_setup');
+    assert.equal(result.onboardingUrl, f.setupReply.url);
+  }
+  const requests = f.calls.filter(c => c.url.endsWith('/v1/connect'));
+  assert.equal(requests.length, 2);
+  for (const { init } of requests) { assert.equal(init.method, 'POST'); assert.equal(init.body, undefined); assert.match(init.headers.Authorization, /^Bearer /); }
+  assert.equal(JSON.stringify([...store.values]).includes(f.setupReply.url), false);
+  assert.equal((await connection.setupProcessor({ id: 'other' })).state, 'action_required');
+  f.now += 301000;
+  assert.equal((await connection.setupProcessor({ id: 'admin' })).state, 'action_required');
+  assert.equal(f.calls.filter(c => c.url.endsWith('/v1/connect')).length, 2);
+});
+
+test('processor setup rejects unsafe links, malformed expiry, mismatched mode and errors', async () => {
+  for (const change of [
+    { url: 'https://connect.stripe.com.evil.invalid/setup/x' }, { url: 'http://connect.stripe.com/setup/x' },
+    { url: 'https://user@connect.stripe.com/setup/x' }, { url: 'https://connect.stripe.com:444/setup/x' }, { url: 'https://connect.stripe.com:443/setup/x' },
+    { url: 'https://connect.stripe.com/setup/x#fragment' }, { url: 'https://connect.stripe.com/other' },
+    { expiresAt: 1 }, { expiresAt: 1_800_100_000_000 }, { expiresAt: 'later' }, { mode: 'live' }, { state: 'unknown' },
+  ]) {
+    const { f, connection } = await fixture(); await f.connect(); Object.assign(f.setupReply, change);
+    assert.equal((await connection.setupProcessor({ id: 'admin' })).state, 'checking');
+  }
+  for (const code of [401, 403, 500]) {
+    const { f, connection } = await fixture(); await f.connect(); f.setupStatus = code;
+    assert.equal((await connection.setupProcessor({ id: 'admin' })).state, code === 500 ? 'checking' : 'action_required');
+  }
 });

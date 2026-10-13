@@ -16,7 +16,7 @@ Examples are contract transcripts with fictional IDs, not runtime proof.
 
 Executable: `dinkus-payments`
 
-Package: `@dinkuskit/payments` (public `0.2.0` release preparation, unpublished)
+Package: `@dinkuskit/payments` (public `0.2.1` release preparation, unpublished)
 
 One-liner: inspect one site's Payments connection and checkout state, and start
 or resume provider onboarding, through the same authenticated API that the
@@ -204,7 +204,7 @@ the terminal.
   "outcome": "ok",
   "context": { "siteId": "site_demo" },
   "data": {
-    "clientVersion": "0.2.0",
+    "clientVersion": "0.2.1",
     "connection": { "state": "ready", "mode": "test", "bindingRef": "stripe_binding_demo" },
     "nextAction": "none"
   }
