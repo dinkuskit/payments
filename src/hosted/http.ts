@@ -8,7 +8,10 @@ import type { Principal, createConnectionService } from "./connection.js";
 import { clientIpRateKey } from "./client-ip.js";
 import { hostedHttpRoutes, hostedWebhookRoutes, matchAuthorizeNetWebhookSite } from "./manifest.js";
 
-type ConnectionApi = Pick<ReturnType<typeof createConnectionService>, "connect" | "status" | "checkoutBinding" | "existingBinding"> & { diagnostics?(principal: Principal): ReturnType<ReturnType<typeof createConnectionService>["diagnostics"]> | Promise<ReturnType<ReturnType<typeof createConnectionService>["diagnostics"]>> };
+type ConnectionApi = Pick<ReturnType<typeof createConnectionService>, "connect" | "status" | "checkoutBinding" | "existingBinding"> & {
+  diagnostics?(principal: Principal): ReturnType<ReturnType<typeof createConnectionService>["diagnostics"]> | Promise<ReturnType<ReturnType<typeof createConnectionService>["diagnostics"]>>;
+  providerIdentityDiagnostic?(principal: Principal): Promise<unknown>;
+};
 type CheckoutApi = {
   ensureSession(request: PaymentRequest): Promise<PaymentOutcome>;
   lookup(request: PaymentRequest): Promise<PaymentOutcome>;
@@ -81,7 +84,7 @@ function checkoutErrorStatus(error: unknown): number {
   if (!(error instanceof Error)) return 503;
   // Thrown inside the playground Durable Object; only the message survives RPC.
   if (error.message === PLAYGROUND_RATE_LIMIT_ERROR) return 429;
-  if (error.message === "stripe_mode_mismatch" || error.message === "playground_unconfigured") return 503;
+  if (error.message === "stripe_mode_mismatch" || error.message === "playground_unconfigured" || error.message === "diagnostic_unavailable") return 503;
   if (error.message === "connection_owner_mismatch") return 403;
   // Thrown inside the store's Durable Object; only the message survives RPC.
   if (error.message === "store_origin_missing") return 409;
@@ -164,6 +167,12 @@ export function createHostedHandler(options: {
         const service = options.service(principal);
         if (!service.diagnostics) return respond({ error: "not_found" }, 404);
         return respond(await service.diagnostics(principal));
+      }
+      if (pathname === "/v1/connect/provider-identity") {
+        if (searchParams.size || await hasBodyBytes(request)) return respond({ error: "unexpected_input" }, 400);
+        const service = options.service(principal);
+        if (!service.providerIdentityDiagnostic) return respond({ error: "not_found" }, 404);
+        return respond(await service.providerIdentityDiagnostic(principal));
       }
       if (pathname === "/v1/status") {
         const service = options.service(principal);

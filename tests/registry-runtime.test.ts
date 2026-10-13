@@ -556,3 +556,62 @@ test("compiled diagnostics explain connecting and recovery without retry or fals
     assert.equal(host.http.requests().filter(r => r.url.endsWith("/v1/connect")).length, 0);
   } finally { await host.dispose(); }
 });
+
+
+test("compiled provider identity is explicit, bounded and preserves stored state and prior failure", async () => {
+  const f = await fixture({ installedId: "r_3brsc2on3bu673rn" }); const { host } = f;
+  try {
+    await f.prepareStart("identity-proof"); await f.action("connect"); await f.pollDue();
+    await f.prepareExchange(); await f.action("continue"); host.http.clear();
+    await f.prepareStatus(); await f.action("check");
+    assert.equal(host.http.requests().filter(r => r.url.endsWith("/provider-identity")).length, 0);
+    host.http.clear();
+    const saved = await snapshot(host);
+    const calls: string[] = [];
+    for (const name of ["kvGetVersioned", "kvCompareAndSet", "settingsGetVersioned", "settingsCompareAndSet", "httpFetch"] as const) {
+      const original = PluginBridge.prototype[name];
+      vi.spyOn(PluginBridge.prototype, name).mockImplementation(async function(...args: unknown[]) {
+        if (!name.startsWith("kv") || args[0] === CONTROL) calls.push(name);
+        return (original as (...args: unknown[]) => Promise<unknown>).apply(this,args);
+      } as never);
+    }
+    await f.prepareIdentity({result:"match",validTestPrefix:true,httpStatus:200,at:Date.now(),diagnostics:{state:"connecting",mode:"test",processorAccountPresent:false,evidence:"observed",lastFailure:{category:"unknown",status:400,at:Date.now()-1000}}});
+    const page = JSON.stringify(await f.action("check_provider_identity"));
+    assert.match(page,/platform identity matches/); assert.match(page,/Recorded setup failure: unknown/); assert.match(page,/HTTP 400/);
+    assert.equal(host.http.requests().filter(r=>r.url.endsWith("/provider-identity")).length,1);
+    assert.ok(host.http.requests().every(r=>r.method==="GET"));
+    assert.deepEqual(calls,["kvGetVersioned","settingsGetVersioned","httpFetch","kvGetVersioned","httpFetch","kvGetVersioned"]);
+    assert.deepEqual(await snapshot(host),saved);
+  } finally { vi.restoreAllMocks(); await host.dispose(); }
+});
+
+test("compiled provider identity rejects raw responses and unavailable server output", async () => {
+  const f = await fixture(); const { host } = f;
+  try {
+    await f.prepareStart("identity-redaction"); await f.action("connect"); await f.pollDue();
+    await f.prepareExchange(); await f.action("continue"); host.http.clear();
+    for (const [status,payload] of [[503,{error:"PRIVATE_CANARY"}],[200,{result:"match",validTestPrefix:true,httpStatus:200,at:Date.now(),raw:"PRIVATE_CANARY"}]] as const) {
+      await f.prepareIdentity(payload,status);
+      const page=JSON.stringify(await f.action("check_provider_identity"));
+      assert.match(page,/identity check is unavailable/); assert.doesNotMatch(page,/PRIVATE_CANARY/);
+    }
+  } finally { await host.dispose(); }
+});
+
+test("compiled provider identity rejects replaced flow after the read", async () => {
+  const f = await fixture(); const { host } = f;
+  try {
+    await f.prepareStart("identity-race"); await f.action("connect"); await f.pollDue();
+    await f.prepareExchange(); await f.action("continue"); host.http.clear();
+    await f.prepareIdentity({result:"match",validTestPrefix:true,httpStatus:200,at:Date.now()});
+    const original=PluginBridge.prototype.httpFetch;
+    vi.spyOn(PluginBridge.prototype,"httpFetch").mockImplementation(async function(...args) {
+      const result=await original.apply(this,args);
+      if (String(args[0]).endsWith("/provider-identity")) await host.fixtures.plugin.kv(CONTROL,{...await control(host),flowId:"replacement"});
+      return result;
+    });
+    const page=JSON.stringify(await f.action("check_provider_identity"));
+    assert.doesNotMatch(page,/platform identity matches/);
+    assert.equal((await control(host)).flowId,"replacement");
+  } finally { vi.restoreAllMocks(); await host.dispose(); }
+});

@@ -112,7 +112,11 @@ export async function fixture(options: { installedId?: string } = {}) {
   async function prepareSetupStatusResponse(payload: unknown, status = 200) {
     await prepareStatusResponse(payload, status);
   }
-  return { host, admin, action, page, receipt, prepareStart, pollDue, prepareExchange, prepareStatus, prepareProcessorStatus, prepareDiagnostics, prepareStatusResponse, prepareSetupDiagnostics, prepareSetupStatusResponse };
+  async function prepareIdentity(payload: unknown, status = 200) {
+    await host.http.respond(JWKS, Response.json({ keys: [jwk] }));
+    await host.http.respond("https://payments.dinkuskit.com/v1/connect/provider-identity", Response.json(payload, { status }));
+  }
+  return { prepareIdentity, host, admin, action, page, receipt, prepareStart, pollDue, prepareExchange, prepareStatus, prepareProcessorStatus, prepareDiagnostics, prepareStatusResponse, prepareSetupDiagnostics, prepareSetupStatusResponse };
 }
 
 export async function snapshot(host: Host) {

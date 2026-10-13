@@ -53,6 +53,7 @@ Commerce service is admitted to checkout operations.
 | --- | --- | --- |
 | POST | `/v1/connect` | `payments:admin` JWT |
 | GET | `/v1/connect/diagnostics` | `payments:admin` JWT; authenticated site and stored owner must match |
+| GET | `/v1/connect/provider-identity` | `payments:admin` JWT; stored owner/site and deployment operator account/site allowlist; TEST configuration only |
 | GET | `/v1/status` | `payments:admin` JWT |
 | GET | `/v1/checkout-binding` | `payments:checkout` JWT |
 | GET | `/v1/existing-binding` | `payments:checkout` JWT |
@@ -105,3 +106,8 @@ post-install sandbox behavior. A sandbox purchase still needs a verified
 store/provider binding, Commerce checkout/wake/reconciliation integration and
 an explicitly authorized test provider. Processor setup, Commerce integration
 and live service configuration remain outside this consent/status consumer.
+
+The optional provider-identity route is an explicit action and is unavailable
+without the deployment operator allowlist and expected platform identity.
+It never accepts a caller-selected target. See [provider identity diagnostic](provider-identity-diagnostic.md)
+for the normalized response, no-retry contract and separate deployment gate.

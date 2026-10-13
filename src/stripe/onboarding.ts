@@ -1,13 +1,18 @@
 import Stripe from "stripe";
 import type { Mode, OnboardingProvider } from "../hosted/connection.js";
 
+export function createStripeClient(apiKey: string, mode: Mode, httpClient?: Stripe.HttpClient) {
+  if (!apiKey.startsWith(mode === "test" ? "sk_test_" : "sk_live_")) throw new Error("stripe_mode_mismatch");
+  return new Stripe(apiKey, { httpClient: httpClient ?? Stripe.createFetchHttpClient(), timeout: 10000, maxNetworkRetries: 0 });
+}
+
 export function createStripeOnboarding(options: { apiKey: string; mode: Mode; returnUrl: string; refreshUrl: string; httpClient?: Stripe.HttpClient }): OnboardingProvider {
   if (!options.apiKey.startsWith(options.mode === "test" ? "sk_test_" : "sk_live_")) throw new Error("stripe_mode_mismatch");
   for (const value of [options.returnUrl, options.refreshUrl]) {
     const url = new URL(value);
     if (url.protocol !== "https:" || url.username || url.password || url.hash) throw new Error("invalid_return_configuration");
   }
-  const stripe = new Stripe(options.apiKey, { httpClient: options.httpClient ?? Stripe.createFetchHttpClient(), timeout: 10000, maxNetworkRetries: 0 });
+  const stripe = createStripeClient(options.apiKey, options.mode, options.httpClient);
   return {
     async createAccount(bindingRef) {
       // Stable Accounts v1 Standard integration. The account holder completes
