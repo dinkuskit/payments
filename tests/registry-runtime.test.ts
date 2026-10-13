@@ -1,7 +1,88 @@
 import assert from "node:assert/strict";
 import { createPluginRuntimeTestHost } from "@emdash-cms/plugin-test";
 import { test } from "vitest";
+import { vi } from "vitest";
+import { PluginBridge } from "@emdash-cms/cloudflare/sandbox";
 import { CONNECT, CONTROL, JWKS, SITE, STATUS, body, control, fixture, session, snapshot } from "./helpers/registry-runtime.js";
+
+test("compiled Check performs one status sequence for an already completed grant", async () => {
+  const f = await fixture(); const { host } = f;
+  try {
+    await f.prepareStart("single-check"); await f.action("connect"); await f.pollDue();
+    await f.prepareExchange(); await f.action("continue"); host.http.clear();
+    await f.prepareDiagnostics("connecting", { state: "connecting", mode: "test", processorAccountPresent: false, evidence: "unobserved" });
+    const checked = JSON.stringify(await f.action("check"));
+    assert.match(checked, /Your DinkusKit authorization is connected/);
+    assert.deepEqual(host.http.requests().map(r => r.url), [JWKS, STATUS, "https://payments.dinkuskit.com/v1/connect/diagnostics"]);
+  } finally { await host.dispose(); }
+});
+
+test("compiled final control-read failure reports a safe terminal cause without stale readiness", async () => {
+  const f = await fixture(); const { host } = f;
+  let diagnosticsDone = false;
+  try {
+    await f.prepareStart("failed-final-read"); await f.action("connect"); await f.pollDue();
+    await f.prepareExchange(); await f.action("continue"); host.http.clear();
+    const getVersioned = PluginBridge.prototype.kvGetVersioned;
+    const fetch = PluginBridge.prototype.httpFetch;
+    vi.spyOn(PluginBridge.prototype, "kvGetVersioned").mockImplementation(async function(key) {
+      if (key === CONTROL && diagnosticsDone) throw new Error("synthetic-private-error-content");
+      return getVersioned.call(this, key);
+    });
+    vi.spyOn(PluginBridge.prototype, "httpFetch").mockImplementation(async function(url, init) {
+      const result = await fetch.call(this, url, init);
+      if (url.endsWith("/v1/connect/diagnostics")) diagnosticsDone = true;
+      return result;
+    });
+    await f.prepareDiagnostics("connecting", { state: "connecting", mode: "test", processorAccountPresent: false, evidence: "unobserved" });
+    const page = JSON.stringify(await f.page());
+    assert.equal(diagnosticsDone, true);
+    assert.match(page, /Payments setup check failed/);
+    assert.match(page, /status_recheck_control/);
+    assert.doesNotMatch(page, /Checking Payments setup|synthetic-private-error-content|Your DinkusKit authorization is connected|"action_id":"setup_processor"/);
+    assert.match(page, /"action_id":"check"/);
+    assert.deepEqual(host.http.requests().map(r => r.url), [JWKS, STATUS, "https://payments.dinkuskit.com/v1/connect/diagnostics"]);
+  } finally { vi.restoreAllMocks(); await host.dispose(); }
+});
+
+test("compiled status failures identify only the observed safe stage and recover on a fresh check", async () => {
+  for (const stage of ["read_control", "read_session", "verify_session", "fetch_status", "decode_status", "http_status"] as const) {
+    const f = await fixture(); const { host } = f;
+    try {
+      await f.prepareStart(`failure-${stage}`); await f.action("connect"); await f.pollDue();
+      await f.prepareExchange(); await f.action("continue"); host.http.clear();
+      if (stage === "read_control") {
+        const read = PluginBridge.prototype.kvGetVersioned;
+        vi.spyOn(PluginBridge.prototype, "kvGetVersioned").mockImplementation(async function(key) {
+          if (key === CONTROL) throw new Error("synthetic-private-error-content");
+          return read.call(this, key);
+        });
+      } else if (stage === "read_session") {
+        vi.spyOn(PluginBridge.prototype, "settingsGetVersioned").mockRejectedValue(new Error("synthetic-private-error-content"));
+      } else if (stage === "verify_session" || stage === "fetch_status") {
+        const fetch = PluginBridge.prototype.httpFetch;
+        vi.spyOn(PluginBridge.prototype, "httpFetch").mockImplementation(async function(url, init) {
+          if (url === (stage === "verify_session" ? JWKS : STATUS)) throw new Error("synthetic-private-error-content");
+          return fetch.call(this, url, init);
+        });
+      }
+      await f.prepareStatusResponse(stage === "decode_status" ? { private: "synthetic-private-response" } : { state: "disconnected", mode: "test" }, stage === "http_status" ? 503 : 200);
+      const page = JSON.stringify(await f.page());
+      assert.match(page, /Payments setup check failed/);
+      assert.ok(page.includes(`status_${stage === "http_status" ? "fetch_status" : stage}`));
+      if (stage === "http_status") assert.match(page, /HTTP 503/);
+      assert.doesNotMatch(page, /Checking Payments setup|synthetic-private|"action_id":"setup_processor"|Connect payments first/);
+      assert.match(page, /"action_id":"check"/);
+      assert.equal(host.http.requests().some(r => r.method !== "GET"), false);
+      vi.restoreAllMocks(); host.http.clear();
+      await f.prepareStatusResponse({ state: "disconnected", mode: "test" });
+      const recovered = JSON.stringify(await f.action("check"));
+      assert.doesNotMatch(recovered, /Support code|check failed/);
+      assert.match(recovered, /No processor account is connected/);
+      assert.deepEqual(host.http.requests().map(r => r.url), [JWKS, STATUS]);
+    } finally { vi.restoreAllMocks(); await host.dispose(); }
+  }
+});
 
 test("loads the built registry plugin and validates its private status page", async () => {
   const host = await createPluginRuntimeTestHost();
@@ -199,7 +280,8 @@ test("real host allowed-host denial blocks status before synthetic transport and
     host.http.clear();
     await f.prepareStatus(); // A valid reply is queued: policy must reject first.
     const denied = await f.page();
-    assert.match(JSON.stringify(denied), /Checking Payments setup/);
+    assert.match(JSON.stringify(denied), /Payments setup check failed/);
+    assert.match(JSON.stringify(denied), /status_fetch_status/);
     assert.match(JSON.stringify(denied), /"action_id":"check"/);
     assert.doesNotMatch(JSON.stringify(denied), /Stripe is connected for TEST payments only/);
     assert.deepEqual(host.http.requests().map(r => r.url), [JWKS]);
@@ -271,7 +353,7 @@ test("compiled processor setup starts/resumes separately from consent and reject
     const disconnected = JSON.stringify(await f.page());
     assert.match(disconnected, /No processor account is connected/);
     assert.match(disconnected, /"action_id":"setup_processor"/);
-    await f.prepareStatus(true); await f.prepareStatus(true);
+    await f.prepareStatus(true);
     assert.match(JSON.stringify(await f.action("check")), /No processor account is connected/);
     assert.equal(host.http.requests().some(r => r.url === endpoint), false);
     const persisted = await snapshot(host);

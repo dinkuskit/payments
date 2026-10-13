@@ -72,8 +72,8 @@ HTTP verifier and should redirect through the normal login boundary. The
 fixture only permits the fixed roles on loopback and is not a deployable
 production authentication adapter.
 
-This is seeded post-install Registry state for `0.2.2` release preparation: it
-writes the normal `registry/dinkus-payments/0.2.2/` artifacts and an active
+This is seeded post-install Registry state for `0.2.3` release preparation: it
+writes the normal `registry/dinkus-payments/0.2.3/` artifacts and an active
 `source=registry` row, then loads them through the normal local runtime. It is
 not installer proof. In particular, it does not provide authoritative
 publisher/release records, consent receipts, Registry publication, deployment,
@@ -140,3 +140,20 @@ account-ID persistence clears the unresolved diagnostic. No diagnostic read or
 page load retries account creation, changes the binding, or extends the existing
 23-hour safety window. The existing connect and status response shapes remain
 compatible with Registry 0.2.1.
+
+## Registry status-check failures (0.2.3 preparation)
+
+Registry 0.2.3 reports a completed status-read failure as **Payments setup check
+failed**, with a fixed support code identifying the observed stage: reading the
+connection or saved authorization, verifying authorization, fetching or decoding
+status, or rechecking the connection after diagnostics. Only the stage and an
+HTTP status when available are exposed. Error messages, response bodies, stored
+values, tokens and account identifiers are never included in these codes.
+
+A failed check does not imply a missing grant or trigger processor setup. It
+offers an explicit Check connection action and does not display earlier readiness
+as current. Check and Continue reuse an already completed status result instead
+of issuing a second status sequence. Optional unavailable diagnostics still leave
+a successfully verified status intact. These changes identify a failing stage;
+they do not establish the cause of a particular historical failure or change the
+sandbox resource limit.

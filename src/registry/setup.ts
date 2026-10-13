@@ -1,4 +1,5 @@
 import type { ConnectionDiagnostics } from "../connection-diagnostics.js";
+import { describeStatusCheckFailure } from "./check-failure.js";
 import {
   decodeStatus,
   type PaymentsStatus,
@@ -65,13 +66,16 @@ function testOrderStep(status: PaymentsStatus | null, connectionState?: string):
       description: `Place an order on your store and pay with ${card}. This step completes when ${provider} confirms the payment and Commerce saves the order.`,
     };
   }
-  if (status?.state === "checking" || (!status && connectionState === "checking")) {
+  if (status?.state === "checking" || (!status && (connectionState === "checking" || connectionState === "check_failed"))) {
     return { title, status: "incomplete", description: `${unconfirmedCommerceOrder} It could not be checked right now. Try again shortly.` };
   }
   return { title, status: "incomplete", description: `${unconfirmedCommerceOrder} Connect payments first, then place a test order.` };
 }
 
-function connectionStep(status: PaymentsStatus | null, connectionState?: string, diagnostics?: ConnectionDiagnostics): SetupStep {
+function connectionStep(status: PaymentsStatus | null, connectionState?: string, diagnostics?: ConnectionDiagnostics, checkFailure?: unknown): SetupStep {
+  if (connectionState === "check_failed") {
+    return { title: "Connect payments", status: "incomplete", description: describeStatusCheckFailure(checkFailure) };
+  }
   if (status?.state === "connecting" || status?.state === "recovery_required") {
     const messages = {
       authentication: "The payment service could not authenticate with Stripe. Contact support; reconnecting your DinkusKit account will not fix this.",
@@ -173,10 +177,12 @@ function connectionStep(status: PaymentsStatus | null, connectionState?: string,
 export function projectSetupScreen(input: unknown, diagnostics?: ConnectionDiagnostics): SetupScreenProjection {
   let status: PaymentsStatus | null = null;
   let connectionState: string | undefined;
+  let checkFailure: unknown;
   if (typeof input === "object" && input !== null && !Array.isArray(input)) {
     const projection = input as Partial<StatusProjection>;
     if (typeof (input as { state?: unknown }).state === "string") {
       connectionState = (input as { state: string }).state;
+      checkFailure = (input as { checkFailure?: unknown }).checkFailure;
     }
     if (projection.availability === "available") {
       try {
@@ -191,7 +197,7 @@ export function projectSetupScreen(input: unknown, diagnostics?: ConnectionDiagn
     title: "Payment setup",
     overall: "Not ready to sell",
     steps: [
-      connectionStep(status, connectionState, diagnostics),
+      connectionStep(status, connectionState, diagnostics, checkFailure),
       testOrderStep(status, connectionState),
     ],
   };
@@ -202,7 +208,7 @@ export function renderSetupScreen(input: unknown) {
   const projection = projectSetupScreen(nested, input && typeof input === "object" && "diagnostics" in input ? input.diagnostics as ConnectionDiagnostics : undefined);
   const state = typeof input === "object" && input !== null && !Array.isArray(input) &&
     typeof (input as { state?: unknown }).state === "string" ? (input as { state: string }).state : "disconnected";
-  const action = state === "pending" || state === "connecting" ? "continue" : state === "checking" || state === "ready" || state === "processor_setup" ? "check" : "connect";
+  const action = state === "pending" || state === "connecting" ? "continue" : state === "checking" || state === "check_failed" || state === "ready" || state === "processor_setup" ? "check" : "connect";
   const statusValue = nested && typeof nested === "object" && "status" in nested ? nested.status : null;
   const processorPending = statusValue && typeof statusValue === "object" && "state" in statusValue && ["connecting", "recovery_required"].includes(statusValue.state as string);
   const needsRecovery = statusValue && typeof statusValue === "object" && "state" in statusValue && statusValue.state === "recovery_required";
