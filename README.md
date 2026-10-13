@@ -9,7 +9,7 @@ churn outside Commerce core.
 
 Local hosted-connection and Checkout Session adapter. The package name is
 reserved as `@dinkuskit/payments`, the EmDash plugin ID is `dinkus-payments`,
-and package metadata and plugin manifests are aligned for public `0.1.0` release
+and package metadata and plugin manifests are aligned for public `0.2.0` release
 preparation while remaining unpublished. The service includes persistent
 account bindings, a readiness gate for new checkout, an existing-binding read
 for reconciliation, Stripe hosted Checkout Sessions, and raw-byte webhook
