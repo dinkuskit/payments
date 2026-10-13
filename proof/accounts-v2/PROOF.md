@@ -32,3 +32,6 @@ Local final verification: `npm run verify:full` passed with 211 unit tests,
 31 hosted runtime tests and 20 compiled Registry tests. Typecheck, public
 repository audit, Worker dry-run build, plugin validation and build passed.
 Node: 22.23.2. No provider requests or deployment were performed.
+
+Review repair: omitted account default currency before merchant country is known.
+The exact wire test rejects an unsolicited default; USD Checkout is unchanged.

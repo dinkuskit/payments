@@ -68,7 +68,7 @@ export function createStripeOnboarding(options: { apiKey: string; mode: Mode; re
       const account = await stripe.v2.core.accounts.create({
         dashboard: "full",
         configuration: { merchant: { capabilities: { card_payments: { requested: true } } } },
-        defaults: { currency: "usd", responsibilities: { fees_collector: "stripe", losses_collector: "stripe" } },
+        defaults: { responsibilities: { fees_collector: "stripe", losses_collector: "stripe" } },
         metadata: { dinkus_binding: bindingRef },
       }, { idempotencyKey: `dinkus-connect:v2:${bindingRef}` });
       if (account.object !== "v2.core.account" || !validId(account.id) || account.livemode !== (options.mode === "live")) throw new Error("invalid_created_account");

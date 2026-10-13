@@ -12,7 +12,8 @@ new payment method or v1 policy toggle.
 Stripe Node SDK 23.0.0 and API `2026-09-30.endive` handle account creation,
 account readiness and account links. Creation requests merchant card-payment
 capability and leaves merchant identity/KYC details to Stripe-hosted onboarding.
-The two required responsibility fields are set to `stripe`; these are permanent
+No account default currency is imposed before hosted onboarding. The two
+required responsibility fields are set to `stripe`; these are permanent
 choices for the account. The API reference allows identity information to be
 provided during onboarding rather than inventing country or person data.
 
