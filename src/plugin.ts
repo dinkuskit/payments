@@ -36,11 +36,11 @@ export function createPaymentsPlugin(config: PaymentsPluginConfig = DEFAULT_CONF
             if (actionId === "connect") return renderSetupScreen(await connection.start(routeCtx.user));
             if (actionId === "continue") {
               const result = await connection.exchange(routeCtx.user);
-              return renderSetupScreen(result.state === "ready" && !result.status ? await connection.status(routeCtx.user) : result);
+              return renderSetupScreen(result.state === "ready" && result.status === undefined ? { state: "authorized" } : result);
             }
             if (actionId === "check") {
               const result = await connection.exchange(routeCtx.user);
-              return renderSetupScreen(result.state === "ready" && !result.status ? await connection.status(routeCtx.user) : result);
+              return renderSetupScreen(result.state === "ready" && result.status === undefined ? { state: "authorized" } : result);
             }
           }
           return renderSetupScreen(await connection.status(routeCtx.user));

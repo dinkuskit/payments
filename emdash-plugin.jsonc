@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/@emdash-cms/plugin-cli/schemas/emdash-plugin.schema.json",
   "slug": "dinkus-payments",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "license": "MIT",
   "capabilities": [
     "network:request"
