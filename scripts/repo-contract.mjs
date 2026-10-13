@@ -85,7 +85,7 @@ export async function auditRepository(root = repositoryRoot) {
   if (manifest.name !== "@dinkuskit/payments") {
     findings.push("package name must be @dinkuskit/payments");
   }
-  if (manifest.version !== "0.1.0") findings.push("package version must be 0.1.0");
+  if (manifest.version !== "0.2.0") findings.push("package version must be 0.2.0");
   if (manifest.private === true) findings.push("package must be public for the approved release");
   if (manifest.license !== "MIT") findings.push("package license must be MIT");
   if (manifest.repository?.url !== "git+https://github.com/dinkuskit/payments.git") {
