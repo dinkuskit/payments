@@ -100,7 +100,7 @@ function connectionStep(status: PaymentsStatus | null, connectionState?: string)
     };
   }
   if (status?.state === "disconnected") {
-    return { title: "Connect payments", status: "incomplete", description: "DinkusKit Payments status was checked. No processor account is connected. Processor setup is not available in this build." };
+    return { title: "Connect payments", status: "incomplete", description: "DinkusKit Payments status was checked. No processor account is connected. Select Set up Stripe to connect your processor account." };
   }
   if (!status?.connectionEvidence) {
     return {
@@ -188,7 +188,12 @@ export function renderSetupScreen(input: unknown) {
   const projection = projectSetupScreen(nested);
   const state = typeof input === "object" && input !== null && !Array.isArray(input) &&
     typeof (input as { state?: unknown }).state === "string" ? (input as { state: string }).state : "disconnected";
-  const action = state === "pending" || state === "connecting" ? "continue" : state === "checking" || state === "ready" ? "check" : "connect";
+  const action = state === "pending" || state === "connecting" ? "continue" : state === "checking" || state === "ready" || state === "processor_setup" ? "check" : "connect";
+  const statusValue = nested && typeof nested === "object" && "status" in nested ? nested.status : null;
+  const evidence = statusValue && typeof statusValue === "object" && "connectionEvidence" in statusValue ? statusValue.connectionEvidence : null;
+  const canSetup = (state === "ready" || state === "processor_setup") &&
+    (!evidence || typeof evidence !== "object" || !("provider" in evidence) ||
+      (evidence.provider === "stripe" && "result" in evidence && evidence.result !== "verified"));
   const actionLabel = action === "continue" ? "Continue" : action === "check" ? "Check connection" : "Connect";
   return {
     blocks: [
@@ -209,6 +214,9 @@ export function renderSetupScreen(input: unknown) {
         elements: [
           ...(state === "pending" && input && typeof input === "object" && "verificationUri" in input && typeof input.verificationUri === "string"
             ? [{ type: "link", label: "Authorize Payments at DinkusKit", target: { kind: "external", url: input.verificationUri } }] : []),
+          ...(state === "processor_setup" && input && typeof input === "object" && "onboardingUrl" in input && typeof input.onboardingUrl === "string"
+            ? [{ type: "link", label: "Continue setup at Stripe", target: { kind: "external", url: input.onboardingUrl } }] : []),
+          ...(canSetup ? [{ type: "button", label: "Set up or resume Stripe", action_id: "setup_processor" }] : []),
           { type: "button", label: actionLabel, action_id: action },
           ...(action === "check" ? [{ type: "button", label: "Reconnect", action_id: "connect" }] : []),
         ],

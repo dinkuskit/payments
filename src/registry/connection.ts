@@ -57,6 +57,7 @@ type Control = {
 };
 export type RegistryFlowResult =
   | { state: "unconfigured" | "disconnected" | "connecting" | "ready" | "checking" | "action_required" | "recovery_required"; receipt?: ProofReceipt; status?: unknown }
+  | { state: "processor_setup"; onboardingUrl: string; expiresAt: number; status?: unknown }
   | { state: "pending"; verificationUri: string; interval: number; expiresAt: number }
   | { state: "failed"; message: "restart_required" | "connection_unavailable" };
 
@@ -241,7 +242,38 @@ export function createRegistryConnection(options: {
       return { state: "ready", status: { availability: "available", status: decodeStatus(await result.json()), message: "Payments status checked." } };
     } catch { return { state: "checking" }; }
   }
-  return { start, receipt, exchange, status, proofPath: REGISTRY_PROOF_PATH };
+  async function setupProcessor(user: UserInfo): Promise<RegistryFlowResult> {
+    const prior = await current();
+    const c = prior?.value;
+    if (!origin || !options.http || !configured) return { state: "unconfigured" };
+    if (!c || c.phase !== "complete" || c.adminId !== user?.id || c.origin !== origin || c.expiresAt <= now() || !c.binding) return { state: "action_required" };
+    try {
+      const endpoint = new URL(configured);
+      if (endpoint.protocol !== "https:" || endpoint.port || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || endpoint.pathname !== "/v1/status") return { state: "unconfigured" };
+      const stored = await secret(c);
+      if (stored.parsed.kind !== "session") return { state: "action_required" };
+      const verified = await verifySessionToken(stored.parsed.token, c.binding.siteId);
+      if (verified.subject !== c.binding.subject || c.binding.issuer !== REGISTRY_ISSUER) return { state: "action_required" };
+      if ((await current())?.revision !== prior!.revision || c.expiresAt <= now()) return { state: "action_required" };
+      const response = await options.http.fetch(`${endpoint.origin}/v1/connect`, noRedirect({ method: "POST", headers: { Authorization: `Bearer ${verified.token}`, "X-Dinkus-Site": c.binding.siteId } }));
+      if (response.status === 401 || response.status === 403) return { state: "action_required" };
+      if (!response.ok) return { state: "checking" };
+      const body = await response.json() as Record<string, unknown>;
+      if ((await current())?.revision !== prior!.revision || c.expiresAt <= now()) return { state: "action_required" };
+      if (!body || Array.isArray(body) || Object.keys(body).some(key => !["state", "mode", "bindingRef", "url", "expiresAt"].includes(key)) || !["disconnected", "connecting", "setup_required", "action_required", "ready", "checking", "recovery_required"].includes(body.state as string) || !["test", "live"].includes(body.mode as string)) return { state: "checking" };
+      if (body.bindingRef !== undefined && (!safeString(body.bindingRef, 200))) return { state: "checking" };
+      if (body.url === undefined && body.expiresAt === undefined) return status(user);
+      if (!["setup_required", "action_required"].includes(body.state as string) || !safeString(body.bindingRef, 200)) return { state: "checking" };
+      if (typeof body.url !== "string" || typeof body.expiresAt !== "number" || !Number.isSafeInteger(body.expiresAt) || body.expiresAt <= now() || body.expiresAt > now() + 3_600_000) return { state: "checking" };
+      const link = new URL(body.url);
+      if (!body.url.startsWith("https://connect.stripe.com/setup/") || link.protocol !== "https:" || link.hostname !== "connect.stripe.com" || link.port || link.username || link.password || link.hash || !link.pathname.startsWith("/setup/")) return { state: "checking" };
+      const checked = await status(user);
+      if (checked.state === "ready" && ((checked.status as { status?: { mode?: string; bindingRef?: string } })?.status?.mode !== body.mode || (checked.status as { status?: { bindingRef?: string } })?.status?.bindingRef !== body.bindingRef)) return { state: "checking" };
+      if (checked.state !== "ready" || (await current())?.revision !== prior!.revision || c.expiresAt <= now() || body.expiresAt <= now()) return checked.state === "ready" ? { state: "action_required" } : checked;
+      return { state: "processor_setup", onboardingUrl: body.url, expiresAt: body.expiresAt, status: checked.status };
+    } catch { return { state: "checking" }; }
+  }
+  return { start, receipt, exchange, status, setupProcessor, proofPath: REGISTRY_PROOF_PATH };
 }
 
 export function safeResponse(status: number, body: unknown) {

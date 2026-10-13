@@ -1,0 +1,3 @@
+
+> @dinkuskit/payments@0.2.1 typecheck
+> tsc --noEmit && tsc --noEmit --project tsconfig.plugin.json

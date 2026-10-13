@@ -1,0 +1,1599 @@
+
+> @dinkuskit/payments@0.2.1 test
+> node --import tsx --test tests/*.test.mjs tests/cli/*.test.mjs
+
+TAP version 13
+# Subtest: shared issuer identity is verified with audience, expiry, site, and separate permissions
+ok 1 - shared issuer identity is verified with audience, expiry, site, and separate permissions
+  ---
+  duration_ms: 21.857209
+  type: 'test'
+  ...
+# Subtest: a store pass carries the web address DinkusKit.com checked, and a malformed one fails closed
+ok 2 - a store pass carries the web address DinkusKit.com checked, and a malformed one fails closed
+  ---
+  duration_ms: 24.931708
+  type: 'test'
+  ...
+# Subtest: mode pins API and hosted endpoints and unknown mode fails closed
+ok 3 - mode pins API and hosted endpoints and unknown mode fails closed
+  ---
+  duration_ms: 1.156125
+  type: 'test'
+  ...
+# Subtest: store-bound invoice references fit the 20-char budget and reject overflow or malformed input
+ok 4 - store-bound invoice references fit the 20-char budget and reject overflow or malformed input
+  ---
+  duration_ms: 7.909917
+  type: 'test'
+  ...
+# Subtest: Accept Hosted creation uses the official request shape and converts USD minor units only at transport
+ok 5 - Accept Hosted creation uses the official request shape and converts USD minor units only at transport
+  ---
+  duration_ms: 3.544166
+  type: 'test'
+  ...
+# Subtest: transaction lookup is authoritative and unknown is distinct from unpaid
+ok 6 - transaction lookup is authoritative and unknown is distinct from unpaid
+  ---
+  duration_ms: 0.415792
+  type: 'test'
+  ...
+# Subtest: a lost creation response remains retryable unknown and never fabricates a session
+ok 7 - a lost creation response remains retryable unknown and never fabricates a session
+  ---
+  duration_ms: 1.084458
+  type: 'test'
+  ...
+# Subtest: webhooks verify raw bytes, reject tampering and replay, and wake only once
+ok 8 - webhooks verify raw bytes, reject tampering and replay, and wake only once
+  ---
+  duration_ms: 2.184791
+  type: 'test'
+  ...
+# Subtest: signed Authorize.net transaction hints can wake a durable attempt without deciding payment
+ok 9 - signed Authorize.net transaction hints can wake a durable attempt without deciding payment
+  ---
+  duration_ms: 0.567625
+  type: 'test'
+  ...
+# Subtest: a failed wake stays retryable and a later success is replay-fenced
+ok 10 - a failed wake stays retryable and a later success is replay-fenced
+  ---
+  duration_ms: 1.521292
+  type: 'test'
+  ...
+# Subtest: a signed notification cannot wake under a different caller event ID
+ok 11 - a signed notification cannot wake under a different caller event ID
+  ---
+  duration_ms: 2.157292
+  type: 'test'
+  ...
+# Subtest: browser return is only a validated lookup hint and forged URLs fail closed
+ok 12 - browser return is only a validated lookup hint and forged URLs fail closed
+  ---
+  duration_ms: 0.461667
+  type: 'test'
+  ...
+# Subtest: wired payment port persists hosted session and reports authoritative paid, unpaid, and pending outcomes
+ok 13 - wired payment port persists hosted session and reports authoritative paid, unpaid, and pending outcomes
+  ---
+  duration_ms: 2.971791
+  type: 'test'
+  ...
+# Subtest: wired creation remains unknown after a lost response and can recover durably
+ok 14 - wired creation remains unknown after a lost response and can recover durably
+  ---
+  duration_ms: 0.710209
+  type: 'test'
+  ...
+# Subtest: a port without the store's return pages cannot start a hosted payment but still resumes one
+ok 15 - a port without the store's return pages cannot start a hosted payment but still resumes one
+  ---
+  duration_ms: 1.478125
+  type: 'test'
+  ...
+# Subtest: fetch transport deadline covers a late response body without AbortSignal RPC
+ok 16 - fetch transport deadline covers a late response body without AbortSignal RPC
+  ---
+  duration_ms: 10.32725
+  type: 'test'
+  ...
+# Subtest: lost creation response recovers the original session and window
+ok 17 - lost creation response recovers the original session and window
+  ---
+  duration_ms: 1.974042
+  type: 'test'
+  ...
+# Subtest: an aged unknown create does not mint a second session after Stripe key retention
+ok 18 - an aged unknown create does not mint a second session after Stripe key retention
+  ---
+  duration_ms: 0.501375
+  type: 'test'
+  ...
+# Subtest: lookup never creates and absence is unknown, not a terminal fence
+ok 19 - lookup never creates and absence is unknown, not a terminal fence
+  ---
+  duration_ms: 0.760167
+  type: 'test'
+  ...
+# Subtest: readiness regression still serves an existing mapping
+ok 20 - readiness regression still serves an existing mapping
+  ---
+  duration_ms: 0.379292
+  type: 'test'
+  ...
+# Subtest: immutable request mutation is rejected
+ok 21 - immutable request mutation is rejected
+  ---
+  duration_ms: 0.515375
+  type: 'test'
+  ...
+# Subtest: wrong account amount currency and mode fail closed
+ok 22 - wrong account amount currency and mode fail closed
+  ---
+  duration_ms: 0.410333
+  type: 'test'
+  ...
+# Subtest: expired unpaid without a canceled PaymentIntent stays unknown
+ok 23 - expired unpaid without a canceled PaymentIntent stays unknown
+  ---
+  duration_ms: 0.506625
+  type: 'test'
+  ...
+# Subtest: paid requires a succeeded PaymentIntent and keeps the original session fields
+ok 24 - paid requires a succeeded PaymentIntent and keeps the original session fields
+  ---
+  duration_ms: 0.420292
+  type: 'test'
+  ...
+# Subtest: concurrent ensureSession writers share one durable claim
+ok 25 - concurrent ensureSession writers share one durable claim
+  ---
+  duration_ms: 0.559959
+  type: 'test'
+  ...
+# Subtest: new checkout without readiness stays unknown and never contacts Stripe
+ok 26 - new checkout without readiness stays unknown and never contacts Stripe
+  ---
+  duration_ms: 0.382834
+  type: 'test'
+  ...
+# Subtest: lookup absence then ensureSession cannot invent a terminal not-created fence
+ok 27 - lookup absence then ensureSession cannot invent a terminal not-created fence
+  ---
+  duration_ms: 0.37
+  type: 'test'
+  ...
+# Subtest: provider created and expires_at are authoritative and an inconsistent window stays unknown
+ok 28 - provider created and expires_at are authoritative and an inconsistent window stays unknown
+  ---
+  duration_ms: 0.350417
+  type: 'test'
+  ...
+# Subtest: exact provider window is returned and later reads must agree
+ok 29 - exact provider window is returned and later reads must agree
+  ---
+  duration_ms: 0.292875
+  type: 'test'
+  ...
+# Subtest: documented Stripe session ID and hosted URL fragment survive reconciliation
+ok 30 - documented Stripe session ID and hosted URL fragment survive reconciliation
+  ---
+  duration_ms: 0.219334
+  type: 'test'
+  ...
+# Subtest: provider cannot shift the requested expiry while preserving a 30-minute pair
+ok 31 - provider cannot shift the requested expiry while preserving a 30-minute pair
+  ---
+  duration_ms: 0.2415
+  type: 'test'
+  ...
+# Subtest: numeric line minor units fail before provider contact
+ok 32 - numeric line minor units fail before provider contact
+  ---
+  duration_ms: 0.148875
+  type: 'test'
+  ...
+# Subtest: pending charge cannot establish terminal unpaid even with canceled intent
+ok 33 - pending charge cannot establish terminal unpaid even with canceled intent
+  ---
+  duration_ms: 0.19325
+  type: 'test'
+  ...
+# Subtest: malformed session id and credentialed or non-Stripe URLs fail closed after durable id persist
+ok 34 - malformed session id and credentialed or non-Stripe URLs fail closed after durable id persist
+  ---
+  duration_ms: 0.485
+  type: 'test'
+  ...
+# Subtest: create transport params are detached before await and replayed from the record
+ok 35 - create transport params are detached before await and replayed from the record
+  ---
+  duration_ms: 0.317708
+  type: 'test'
+  ...
+# Subtest: a new attempt needs the store's return pages, and a retry reuses the pinned ones
+ok 36 - a new attempt needs the store's return pages, and a retry reuses the pinned ones
+  ---
+  duration_ms: 0.321667
+  type: 'test'
+  ...
+# Subtest: fingerprint compares canonical values and preserves Commerce line order
+ok 37 - fingerprint compares canonical values and preserves Commerce line order
+  ---
+  duration_ms: 0.248583
+  type: 'test'
+  ...
+# Subtest: unexpanded latest charge cannot prove expired-unpaid
+ok 38 - unexpanded latest charge cannot prove expired-unpaid
+  ---
+  duration_ms: 0.301209
+  type: 'test'
+  ...
+# Subtest: HTTP existing-binding bypasses readiness while checkout-binding does not
+ok 39 - HTTP existing-binding bypasses readiness while checkout-binding does not
+  ---
+  duration_ms: 2.462375
+  type: 'test'
+  ...
+# Subtest: independent provider clock delays 0/1/10/30/59/60 inclusive are valid and 61 is invalid
+ok 40 - independent provider clock delays 0/1/10/30/59/60 inclusive are valid and 61 is invalid
+  ---
+  duration_ms: 1.654875
+  type: 'test'
+  ...
+# Subtest: delayed lost-response at provider+1 then retry+180 recovers cached session with remaining 1680
+ok 41 - delayed lost-response at provider+1 then retry+180 recovers cached session with remaining 1680
+  ---
+  duration_ms: 0.36275
+  type: 'test'
+  ...
+# Subtest: separate upper duration 1861 returned-time defense uses independent clock base-1 and stays unknown
+ok 42 - separate upper duration 1861 returned-time defense uses independent clock base-1 and stays unknown
+  ---
+  duration_ms: 0.245792
+  type: 'test'
+  ...
+# Subtest: provider returned duration 1799 defense stays unknown
+ok 43 - provider returned duration 1799 defense stays unknown
+  ---
+  duration_ms: 0.208667
+  type: 'test'
+  ...
+# Subtest: exact requested expiry drift is rejected even within duration bounds
+ok 44 - exact requested expiry drift is rejected even within duration bounds
+  ---
+  duration_ms: 0.177708
+  type: 'test'
+  ...
+# Subtest: missing, noninteger, or unsafe provider timestamps fail closed
+ok 45 - missing, noninteger, or unsafe provider timestamps fail closed
+  ---
+  duration_ms: 1.037416
+  type: 'test'
+  ...
+# Subtest: unclaimed legacy request conservatively remains unknown with no provider contact
+ok 46 - unclaimed legacy request conservatively remains unknown with no provider contact
+  ---
+  duration_ms: 0.258625
+  type: 'test'
+  ...
+# Subtest: assert legacy JSON fingerprint exact old byte ordering
+ok 47 - assert legacy JSON fingerprint exact old byte ordering
+  ---
+  duration_ms: 0.081125
+  type: 'test'
+  ...
+# Subtest: two independently seeded historical cases accept exact 1800 and reject 1859 without reset
+ok 48 - two independently seeded historical cases accept exact 1800 and reject 1859 without reset
+  ---
+  duration_ms: 2.02375
+  type: 'test'
+  ...
+# Subtest: request mutation between current and legacy shapes is rejected in both directions
+ok 49 - request mutation between current and legacy shapes is rejected in both directions
+  ---
+  duration_ms: 0.394083
+  type: 'test'
+  ...
+# Subtest: paymentWindow validation rejects both, neither, altered window bounds, extra policykey, and both own fields even undefined
+ok 50 - paymentWindow validation rejects both, neither, altered window bounds, extra policykey, and both own fields even undefined
+  ---
+  duration_ms: 0.328167
+  type: 'test'
+  ...
+# Subtest: pricing snapshot survives coupon offset and mutations reject before provider contact
+ok 51 - pricing snapshot survives coupon offset and mutations reject before provider contact
+  ---
+  duration_ms: 1.356375
+  type: 'test'
+  ...
+# Subtest: pricing nullish, malformed arithmetic, and legacy pricing fail closed
+ok 52 - pricing nullish, malformed arithmetic, and legacy pricing fail closed
+  ---
+  duration_ms: 0.547958
+  type: 'test'
+  ...
+# Subtest: discounted and shipping-only pricing totals reach the provider unchanged
+ok 53 - discounted and shipping-only pricing totals reach the provider unchanged
+  ---
+  duration_ms: 2.150959
+  type: 'test'
+  ...
+# Subtest: 101 mapped items reject before any attempt or provider operation
+ok 54 - 101 mapped items reject before any attempt or provider operation
+  ---
+  duration_ms: 3.547916
+  type: 'test'
+  ...
+# Subtest: coupon code, whitespace identities and ineligible discounts fail before contact
+ok 55 - coupon code, whitespace identities and ineligible discounts fail before contact
+  ---
+  duration_ms: 0.632709
+  type: 'test'
+  ...
+# Subtest: complete pricing rejects malformed schema, line, quote and money fields before writes
+ok 56 - complete pricing rejects malformed schema, line, quote and money fields before writes
+  ---
+  duration_ms: 1.188292
+  type: 'test'
+  ...
+# Subtest: claim snapshots transport mapping before await and retries original after caller mutation
+ok 57 - claim snapshots transport mapping before await and retries original after caller mutation
+  ---
+  duration_ms: 0.770917
+  type: 'test'
+  ...
+# Subtest: partial or corrupted priced mapping stays unknown without a second create
+ok 58 - partial or corrupted priced mapping stays unknown without a second create
+  ---
+  duration_ms: 0.787541
+  type: 'test'
+  ...
+# Subtest: the package manifest does not ship the CLI
+ok 59 - the package manifest does not ship the CLI
+  ---
+  duration_ms: 3.778875
+  type: 'test'
+  ...
+# Subtest: help works at every depth, ignores other arguments, and never calls the service
+ok 60 - help works at every depth, ignores other arguments, and never calls the service
+  ---
+  duration_ms: 2.375375
+  type: 'test'
+  ...
+# Subtest: help names the token scope each command needs
+ok 61 - help names the token scope each command needs
+  ---
+  duration_ms: 0.338375
+  type: 'test'
+  ...
+# Subtest: --version prints only the package version at every depth
+ok 62 - --version prints only the package version at every depth
+  ---
+  duration_ms: 0.115542
+  type: 'test'
+  ...
+# Subtest: a missing or unknown command is a usage error on stderr
+ok 63 - a missing or unknown command is a usage error on stderr
+  ---
+  duration_ms: 0.648167
+  type: 'test'
+  ...
+# Subtest: status sends the bearer token and site header and reads GET /v1/status
+ok 64 - status sends the bearer token and site header and reads GET /v1/status
+  ---
+  duration_ms: 3.098334
+  type: 'test'
+  ...
+# Subtest: status human output shows state, mode, binding and the action needed
+ok 65 - status human output shows state, mode, binding and the action needed
+  ---
+  duration_ms: 1.684792
+  type: 'test'
+  ...
+# Subtest: an unrecognized state is reported with a warning, not guessed
+ok 66 - an unrecognized state is reported with a warning, not guessed
+  ---
+  duration_ms: 1.788792
+  type: 'test'
+  ...
+# Subtest: plain output is one stable record with escaped tabs, newlines and backslashes
+ok 67 - plain output is one stable record with escaped tabs, newlines and backslashes
+  ---
+  duration_ms: 1.776125
+  type: 'test'
+  ...
+# Subtest: service text cannot drive the terminal in human output or the connect preview
+ok 68 - service text cannot drive the terminal in human output or the connect preview
+  ---
+  duration_ms: 4.092708
+  type: 'test'
+  ...
+# Subtest: site and endpoint resolve from flags, environment and config files in that order
+ok 69 - site and endpoint resolve from flags, environment and config files in that order
+  ---
+  duration_ms: 6.157333
+  type: 'test'
+  ...
+# Subtest: the token is never sent to an endpoint from project config
+ok 70 - the token is never sent to an endpoint from project config
+  ---
+  duration_ms: 3.528791
+  type: 'test'
+  ...
+# Subtest: config files that hold a token are rejected before any request
+ok 71 - config files that hold a token are rejected before any request
+  ---
+  duration_ms: 2.083625
+  type: 'test'
+  ...
+# Subtest: every service command requires a site and an endpoint
+ok 72 - every service command requires a site and an endpoint
+  ---
+  duration_ms: 4.344208
+  type: 'test'
+  ...
+# Subtest: a missing or malformed token exits 4 and names only the variable
+ok 73 - a missing or malformed token exits 4 and names only the variable
+  ---
+  duration_ms: 0.91475
+  type: 'test'
+  ...
+# Subtest: errors go to stderr in human mode and to one JSON document in --json mode
+ok 74 - errors go to stderr in human mode and to one JSON document in --json mode
+  ---
+  duration_ms: 2.790959
+  type: 'test'
+  ...
+# Subtest: HTTP and transport results map to the shared exit codes
+ok 75 - HTTP and transport results map to the shared exit codes
+  ---
+  duration_ms: 56.261792
+  type: 'test'
+  ...
+# Subtest: a 409 business answer is outcome rejected with exit 1
+ok 76 - a 409 business answer is outcome rejected with exit 1
+  ---
+  duration_ms: 1.95925
+  type: 'test'
+  ...
+# Subtest: connect --dry-run only reads status and returns the confirmation value
+ok 77 - connect --dry-run only reads status and returns the confirmation value
+  ---
+  duration_ms: 2.256166
+  type: 'test'
+  ...
+# Subtest: connect fails closed under --no-input and on a mismatched confirmation
+ok 78 - connect fails closed under --no-input and on a mismatched confirmation
+  ---
+  duration_ms: 1.019166
+  type: 'test'
+  ...
+# Subtest: connect without a TTY or --confirm contacts nothing
+ok 79 - connect without a TTY or --confirm contacts nothing
+  ---
+  duration_ms: 0.392958
+  type: 'test'
+  ...
+# Subtest: connect --no-input --confirm sends one bodyless POST and marks the send
+ok 80 - connect --no-input --confirm sends one bodyless POST and marks the send
+  ---
+  duration_ms: 2.228584
+  type: 'test'
+  ...
+# Subtest: connect asks for the typed site id on a TTY and sends only on a match
+ok 81 - connect asks for the typed site id on a TTY and sends only on a match
+  ---
+  duration_ms: 3.642208
+  type: 'test'
+  ...
+# Subtest: end of input at the connect prompt refuses without sending, and no TTY never prompts
+ok 82 - end of input at the connect prompt refuses without sending, and no TTY never prompts
+  ---
+  duration_ms: 3.310792
+  type: 'test'
+  ...
+# Subtest: connect reports an unknown outcome when the answer is lost after the send
+ok 83 - connect reports an unknown outcome when the answer is lost after the send
+  ---
+  duration_ms: 5.247125
+  type: 'test'
+  ...
+# Subtest: binding show reads the existing binding and checks it matches
+ok 84 - binding show reads the existing binding and checks it matches
+  ---
+  duration_ms: 2.878417
+  type: 'test'
+  ...
+# Subtest: binding show accepts each provider's recipient field and refuses the wrong one
+ok 85 - binding show accepts each provider's recipient field and refuses the wrong one
+  ---
+  duration_ms: 5.161625
+  type: 'test'
+  ...
+# Subtest: checkout lookup sends the request file byte-for-byte and formats the outcome
+ok 86 - checkout lookup sends the request file byte-for-byte and formats the outcome
+  ---
+  duration_ms: 7.508917
+  type: 'test'
+  ...
+# Subtest: checkout lookup accepts an Authorize.net session, whose id is a long hosted-form token
+ok 87 - checkout lookup accepts an Authorize.net session, whose id is a long hosted-form token
+  ---
+  duration_ms: 2.067833
+  type: 'test'
+  ...
+# Subtest: checkout lookup sends the file's exact bytes, byte-order mark included, and refuses invalid UTF-8
+ok 88 - checkout lookup sends the file's exact bytes, byte-order mark included, and refuses invalid UTF-8
+  ---
+  duration_ms: 2.391834
+  type: 'test'
+  ...
+# Subtest: checkout lookup validates the request locally before sending
+ok 89 - checkout lookup validates the request locally before sending
+  ---
+  duration_ms: 4.406667
+  type: 'test'
+  ...
+# Subtest: checkout lookup sends at most the hosted API's 128 KiB body limit
+ok 90 - checkout lookup sends at most the hosted API's 128 KiB body limit
+  ---
+  duration_ms: 4.029542
+  type: 'test'
+  ...
+# Subtest: checkout lookup maps service answers to exit codes
+ok 91 - checkout lookup maps service answers to exit codes
+  ---
+  duration_ms: 3.301625
+  type: 'test'
+  ...
+# Subtest: wakes list is read-only, validates --limit, and prints one plain record per wake
+ok 92 - wakes list is read-only, validates --limit, and prints one plain record per wake
+  ---
+  duration_ms: 4.103416
+  type: 'test'
+  ...
+# Subtest: the bin entrypoint prints the version
+ok 93 - the bin entrypoint prints the version
+  ---
+  duration_ms: 38.419667
+  type: 'test'
+  ...
+# Subtest: the bin reads a piped PaymentRequest from stdin and calls a local service
+ok 94 - the bin reads a piped PaymentRequest from stdin and calls a local service
+  ---
+  duration_ms: 68.974125
+  type: 'test'
+  ...
+# Subtest: malformed client IPs are rejected
+ok 95 - malformed client IPs are rejected
+  ---
+  duration_ms: 0.674042
+  type: 'test'
+  ...
+# Subtest: valid IPv4 keys canonically
+ok 96 - valid IPv4 keys canonically
+  ---
+  duration_ms: 0.1585
+  type: 'test'
+  ...
+# Subtest: valid IPv6 keys by /64
+ok 97 - valid IPv6 keys by /64
+  ---
+  duration_ms: 0.151625
+  type: 'test'
+  ...
+# Subtest: IPv6 addresses in one /64 share a key; other /64s do not
+ok 98 - IPv6 addresses in one /64 share a key; other /64s do not
+  ---
+  duration_ms: 0.072
+  type: 'test'
+  ...
+# Subtest: mixed case normalizes to the same key
+ok 99 - mixed case normalizes to the same key
+  ---
+  duration_ms: 0.055791
+  type: 'test'
+  ...
+# Subtest: persists intent before account creation and resumes one account after process restart
+ok 100 - persists intent before account creation and resumes one account after process restart
+  ---
+  duration_ms: 1.113584
+  type: 'test'
+  ...
+# Subtest: status reports verified and action-required Stripe evidence with one account lookup
+ok 101 - status reports verified and action-required Stripe evidence with one account lookup
+  ---
+  duration_ms: 0.574583
+  type: 'test'
+  ...
+# Subtest: live Stripe status evidence keeps the explicit live mode
+ok 102 - live Stripe status evidence keeps the explicit live mode
+  ---
+  duration_ms: 0.18525
+  type: 'test'
+  ...
+# Subtest: failed or mismatched Stripe lookup is unknown and never verified
+ok 103 - failed or mismatched Stripe lookup is unknown and never verified
+  ---
+  duration_ms: 0.29575
+  type: 'test'
+  ...
+# Subtest: unknown account creation outcome retries the frozen idempotency identity
+ok 104 - unknown account creation outcome retries the frozen idempotency identity
+  ---
+  duration_ms: 0.194792
+  type: 'test'
+  ...
+# Subtest: an old unknown creation cannot create a duplicate after Stripe idempotency expiry
+ok 105 - an old unknown creation cannot create a duplicate after Stripe idempotency expiry
+  ---
+  duration_ms: 0.100541
+  type: 'test'
+  ...
+# Subtest: simultaneous starts reuse one durable identity
+ok 106 - simultaneous starts reuse one durable identity
+  ---
+  duration_ms: 0.277125
+  type: 'test'
+  ...
+# Subtest: existing bindings cannot change merchant, site, or mode
+ok 107 - existing bindings cannot change merchant, site, or mode
+  ---
+  duration_ms: 0.337
+  type: 'test'
+  ...
+# Subtest: existing bindings remain readable after readiness regresses
+ok 108 - existing bindings remain readable after readiness regresses
+  ---
+  duration_ms: 0.456083
+  type: 'test'
+  ...
+# Subtest: checkout requires current provider readiness and the exact original binding
+ok 109 - checkout requires current provider readiness and the exact original binding
+  ---
+  duration_ms: 0.461667
+  type: 'test'
+  ...
+# Subtest: another provider account response and a hostile onboarding URL fail closed
+ok 110 - another provider account response and a hostile onboarding URL fail closed
+  ---
+  duration_ms: 0.203667
+  type: 'test'
+  ...
+# Subtest: Authorize.net bindings use authorizeNetMerchantId and never a Stripe account sentinel
+ok 111 - Authorize.net bindings use authorizeNetMerchantId and never a Stripe account sentinel
+  ---
+  duration_ms: 0.157042
+  type: 'test'
+  ...
+# Subtest: cross-provider connection fields and the authorize sentinel fail closed
+ok 112 - cross-provider connection fields and the authorize sentinel fail closed
+  ---
+  duration_ms: 0.121833
+  type: 'test'
+  ...
+# Subtest: HTTP surface requires auth, separates checkout scope, and rejects caller configuration
+ok 113 - HTTP surface requires auth, separates checkout scope, and rejects caller configuration
+  ---
+  duration_ms: 5.777583
+  type: 'test'
+  ...
+# Subtest: malformed checkout bodies are rejected before the service or durable object is touched
+ok 114 - malformed checkout bodies are rejected before the service or durable object is touched
+  ---
+  duration_ms: 0.900417
+  type: 'test'
+  ...
+# Subtest: authenticated status adds evidence while connect retains its legacy payload
+ok 115 - authenticated status adds evidence while connect retains its legacy payload
+  ---
+  duration_ms: 1.290458
+  type: 'test'
+  ...
+# Subtest: connect strips evidence when a concurrent account write resolves a failed creation
+ok 116 - connect strips evidence when a concurrent account write resolves a failed creation
+  ---
+  duration_ms: 0.126459
+  type: 'test'
+  ...
+# Subtest: connect accepts an exhausted empty POST stream as no input
+ok 117 - connect accepts an exhausted empty POST stream as no input
+  ---
+  duration_ms: 5.348292
+  type: 'test'
+  ...
+# Subtest: connect rejects the first content byte without buffering caller input
+ok 118 - connect rejects the first content byte without buffering caller input
+  ---
+  duration_ms: 1.687084
+  type: 'test'
+  ...
+# Subtest: connect authenticates before inspecting a caller body stream
+ok 119 - connect authenticates before inspecting a caller body stream
+  ---
+  duration_ms: 0.341666
+  type: 'test'
+  ...
+# Subtest: playground key must be a Stripe TEST secret key; anything else is stripe_mode_mismatch
+ok 120 - playground key must be a Stripe TEST secret key; anything else is stripe_mode_mismatch
+  ---
+  duration_ms: 0.884667
+  type: 'test'
+  ...
+# Subtest: rate slot: 3 per IP per 10 minutes and a tenant ceiling, sliding window
+ok 121 - rate slot: 3 per IP per 10 minutes and a tenant ceiling, sliding window
+  ---
+  duration_ms: 0.308792
+  type: 'test'
+  ...
+# Subtest: shopper IPs are stored only as an opaque hash
+ok 122 - shopper IPs are stored only as an opaque hash
+  ---
+  duration_ms: 3.629042
+  type: 'test'
+  ...
+# Subtest: the playground pass is checkout-only; a broader or admin pass for the playground is rejected
+ok 123 - the playground pass is checkout-only; a broader or admin pass for the playground is rejected
+  ---
+  duration_ms: 10.149833
+  type: 'test'
+  ...
+# Subtest: tenant rate limit comes from wrangler vars, validated, defaulting to 60 per 10 minutes
+ok 124 - tenant rate limit comes from wrangler vars, validated, defaulting to 60 per 10 minutes
+  ---
+  duration_ms: 0.538916
+  type: 'test'
+  ...
+# Subtest: actual v2 response freezes raw public receipt; verifier remains only in secret setting
+ok 125 - actual v2 response freezes raw public receipt; verifier remains only in secret setting
+  ---
+  duration_ms: 18.106917
+  type: 'test'
+  ...
+# Subtest: ES256 consent, status and reconnect use fresh tokens with stable canonical authority
+ok 126 - ES256 consent, status and reconnect use fresh tokens with stable canonical authority
+  ---
+  duration_ms: 15.039042
+  type: 'test'
+  ...
+# Subtest: canonical site and organization remapping is refused
+ok 127 - canonical site and organization remapping is refused
+  ---
+  duration_ms: 5.517416
+  type: 'test'
+  ...
+# Subtest: concurrent starts and overlapping slow polls perform one request
+ok 128 - concurrent starts and overlapping slow polls perform one request
+  ---
+  duration_ms: 2.644791
+  type: 'test'
+  ...
+# Subtest: only pending can retry; unknown and lost responses require explicit fresh Connect
+ok 129 - only pending can retry; unknown and lost responses require explicit fresh Connect
+  ---
+  duration_ms: 10.415542
+  type: 'test'
+  ...
+# Subtest: manual secret injection and another administrator do not acquire authority
+ok 130 - manual secret injection and another administrator do not acquire authority
+  ---
+  duration_ms: 3.538125
+  type: 'test'
+  ...
+# Subtest: stale successful exchange cannot overwrite a fresh explicit flow
+ok 131 - stale successful exchange cannot overwrite a fresh explicit flow
+  ---
+  duration_ms: 4.119667
+  type: 'test'
+  ...
+# Subtest: explicit local build keeps canonical account API and permits exact local store proof
+ok 132 - explicit local build keeps canonical account API and permits exact local store proof
+  ---
+  duration_ms: 4.24175
+  type: 'test'
+  ...
+# Subtest: unconfigured production status never contacts a Payments host even after consent
+ok 133 - unconfigured production status never contacts a Payments host even after consent
+  ---
+  duration_ms: 3.158583
+  type: 'test'
+  ...
+# Subtest: future not-before and wrong service scope fail closed
+ok 134 - future not-before and wrong service scope fail closed
+  ---
+  duration_ms: 5.180292
+  type: 'test'
+  ...
+# Subtest: the plugin may contact exactly the hosts of its server-owned endpoints
+ok 135 - the plugin may contact exactly the hosts of its server-owned endpoints
+  ---
+  duration_ms: 0.7205
+  type: 'test'
+  ...
+# Subtest: processor setup uses a verified bodyless session and never persists the link
+ok 136 - processor setup uses a verified bodyless session and never persists the link
+  ---
+  duration_ms: 4.013416
+  type: 'test'
+  ...
+# Subtest: processor setup rejects unsafe links, malformed expiry, mismatched mode and errors
+ok 137 - processor setup rejects unsafe links, malformed expiry, mismatched mode and errors
+  ---
+  duration_ms: 41.507875
+  type: 'test'
+  ...
+# Subtest: proof harness rejects malformed and unsafe ports
+ok 138 - proof harness rejects malformed and unsafe ports
+  ---
+  duration_ms: 0.608542
+  type: 'test'
+  ...
+# Subtest: proof harness accepts one new external directory and rejects reuse
+ok 139 - proof harness accepts one new external directory and rejects reuse
+  ---
+  duration_ms: 6.423292
+  type: 'test'
+  ...
+# Subtest: proof harness rejects a parent symlink into the repository
+ok 140 - proof harness rejects a parent symlink into the repository
+  ---
+  duration_ms: 2.539583
+  type: 'test'
+  ...
+# Subtest: decodes every status state and preserves only the public status shape
+ok 141 - decodes every status state and preserves only the public status shape
+  ---
+  duration_ms: 0.927916
+  type: 'test'
+  ...
+# Subtest: rejects provider fields, missing fields, invalid modes, and extra fields
+ok 142 - rejects provider fields, missing fields, invalid modes, and extra fields
+  ---
+  duration_ms: 0.365291
+  type: 'test'
+  ...
+# Subtest: legacy status has no fabricated evidence
+ok 143 - legacy status has no fabricated evidence
+  ---
+  duration_ms: 0.056333
+  type: 'test'
+  ...
+# Subtest: production projection stays unavailable
+ok 144 - production projection stays unavailable
+  ---
+  duration_ms: 0.049208
+  type: 'test'
+  ...
+# Subtest: setup projection asks for a test order until Commerce confirms one
+ok 145 - setup projection asks for a test order until Commerce confirms one
+  ---
+  duration_ms: 0.280209
+  type: 'test'
+  ...
+# Subtest: setup projection gives truthful provider next actions and fails closed
+ok 146 - setup projection gives truthful provider next actions and fails closed
+  ---
+  duration_ms: 0.098
+  type: 'test'
+  ...
+# Subtest: setup renderer has one screen with a usable connect action and no provider selector
+ok 147 - setup renderer has one screen with a usable connect action and no provider selector
+  ---
+  duration_ms: 0.228041
+  type: 'test'
+  ...
+# Subtest: admin route is read-only and browser input cannot change output
+ok 148 - admin route is read-only and browser input cannot change output
+  ---
+  duration_ms: 0.343958
+  type: 'test'
+  ...
+# Subtest: decodes TEST-order evidence only for the connected TEST binding and its provider
+ok 149 - decodes TEST-order evidence only for the connected TEST binding and its provider
+  ---
+  duration_ms: 0.567
+  type: 'test'
+  ...
+# Subtest: TEST-order step completes only once Commerce saved the provider-paid order
+ok 150 - TEST-order step completes only once Commerce saved the provider-paid order
+  ---
+  duration_ms: 0.559625
+  type: 'test'
+  ...
+# Subtest: TEST-order step says what comes first when there is no paid TEST order
+ok 151 - TEST-order step says what comes first when there is no paid TEST order
+  ---
+  duration_ms: 0.149833
+  type: 'test'
+  ...
+# Subtest: the package satisfies the public repository contract
+ok 152 - the package satisfies the public repository contract
+  ---
+  duration_ms: 29.773125
+  type: 'test'
+  ...
+# Subtest: Registry manifest is derived from explicit private route declarations
+ok 153 - Registry manifest is derived from explicit private route declarations
+  ---
+  duration_ms: 7.177917
+  type: 'test'
+  ...
+# Subtest: route-auth coverage rejects missing declarations, bare handlers, and public/admin mismatch
+ok 154 - route-auth coverage rejects missing declarations, bare handlers, and public/admin mismatch
+  ---
+  duration_ms: 0.263291
+  type: 'test'
+  ...
+# Subtest: Registry installation identity verifies the derived ID, not the native slug
+ok 155 - Registry installation identity verifies the derived ID, not the native slug
+  ---
+  duration_ms: 0.125
+  type: 'test'
+  ...
+# Subtest: hosted public manifest emits exact signature-protected paths on the hosted surface
+ok 156 - hosted public manifest emits exact signature-protected paths on the hosted surface
+  ---
+  duration_ms: 6.965417
+  type: 'test'
+  ...
+# Subtest: pinned EmDash derivation matches the declared publisher and installed route paths
+ok 157 - pinned EmDash derivation matches the declared publisher and installed route paths
+  ---
+  duration_ms: 11.42775
+  type: 'test'
+  ...
+# Subtest: production public-only dispatcher refuses Payments admin without invoking its handler
+ok 158 - production public-only dispatcher refuses Payments admin without invoking its handler
+  ---
+  duration_ms: 10.774541
+  type: 'test'
+  ...
+# Subtest: every hosted scoped route denies anonymous input before service/checkout/wake dispatch
+ok 159 - every hosted scoped route denies anonymous input before service/checkout/wake dispatch
+  ---
+  duration_ms: 104.949
+  type: 'test'
+  ...
+# Subtest: shared-store callback, proof export and Access docs use the installed Registry identity
+ok 160 - shared-store callback, proof export and Access docs use the installed Registry identity
+  ---
+  duration_ms: 4.419167
+  type: 'test'
+  ...
+# Subtest: official Stripe checkout transport pins idempotency, connected account, card, and expires_at
+ok 161 - official Stripe checkout transport pins idempotency, connected account, card, and expires_at
+  ---
+  duration_ms: 7.955042
+  type: 'test'
+  ...
+# Subtest: unexpanded latest_charge is unknown and is not treated as absent
+ok 162 - unexpanded latest_charge is unknown and is not treated as absent
+  ---
+  duration_ms: 2.321417
+  type: 'test'
+  ...
+# Subtest: mode mismatch fails before checkout transport
+ok 163 - mode mismatch fails before checkout transport
+  ---
+  duration_ms: 0.263083
+  type: 'test'
+  ...
+# Subtest: pricing maps whole-line net amounts, honest original quantity, and frozen shipping exactly
+ok 164 - pricing maps whole-line net amounts, honest original quantity, and frozen shipping exactly
+  ---
+  duration_ms: 1.105334
+  type: 'test'
+  ...
+# Subtest: shipping-only priced carts work and 100 merchandise plus shipping rejects before contact
+ok 165 - shipping-only priced carts work and 100 merchandise plus shipping rejects before contact
+  ---
+  duration_ms: 1.127833
+  type: 'test'
+  ...
+# Subtest: stored 1799-second remaining expiry is replayed on the official Stripe wire and never omitted or increased
+ok 166 - stored 1799-second remaining expiry is replayed on the official Stripe wire and never omitted or increased
+  ---
+  duration_ms: 5.59875
+  type: 'test'
+  ...
+# Subtest: official Stripe adapter freezes creation key and checks all readiness conditions
+ok 167 - official Stripe adapter freezes creation key and checks all readiness conditions
+  ---
+  duration_ms: 8.213
+  type: 'test'
+  ...
+# Subtest: mode mismatch and unsafe callback configuration fail before transport
+ok 168 - mode mismatch and unsafe callback configuration fail before transport
+  ---
+  duration_ms: 0.220583
+  type: 'test'
+  ...
+# Subtest: Stripe proof is a non-contact dry-run by default
+ok 169 - Stripe proof is a non-contact dry-run by default
+  ---
+  duration_ms: 172.699583
+  type: 'test'
+  ...
+# Subtest: explicit provider-contact modes fail without a Stripe key
+ok 170 - explicit provider-contact modes fail without a Stripe key
+  ---
+  duration_ms: 283.783292
+  type: 'test'
+  ...
+# Subtest: Stripe proof rejects lookup mode without a session id
+ok 171 - Stripe proof rejects lookup mode without a session id
+  ---
+  duration_ms: 136.880084
+  type: 'test'
+  ...
+# Subtest: Stripe proof refuses a live key before any provider contact
+ok 172 - Stripe proof refuses a live key before any provider contact
+  ---
+  duration_ms: 136.531417
+  type: 'test'
+  ...
+# Subtest: Stripe proof requires a connected test account without contacting Stripe
+ok 173 - Stripe proof requires a connected test account without contacting Stripe
+  ---
+  duration_ms: 137.401666
+  type: 'test'
+  ...
+# Subtest: lookup proof rejects a provider amount drift before any network call
+ok 174 - lookup proof rejects a provider amount drift before any network call
+  ---
+  duration_ms: 0.134167
+  type: 'test'
+  ...
+# Subtest: Commerce wake snapshots require exactly five fields and safe identity values
+ok 175 - Commerce wake snapshots require exactly five fields and safe identity values
+  ---
+  duration_ms: 0.924583
+  type: 'test'
+  ...
+# Subtest: wake HTTP authenticates before list or ACK storage and keeps list non-destructive
+ok 176 - wake HTTP authenticates before list or ACK storage and keeps list non-destructive
+  ---
+  duration_ms: 4.917458
+  type: 'test'
+  ...
+# Subtest: wake list rejects malformed or caller-selected query configuration
+ok 177 - wake list rejects malformed or caller-selected query configuration
+  ---
+  duration_ms: 1.149625
+  type: 'test'
+  ...
+# Subtest: signed JWT scope and site checks reject both wake paths before storage
+ok 178 - signed JWT scope and site checks reject both wake paths before storage
+  ---
+  duration_ms: 10.196875
+  type: 'test'
+  ...
+# Subtest: only canonical event IDs are accepted
+ok 179 - only canonical event IDs are accepted
+  ---
+  duration_ms: 0.580166
+  type: 'test'
+  ...
+# Subtest: false, pending, unknown, and thrown reconciliation results retain events
+ok 180 - false, pending, unknown, and thrown reconciliation results retain events
+  ---
+  duration_ms: 0.550208
+  type: 'test'
+  ...
+# Subtest: callback cannot mutate any association field before exact acknowledgement
+ok 181 - callback cannot mutate any association field before exact acknowledgement
+  ---
+  duration_ms: 0.495292
+  type: 'test'
+  ...
+# Subtest: Authorize.net wakes are consumable without an empty Stripe account
+ok 182 - Authorize.net wakes are consumable without an empty Stripe account
+  ---
+  duration_ms: 0.136083
+  type: 'test'
+  ...
+# Subtest: all six wake fields are required before reconciliation is called
+ok 183 - all six wake fields are required before reconciliation is called
+  ---
+  duration_ms: 0.247458
+  type: 'test'
+  ...
+# Subtest: overlapping consumers reconcile an event once and count only its ACK
+ok 184 - overlapping consumers reconcile an event once and count only its ACK
+  ---
+  duration_ms: 0.097375
+  type: 'test'
+  ...
+# Subtest: a conditional ACK that changes zero rows is not counted
+ok 185 - a conditional ACK that changes zero rows is not counted
+  ---
+  duration_ms: 0.131792
+  type: 'test'
+  ...
+# Subtest: pending and failed reconciliation release the store for retries
+ok 186 - pending and failed reconciliation release the store for retries
+  ---
+  duration_ms: 0.241041
+  type: 'test'
+  ...
+# Subtest: signature is verified from original bytes before any event field is used
+ok 187 - signature is verified from original bytes before any event field is used
+  ---
+  duration_ms: 3.441583
+  type: 'test'
+  ...
+# Subtest: replay and out-of-order events only wake, never mark paid
+ok 188 - replay and out-of-order events only wake, never mark paid
+  ---
+  duration_ms: 0.499542
+  type: 'test'
+  ...
+# Subtest: signed event.account is required and the Stripe-Account header cannot substitute
+ok 189 - signed event.account is required and the Stripe-Account header cannot substitute
+  ---
+  duration_ms: 0.52325
+  type: 'test'
+  ...
+# Subtest: wrong session account or mode fail closed and a failed wake is not success
+ok 190 - wrong session account or mode fail closed and a failed wake is not success
+  ---
+  duration_ms: 0.705333
+  type: 'test'
+  ...
+# Subtest: HTTP webhook returns 500 when durable wake fails and 400 before fields on bad signatures
+ok 191 - HTTP webhook returns 500 when durable wake fails and 400 before fields on bad signatures
+  ---
+  duration_ms: 3.497875
+  type: 'test'
+  ...
+# Subtest: HTTP Authorize.net webhooks map replay and invalid events instead of 500
+ok 192 - HTTP Authorize.net webhooks map replay and invalid events instead of 500
+  ---
+  duration_ms: 0.413583
+  type: 'test'
+  ...
+1..192
+# tests 192
+# suites 0
+# pass 192
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 992.244833
+
+> @dinkuskit/payments@0.2.1 typecheck
+> tsc --noEmit && tsc --noEmit --project tsconfig.plugin.json
+
+
+> @dinkuskit/payments@0.2.1 audit:repo
+> node scripts/repo-contract.mjs
+
+public_repository_contract=clean
+verify-payments: quick passed
+
+> @dinkuskit/payments@0.2.1 test:runtime
+> vitest run
+
+
+ RUN  v4.1.11 /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013
+
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/stripe.esm.worker.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/platform/WebPlatformFunctions.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/platform/PlatformFunctions.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/net/FetchHttpClient.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/utils.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/Types.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/net/HttpClient.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/crypto/SubtleCryptoProvider.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/crypto/CryptoProvider.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/StripeEmitter.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/Decimal.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/stripe.core.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/Error.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/RequestSender.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/StripeResource.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/V2Coercion.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/autoPagination.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/StripeContext.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/Webhooks.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/apiVersion.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/ResourceNamespace.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/V2/Core/AccountLinks.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/V2/Core/AccountTokens.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/FinancialConnections/Accounts.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/V2/Core/Accounts.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/V2/Core/Accounts/Persons.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/V2/Core/Accounts/PersonTokens.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Entitlements/ActiveEntitlements.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Billing/Alerts.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Tax/Associations.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Issuing/Authorizations.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TestHelpers/Issuing/Authorizations.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Tax/Calculations.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Issuing/Cardholders.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Issuing/Cards.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TestHelpers/Issuing/Cards.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/BillingPortal/Configurations.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Terminal/Configurations.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TestHelpers/ConfirmationTokens.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Terminal/ConnectionTokens.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Billing/CreditBalanceSummary.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Billing/CreditBalanceTransactions.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Billing/CreditGrants.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Treasury/CreditReversals.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TestHelpers/Customers.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Treasury/DebitReversals.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Issuing/Disputes.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Radar/EarlyFraudWarnings.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/V2/Core/EventDestinations.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/V2/Core/Events.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Entitlements/Features.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Billing/FeedbackOptions.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Treasury/FinancialAccounts.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/V2/Commerce/ProductCatalog/Imports.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TestHelpers/Treasury/InboundTransfers.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Treasury/InboundTransfers.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Terminal/Locations.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Billing/MeterEventAdjustments.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/V2/Billing/MeterEventAdjustments.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/V2/Billing/MeterEventSession.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/V2/Billing/MeterEventStream.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Billing/MeterEvents.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/V2/Billing/MeterEvents.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Billing/Meters.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Terminal/OnboardingLinks.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Climate/Orders.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TestHelpers/Treasury/OutboundPayments.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Treasury/OutboundPayments.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TestHelpers/Treasury/OutboundTransfers.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Treasury/OutboundTransfers.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Radar/PaymentEvaluations.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Issuing/PersonalizationDesigns.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TestHelpers/Issuing/PersonalizationDesigns.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Issuing/PhysicalBundles.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Climate/Products.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Terminal/Readers.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TestHelpers/Terminal/Readers.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TestHelpers/Treasury/ReceivedCredits.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Treasury/ReceivedCredits.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TestHelpers/Treasury/ReceivedDebits.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Treasury/ReceivedDebits.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TestHelpers/Refunds.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Tax/Registrations.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Reporting/ReportRuns.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Reporting/ReportTypes.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Forwarding/Requests.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Sigma/ScheduledQueryRuns.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Apps/Secrets.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/BillingPortal/Sessions.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Checkout/Sessions.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/FinancialConnections/Sessions.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Tax/Settings.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Climate/Suppliers.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TestHelpers/TestClocks.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Issuing/Tokens.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Treasury/TransactionEntries.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/FinancialConnections/Transactions.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Issuing/Transactions.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Tax/Transactions.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TestHelpers/Issuing/Transactions.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Treasury/Transactions.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Radar/ValueListItems.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Radar/ValueLists.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Identity/VerificationReports.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Identity/VerificationSessions.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Accounts.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/AccountLinks.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/AccountSessions.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/ApplePayDomains.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/ApplicationFees.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Balance.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/BalanceSettings.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/BalanceTransactions.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Charges.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/ConfirmationTokens.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/CountrySpecs.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Coupons.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/CreditNotes.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Customers.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/CustomerSessions.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Disputes.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/EphemeralKeys.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Events.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/ExchangeRates.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Files.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/multipart.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/FileLinks.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Invoices.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/InvoiceItems.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/InvoicePayments.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/InvoiceRenderingTemplates.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Mandates.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/OAuth.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/PaymentAttemptRecords.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/PaymentIntents.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/PaymentLinks.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/PaymentMethods.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/PaymentMethodConfigurations.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/PaymentMethodDomains.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/PaymentRecords.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Payouts.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Plans.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Prices.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Products.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/PromotionCodes.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Quotes.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Refunds.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Reviews.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/SetupAttempts.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/SetupIntents.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/ShippingRates.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Sources.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Subscriptions.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/SubscriptionItems.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/SubscriptionSchedules.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TaxCodes.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TaxIds.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TaxRates.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Tokens.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Topups.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Transfers.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/WebhookEndpoints.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/StripeEventNotificationHandler.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/shared.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Apps/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Billing/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/BillingPortal/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Checkout/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Climate/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Entitlements/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/FinancialConnections/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Forwarding/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Identity/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Issuing/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Radar/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Reporting/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Sigma/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Tax/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Terminal/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TestHelpers/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TestHelpers/Issuing/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TestHelpers/Terminal/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/TestHelpers/Treasury/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Treasury/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/V2/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/V2/Billing/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/V2/Commerce/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/V2/Commerce/ProductCatalog/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/V2/Core/index.js" points to missing source files
+Sourcemap for "/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/stripe/esm/resources/Reserve/index.js" points to missing source files
+uncaught exception; source = Uncaught (in promise); stack = Error: connection_owner_mismatch
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/hosted/connection.ts:84:15
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:92:74
+    at Object.transaction (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:92:52)
+    at read (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/hosted/connection.ts:81:18)
+    at Object.existingBinding (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/hosted/connection.ts:211:20)
+    at PaymentConnection.listWakes (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:301:45)
+    at Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:369:47
+uncaught exception; source = Uncaught (in promise); stack = Error: connection_owner_mismatch
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/hosted/connection.ts:84:15
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:92:74
+    at Object.transaction (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:92:52)
+    at read (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/hosted/connection.ts:81:18)
+    at Object.existingBinding (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/hosted/connection.ts:211:20)
+    at PaymentConnection.acknowledgeWake (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:321:45)
+    at Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:369:47
+uncaught exception; source = Uncaught (in promise); stack = Error: stripe_mode_mismatch
+    at assertPlaygroundStripeKey (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/checkout/playground.ts:59:11)
+    at PaymentConnection.checkout (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:130:42)
+    at PaymentConnection.playgroundEnsureSession (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:143:27)
+    at Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:369:47
+uncaught exception; source = Uncaught (in promise); stack = Error: stripe_mode_mismatch
+    at assertPlaygroundStripeKey (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/checkout/playground.ts:59:11)
+    at PaymentConnection.checkout (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:130:42)
+    at PaymentConnection.playgroundEnsureSession (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:143:27)
+    at Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:369:47
+uncaught exception; source = Uncaught (in promise); stack = Error: stripe_mode_mismatch
+    at assertPlaygroundStripeKey (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/checkout/playground.ts:59:11)
+    at PaymentConnection.checkout (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:130:42)
+    at PaymentConnection.playgroundEnsureSession (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:143:27)
+    at Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:369:47
+uncaught exception; source = Uncaught (in promise); stack = Error: stripe_mode_mismatch
+    at assertPlaygroundStripeKey (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/checkout/playground.ts:59:11)
+    at PaymentConnection.checkout (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:130:42)
+    at PaymentConnection.playgroundEnsureSession (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:143:27)
+    at Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:369:47
+uncaught exception; source = Uncaught (in promise); stack = Error: mode_mismatch
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/checkout/webhook.ts:58:100
+    at PaymentConnection.receiveWebhook (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:371:5)
+uncaught exception; source = Uncaught (in promise); stack = Error: playground_rate_limited
+    at takePlaygroundSessionSlot (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/checkout/playground.ts:88:13)
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:147:46
+    at PaymentConnection.playgroundEnsureSession (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:147:24)
+uncaught exception; source = Uncaught (in promise); stack = Error: playground_rate_limited
+    at takePlaygroundSessionSlot (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/checkout/playground.ts:88:13)
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:147:46
+    at PaymentConnection.playgroundEnsureSession (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:147:24)
+uncaught exception; source = Uncaught (in promise); stack = Error: playground_rate_limited
+    at takePlaygroundSessionSlot (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/checkout/playground.ts:88:13)
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:147:46
+    at PaymentConnection.playgroundEnsureSession (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:147:24)
+uncaught exception; source = Uncaught (in promise); stack = Error: binding_mismatch
+    at PaymentConnection.assertPlaygroundObject (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:139:41)
+    at PaymentConnection.playgroundLookup (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:160:10)
+    at Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:369:47
+uncaught exception; source = Uncaught (in promise); stack = Error: playground_rate_limited
+    at takePlaygroundSessionSlot (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/checkout/playground.ts:88:13)
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:147:46
+    at PaymentConnection.playgroundEnsureSession (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:147:24)
+uncaught exception; source = Uncaught (in promise); stack = Error: replayed_event
+    at verifyAuthorizeNetWebhook (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/authorize-net/webhook.ts:75:47)
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/authorize-net/webhook.ts:88:19
+    at PaymentConnection.receiveAuthorizeNetWebhook (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:403:5)
+uncaught exception; source = Uncaught (in promise); stack = Error: notification_id_mismatch
+    at verifyAuthorizeNetWebhook (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/authorize-net/webhook.ts:74:41)
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/authorize-net/webhook.ts:88:19
+    at PaymentConnection.receiveAuthorizeNetWebhook (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:403:5)
+uncaught exception; source = Uncaught (in promise); stack = Error: site_mismatch
+    at Object.wake (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:416:17)
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/authorize-net/webhook.ts:89:5
+    at PaymentConnection.receiveAuthorizeNetWebhook (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:403:5)
+uncaught exception; source = Uncaught (in promise); stack = Error: invalid_invoice_reference
+    at Object.wake (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:413:28)
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/authorize-net/webhook.ts:89:19
+    at PaymentConnection.receiveAuthorizeNetWebhook (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:403:5)
+uncaught exception; source = Uncaught (in promise); stack = Error: invalid_invoice_reference
+    at Object.wake (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:413:28)
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/authorize-net/webhook.ts:89:19
+    at PaymentConnection.receiveAuthorizeNetWebhook (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:403:5)
+uncaught exception; source = Uncaught (in promise); stack = Error: invalid_invoice_reference
+    at Object.wake (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:413:28)
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/authorize-net/webhook.ts:89:19
+    at PaymentConnection.receiveAuthorizeNetWebhook (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:403:5)
+uncaught exception; source = Uncaught (in promise); stack = Error: invalid_invoice_reference
+    at Object.wake (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:413:28)
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/authorize-net/webhook.ts:89:19
+    at PaymentConnection.receiveAuthorizeNetWebhook (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:403:5)
+uncaught exception; source = Uncaught (in promise); stack = Error: invalid_signature
+    at verifyAuthorizeNetWebhook (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/authorize-net/webhook.ts:68:75)
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/authorize-net/webhook.ts:88:19
+    at PaymentConnection.receiveAuthorizeNetWebhook (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:403:5)
+uncaught exception; source = Uncaught (in promise); stack = Error: invalid_signature
+    at verifyAuthorizeNetWebhook (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/authorize-net/webhook.ts:68:75)
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/authorize-net/webhook.ts:88:19
+    at PaymentConnection.receiveAuthorizeNetWebhook (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:403:5)
+uncaught exception; source = Uncaught (in promise); stack = Error: connection_owner_mismatch
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/hosted/connection.ts:84:15
+    at /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:92:74
+    at Object.transaction (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:92:52)
+    at read (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/hosted/connection.ts:81:18)
+    at Object.status (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/hosted/connection.ts:117:20)
+    at PaymentConnection.status (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:221:44)
+    at Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:369:47
+uncaught exception; source = Uncaught (in promise); stack = Error: store_origin_missing
+    at storeReturnPages (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/checkout/return-pages.ts:12:36)
+    at PaymentConnection.ensureSession (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/cloudflare/worker.ts:235:66)
+    at Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:369:47
+
+ Test Files  8 passed (8)
+      Tests  29 passed (29)
+   Start at  08:40:23
+   Duration  5.36s (transform 490ms, setup 0ms, import 2.64s, tests 475ms, environment 0ms)
+
+
+> @dinkuskit/payments@0.2.1 build
+> wrangler deploy --dry-run --outdir dist
+
+
+ ⛅️ wrangler 4.144.0 (update available 4.150.0)
+───────────────────────────────────────────────
+Total Upload: 833.51 KiB / gzip: 112.29 KiB
+Your Worker has access to the following bindings:
+Binding                                                            Resource
+env.PAYMENT_CONNECTIONS (PaymentConnection)                        Durable Object
+env.ACCOUNT_ISSUER ("")                                            Environment Variable
+env.ACCOUNT_AUDIENCE ("")                                          Environment Variable
+env.ACCOUNT_JWKS_URL ("")                                          Environment Variable
+env.ONBOARDING_RETURN_URL ("")                                     Environment Variable
+env.ONBOARDING_REFRESH_URL ("")                                    Environment Variable
+env.PAYMENT_PROVIDER ("stripe")                                    Environment Variable
+env.AUTHORIZE_NET_MODE ("test")                                    Environment Variable
+env.AUTHORIZE_NET_MERCHANT_ID ("")                                 Environment Variable
+env.PLAYGROUND_TENANT_RATE_LIMIT ("60")                            Environment Variable
+env.PLAYGROUND_TENANT_RATE_WINDOW_SECONDS ("600")                  Environment Variable
+
+--dry-run: exiting now.
+
+> @dinkuskit/payments@0.2.1 plugin:validate
+> emdash-plugin validate
+
+✔ Manifest is valid: /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/emdash-plugin.jsonc
+ℹ Default release hosting: publisher PDS blobs
+
+> @dinkuskit/payments@0.2.1 plugin:build
+> emdash-plugin build --out-dir dist/registry
+
+◐ Building plugin...
+ℹ Manifest: /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/emdash-plugin.jsonc
+ℹ Plugin entry: /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/src/plugin.ts
+ℹ npm package: @dinkuskit/payments
+◐ Building runtime entry...
+ℹ entry: src/plugin.ts
+ℹ tsconfig: tsconfig.json
+ℹ Build start
+ℹ ../../../../../var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/emdash-build-iZNBPg/runtime/plugin.mjs  20.95 kB │ gzip: 6.71 kB
+ℹ 1 files, total: 20.95 kB
+✔ Build complete in 267ms
+ℹ entry: src/plugin.ts
+ℹ tsconfig: tsconfig.json
+ℹ Build start
+ℹ ../../../../../var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/emdash-build-iZNBPg/runtime/plugin.d.mts  0.76 kB │ gzip: 0.39 kB
+ℹ 1 files, total: 0.76 kB
+✔ Build complete in 909ms
+✔ Built plugin.mjs
+◐ Probing plugin surface...
+ℹ entry: src/plugin.ts
+ℹ tsconfig: tsconfig.json
+ℹ Build start
+ℹ ../../../../../var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/emdash-build-iZNBPg/plugin-probe/plugin.mjs  33.35 kB │ gzip: 8.37 kB
+ℹ 1 files, total: 33.35 kB
+✔ Build complete in 249ms
+ℹ   Hooks: (none)
+ℹ   Routes: admin, store-proof
+✔ Wrote manifest.json
+◐ Generating descriptor module...
+✔ Wrote index.mjs
+✔ Plugin built: did:plc:ekk4pjmkh3k3ql2kfoex3qt4/dinkus-payments@0.2.1
+
+ℹ Output:
+  /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/dist/registry/index.mjs
+  /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/dist/registry/plugin.mjs
+  /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/dist/registry/manifest.json
+{"kind":"local-compiled-registry-build","package":"@dinkuskit/payments","version":"0.2.1","plugin":"dinkus-payments","node":"v22.23.2","toolchain":{"emdash":"1.2.0","@emdash-cms/plugin-cli":"0.13.3","@emdash-cms/plugin-test":"0.2.8","@emdash-cms/cloudflare":"1.2.0","vitest":"4.1.11","wrangler":"4.144.0"},"files":{"plugin.mjs":{"bytes":20953,"sha256":"652cdf494423c43415b17adb81314564b9269d34aff4d1ef6e14eb28dbc6169f"},"manifest.json":{"bytes":1128,"sha256":"da5a9f9874ac90a26f057cddd8c91e771d15e83b54c04bd2f51c7dd3382263cb"}}}
+
+> @dinkuskit/payments@0.2.1 test:plugin-runtime
+> vitest run --config vitest.plugin.config.ts
+
+
+ RUN  v4.1.11 /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013
+
+ℹ entry: src/plugin.ts
+ℹ tsconfig: tsconfig.json
+ℹ Build start
+ℹ ../../../../../var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/emdash-build-GDqkKR/runtime/plugin.mjs  20.95 kB │ gzip: 6.71 kB
+ℹ 1 files, total: 20.95 kB
+✔ Build complete in 254ms
+ℹ entry: src/plugin.ts
+ℹ tsconfig: tsconfig.json
+ℹ Build start
+ℹ ../../../../../var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/emdash-build-GDqkKR/runtime/plugin.d.mts  0.76 kB │ gzip: 0.39 kB
+ℹ 1 files, total: 0.76 kB
+✔ Build complete in 934ms
+ℹ entry: src/plugin.ts
+ℹ tsconfig: tsconfig.json
+ℹ Build start
+ℹ ../../../../../var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/emdash-build-GDqkKR/plugin-probe/plugin.mjs  33.35 kB │ gzip: 8.37 kB
+ℹ 1 files, total: 33.35 kB
+✔ Build complete in 232ms
+uncaught exception; source = Uncaught (in promise); stack = Error: Host not allowed: payments.dinkuskit.com
+    at sandboxHttpFetch (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@emdash-cms/cloudflare/dist/bridge-http-CAhg-Mem.mjs:176:73)
+    at PluginBridge.httpFetch (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@emdash-cms/cloudflare/dist/sandbox/bridge.mjs:978:10)
+    at Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:468:103
+    at patchAndRunWithHandlerContext (Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:260:29)
+    at Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:468:56
+    at Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:369:47
+uncaught exception; source = Uncaught (in promise); stack = Error: No plugin HTTP test response for https://dinkuskit.com/account/.well-known/jwks.json
+    at httpFetch (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@emdash-cms/plugin-test/src/runtime-host.ts:477:24)
+    at sandboxHttpFetch (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@emdash-cms/cloudflare/dist/bridge-http-CAhg-Mem.mjs:181:20)
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  08:40:33
+   Duration  13.47s (transform 4.18s, setup 0ms, import 9.39s, tests 2.30s, environment 0ms)
+
+verify-payments: full passed

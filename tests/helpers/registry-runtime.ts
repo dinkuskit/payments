@@ -80,14 +80,18 @@ export async function fixture() {
     await prepareStatus();
     return token;
   }
-  async function prepareStatus() {
+  async function prepareStatus(disconnected: boolean | "setup" = false) {
     await host.http.respond(JWKS, Response.json({ keys: [jwk] }));
-    await host.http.respond(STATUS, Response.json({
+    await host.http.respond(STATUS, Response.json(disconnected === "setup" ? { state: "setup_required", mode: "test", bindingRef: "synthetic-binding", connectionEvidence: { provider: "stripe", mode: "test", result: "unknown", accountRef: "acct_synthetic" } } : disconnected ? { state: "disconnected", mode: "test" } : {
       state: "ready", mode: "test", bindingRef: "synthetic-binding",
       connectionEvidence: { provider: "stripe", mode: "test", result: "verified", accountRef: "acct_synthetic" },
     }));
   }
-  return { host, admin, action, page, receipt, prepareStart, pollDue, prepareExchange, prepareStatus };
+  async function prepareProcessorStatus(disconnected: boolean | "setup" = "setup") {
+    await prepareStatus(disconnected);
+    await host.http.respond(JWKS, Response.json({ keys: [jwk] }));
+  }
+  return { host, admin, action, page, receipt, prepareStart, pollDue, prepareExchange, prepareStatus, prepareProcessorStatus };
 }
 
 export async function snapshot(host: Host) {

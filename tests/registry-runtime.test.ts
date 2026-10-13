@@ -260,3 +260,57 @@ test("built route preserves explicit private metadata and rejects non-admin toke
     await host.dispose();
   }
 });
+
+test("compiled processor setup starts/resumes separately from consent and rejects unsafe links and expired/wrong-user sessions", async () => {
+  const f = await fixture(); const { host } = f;
+  const endpoint = "https://payments.dinkuskit.com/v1/connect";
+  try {
+    await f.prepareStart("processor-flow"); await f.action("connect"); await f.pollDue();
+    const token = await f.prepareExchange(); await f.action("continue");
+    host.http.clear(); await f.prepareStatus(true);
+    const disconnected = JSON.stringify(await f.page());
+    assert.match(disconnected, /No processor account is connected/);
+    assert.match(disconnected, /"action_id":"setup_processor"/);
+    await f.prepareStatus(true); await f.prepareStatus(true);
+    assert.match(JSON.stringify(await f.action("check")), /No processor account is connected/);
+    assert.equal(host.http.requests().some(r => r.url === endpoint), false);
+    const persisted = await snapshot(host);
+    for (const url of ["https://connect.stripe.com/setup/first", "https://connect.stripe.com/setup/resume"]) {
+      host.http.clear(); await f.prepareProcessorStatus();
+      await host.http.respond(endpoint, Response.json({ state: "setup_required", mode: "test", bindingRef: "synthetic-binding", url, expiresAt: Date.now() + 60_000 }));
+      const page = JSON.stringify(await f.action("setup_processor"));
+      assert.match(page, /Continue setup at Stripe/); assert.ok(page.includes(url));
+      assert.match(page, /Not ready to sell/); assert.equal(page.includes(token), false);
+      const request = host.http.requests().find(r => r.url === endpoint)!;
+      assert.equal(request.method, "POST"); assert.equal(request.body.length, 0);
+      assert.equal(request.headers.authorization, `Bearer ${token}`);
+      assert.equal(request.headers["x-dinkus-site"], "synthetic-site");
+      assert.deepEqual(await snapshot(host), persisted);
+    }
+    host.http.clear(); await f.prepareProcessorStatus();
+    await host.http.respond(endpoint, Response.json({ state: "setup_required", mode: "test", bindingRef: "synthetic-binding", url: "https://evil.invalid/setup/x", expiresAt: Date.now() + 60_000 }));
+    assert.doesNotMatch(JSON.stringify(await f.action("setup_processor")), /evil.invalid|Continue setup at Stripe/);
+    for (const code of [401, 500]) {
+      host.http.clear(); await f.prepareProcessorStatus();
+      await host.http.respond(endpoint, Response.json({ error: "unavailable" }, { status: code }));
+      assert.doesNotMatch(JSON.stringify(await f.action("setup_processor")), /Continue setup at Stripe/);
+      assert.equal(host.http.requests().filter(r => r.url === endpoint).length, 1);
+    }
+    host.http.clear(); await f.prepareProcessorStatus(false);
+    await host.http.respond(endpoint, Response.json({ state: "ready", mode: "test", bindingRef: "synthetic-binding" }));
+    const ready = JSON.stringify(await f.action("setup_processor"));
+    assert.match(ready, /Stripe is connected for TEST payments only/);
+    assert.doesNotMatch(ready, /Continue setup at Stripe/);
+    assert.ok(host.http.requests().some(r => r.url === STATUS));
+    const other = await host.fixtures.user({ email: "other-admin@example.invalid", role: "admin" });
+    host.http.clear();
+    assert.doesNotMatch(JSON.stringify(await host.admin.act("/status", "setup_processor", { user: other })), /Continue setup at Stripe/);
+    assert.deepEqual(host.http.requests(), []);
+    const subscriber = await host.fixtures.user({ email: "setup-subscriber@example.invalid", role: "subscriber" });
+    const denied = await host.actions.routes.request("admin", { method: "POST", body: { type: "block_action", action_id: "setup_processor" }, user: subscriber });
+    assert.equal(denied.status, 403);
+    await host.fixtures.plugin.kv(CONTROL, { ...await control(host), expiresAt: Date.now() - 1 });
+    assert.doesNotMatch(JSON.stringify(await f.action("setup_processor")), /Continue setup at Stripe/);
+    assert.deepEqual(host.http.requests(), []);
+  } finally { await host.dispose(); }
+});

@@ -1,0 +1,37 @@
+
+> @dinkuskit/payments@0.2.1 test:plugin-runtime
+> vitest run --config vitest.plugin.config.ts
+
+
+ RUN  v4.1.11 /Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013
+
+ℹ entry: src/plugin.ts
+ℹ tsconfig: tsconfig.json
+ℹ Build start
+ℹ ../../../../../var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/emdash-build-yiKN9n/runtime/plugin.mjs  20.95 kB │ gzip: 6.71 kB
+ℹ 1 files, total: 20.95 kB
+✔ Build complete in 259ms
+ℹ entry: src/plugin.ts
+ℹ tsconfig: tsconfig.json
+ℹ Build start
+ℹ ../../../../../var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/emdash-build-yiKN9n/runtime/plugin.d.mts  0.76 kB │ gzip: 0.39 kB
+ℹ 1 files, total: 0.76 kB
+✔ Build complete in 911ms
+ℹ entry: src/plugin.ts
+ℹ tsconfig: tsconfig.json
+ℹ Build start
+ℹ ../../../../../var/folders/gf/qz1h4gs951b_qssp_gxmfpr80000gn/T/emdash-build-yiKN9n/plugin-probe/plugin.mjs  33.35 kB │ gzip: 8.37 kB
+ℹ 1 files, total: 33.35 kB
+✔ Build complete in 241ms
+uncaught exception; source = Uncaught (in promise); stack = Error: Host not allowed: payments.dinkuskit.com
+    at sandboxHttpFetch (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@emdash-cms/cloudflare/dist/bridge-http-CAhg-Mem.mjs:176:73)
+    at PluginBridge.httpFetch (/Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@emdash-cms/cloudflare/dist/sandbox/bridge.mjs:978:10)
+    at Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:468:103
+    at patchAndRunWithHandlerContext (Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:260:29)
+    at Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:468:56
+    at Users/bobbybones/Developer/worktrees/payments-compiled-connection-ci-20261011-codex-payments-registry-onboarding-20261013/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:369:47
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  08:40:51
+   Duration  13.48s (transform 4.16s, setup 0ms, import 9.38s, tests 2.33s, environment 0ms)

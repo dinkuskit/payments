@@ -1,0 +1,5 @@
+
+> @dinkuskit/payments@0.2.1 audit:repo
+> node scripts/repo-contract.mjs
+
+public_repository_contract=clean
