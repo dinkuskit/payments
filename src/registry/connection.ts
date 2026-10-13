@@ -2,6 +2,7 @@ import { decodeDiagnostics, type ConnectionDiagnostics } from "../connection-dia
 import { pluginResponse } from "emdash/plugin";
 import { registryInstallationIdentity } from "./identity.js";
 import { decodeStatus } from "./status.js";
+import type { StatusCheckFailure, StatusCheckStage } from "./check-failure.js";
 
 export type UserInfo = { id: string };
 export type SiteInfo = { url: string };
@@ -58,6 +59,7 @@ type Control = {
 };
 export type RegistryFlowResult =
   | { state: "unconfigured" | "disconnected" | "connecting" | "ready" | "checking" | "action_required" | "recovery_required"; receipt?: ProofReceipt; status?: unknown; diagnostics?: ConnectionDiagnostics }
+  | { state: "check_failed"; checkFailure: StatusCheckFailure }
   | { state: "processor_setup"; onboardingUrl: string; expiresAt: number; status?: unknown; diagnostics?: ConnectionDiagnostics }
   | { state: "pending"; verificationUri: string; interval: number; expiresAt: number }
   | { state: "failed"; message: "restart_required" | "connection_unavailable" };
@@ -104,6 +106,9 @@ export function createRegistryConnection(options: {
   const newId = options.id ?? (() => base64url(randomBytes(18)));
   const current = () => options.kv.getVersioned<Control>(CONTROL_KEY);
   const failure = (): RegistryFlowResult => ({ state: "failed", message: "restart_required" });
+  const checkFailure = (stage: StatusCheckStage, httpStatus?: number): RegistryFlowResult => ({
+    state: "check_failed", checkFailure: { stage, ...(httpStatus === undefined ? {} : { httpStatus }) },
+  });
   function pending(c: Control): RegistryFlowResult {
     return { state: "pending", verificationUri: c.verificationUri!, interval: c.interval!, expiresAt: c.expiresAt };
   }
@@ -187,7 +192,8 @@ export function createRegistryConnection(options: {
     return { token, subject: payload.sub, expiresAt: expiresAt * 1000 };
   }
   async function exchange(user: UserInfo): Promise<RegistryFlowResult> {
-    const prior = await current();
+    let prior: Versioned<Control> | null;
+    try { prior = await current(); } catch { return checkFailure("read_control"); }
     const c = prior?.value;
     if (!prior || !c || !origin || c.adminId !== user?.id || c.origin !== origin || c.expiresAt <= now() || !options.http) return failure();
     if (c.phase === "complete") return status(user);
@@ -222,24 +228,29 @@ export function createRegistryConnection(options: {
     } catch { return fail(reserved); }
   }
   async function status(user?: UserInfo): Promise<RegistryFlowResult> {
-    const c = (await current())?.value;
-    if (!origin || !options.http) return { state: "unconfigured" };
-    if (!c) return { state: configured ? "disconnected" : "unconfigured" };
-    if (c.origin !== origin || c.adminId !== user?.id) return { state: "action_required" };
-    if (c.expiresAt <= now() || c.phase === "failed") return { state: "action_required" };
-    if (c.phase === "pending") return pending(c);
-    if (c.phase !== "complete") return { state: "connecting" };
-    if (!configured) return { state: "unconfigured" };
+    let stage: StatusCheckStage = "read_control";
     try {
+      const c = (await current())?.value;
+      if (!origin || !options.http) return { state: "unconfigured" };
+      if (!c) return { state: configured ? "disconnected" : "unconfigured" };
+      if (c.origin !== origin || c.adminId !== user?.id) return { state: "action_required" };
+      if (c.expiresAt <= now() || c.phase === "failed") return { state: "action_required" };
+      if (c.phase === "pending") return pending(c);
+      if (c.phase !== "complete") return { state: "connecting" };
+      if (!configured) return { state: "unconfigured" };
+      stage = "read_session";
       const stored = await secret(c);
       if (stored.parsed.kind !== "session" || !c.binding) return { state: "action_required" };
+      stage = "verify_session";
       const verified = await verifySessionToken(stored.parsed.token, c.binding.siteId);
       if (verified.subject !== c.binding.subject || c.binding.issuer !== REGISTRY_ISSUER) return { state: "action_required" };
       const url = new URL(configured);
       if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || url.pathname !== "/v1/status") return { state: "unconfigured" };
+      stage = "fetch_status";
       const result = await options.http.fetch(configured, noRedirect({ headers: { Authorization: `Bearer ${verified.token}`, "X-Dinkus-Site": c.binding.siteId } }));
       if (result.status === 401 || result.status === 403) return { state: "action_required" };
-      if (!result.ok) return { state: "checking" };
+      if (!result.ok) return checkFailure(stage, result.status);
+      stage = "decode_status";
       const decoded = decodeStatus(await result.json());
       let diagnostics: ConnectionDiagnostics | undefined;
       if (decoded.state === "connecting" || decoded.state === "recovery_required") {
@@ -250,10 +261,11 @@ export function createRegistryConnection(options: {
             if (value.mode === decoded.mode && value.state === decoded.state) diagnostics = value;
           }
         } catch { /* Legacy or unavailable diagnostics leave the verified status intact. */ }
+        stage = "recheck_control";
         if ((await current())?.value.flowId !== c.flowId || c.expiresAt <= now()) return { state: "action_required" };
       }
       return { state: "ready", status: { availability: "available", status: decoded, message: "Payments status checked." }, ...(diagnostics ? { diagnostics } : {}) };
-    } catch { return { state: "checking" }; }
+    } catch { return checkFailure(stage); }
   }
   async function setupProcessor(user: UserInfo): Promise<RegistryFlowResult> {
     const prior = await current();

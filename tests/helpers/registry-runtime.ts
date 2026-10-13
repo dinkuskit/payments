@@ -96,7 +96,11 @@ export async function fixture() {
     await host.http.respond(STATUS, Response.json({ state, mode: "test", bindingRef: "synthetic-binding" }));
     await host.http.respond("https://payments.dinkuskit.com/v1/connect/diagnostics", Response.json(diagnostics, { status }));
   }
-  return { host, admin, action, page, receipt, prepareStart, pollDue, prepareExchange, prepareStatus, prepareProcessorStatus, prepareDiagnostics };
+  async function prepareStatusResponse(payload: unknown, status = 200) {
+    await host.http.respond(JWKS, Response.json({ keys: [jwk] }));
+    await host.http.respond(STATUS, Response.json(payload, { status }));
+  }
+  return { host, admin, action, page, receipt, prepareStart, pollDue, prepareExchange, prepareStatus, prepareProcessorStatus, prepareDiagnostics, prepareStatusResponse };
 }
 
 export async function snapshot(host: Host) {
