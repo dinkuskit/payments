@@ -72,8 +72,8 @@ HTTP verifier and should redirect through the normal login boundary. The
 fixture only permits the fixed roles on loopback and is not a deployable
 production authentication adapter.
 
-This is seeded post-install Registry state for `0.2.5` release preparation: it
-writes the normal `registry/dinkus-payments/0.2.5/` artifacts and an active
+This is seeded post-install Registry state for `0.2.6` release preparation: it
+writes the normal `registry/dinkus-payments/0.2.6/` artifacts and an active
 `source=registry` row, then loads them through the normal local runtime. It is
 not installer proof. In particular, it does not provide authoritative
 publisher/release records, consent receipts, Registry publication, deployment,
@@ -188,3 +188,12 @@ was requested and its result is unconfirmed. It does not claim that no setup
 was attempted, show an unverified link, or automatically retry the request.
 The merchant should check connection status before deciding whether to resume.
 A missing link alone does not prove no account was created.
+
+## Optional TEST platform identity (0.2.6 preparation)
+
+A separate manual action can check the deployed Stripe platform identity.
+It is restricted by existing authorization, stored ownership and a disabled-by-default
+deployment operator allowlist. Regular status/setup actions do not trigger it.
+The response contains a normalized match result and historical failure facts;
+it contains no platform account ID or credential. See
+[the diagnostic contract](provider-identity-diagnostic.md).

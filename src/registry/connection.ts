@@ -1,3 +1,4 @@
+import { decodeProviderIdentityDiagnostic, type ProviderIdentityDiagnostic } from "../provider-identity.js";
 import { decodeDiagnostics, type ConnectionDiagnostics } from "../connection-diagnostics.js";
 import { pluginResponse } from "emdash/plugin";
 import { registryInstallationIdentity } from "./identity.js";
@@ -58,6 +59,7 @@ type Control = {
   interval?: number; nextPollAt?: number; secretHash?: string;
 };
 export type RegistryFlowResult =
+  | { state: "provider_identity"; providerIdentity: ProviderIdentityDiagnostic }
   | { state: "unconfigured" | "disconnected" | "connecting" | "ready" | "checking" | "action_required" | "recovery_required"; receipt?: ProofReceipt; status?: unknown; diagnostics?: ConnectionDiagnostics }
   | { state: "check_failed"; checkFailure: StatusCheckFailure }
   | { state: "setup_unconfirmed"; checkFailure?: StatusCheckFailure }
@@ -313,7 +315,27 @@ export function createRegistryConnection(options: {
       return { state: "processor_setup", onboardingUrl: body.url, expiresAt: body.expiresAt, status: checked.status, diagnostics: checked.diagnostics };
     } catch { return { state: requested ? "setup_unconfirmed" : "checking" }; }
   }
-  return { start, receipt, exchange, status, setupProcessor, proofPath: REGISTRY_PROOF_PATH };
+  async function providerIdentity(user: UserInfo): Promise<RegistryFlowResult> {
+    const prior = await current();
+    const c = prior?.value;
+    if (!origin || !options.http || !configured) return { state: "unconfigured" };
+    if (!c || c.phase !== "complete" || c.adminId !== user?.id || c.origin !== origin || c.expiresAt <= now() || !c.binding) return { state: "action_required" };
+    const unavailable = (): RegistryFlowResult => ({ state: "provider_identity", providerIdentity: { result: "unavailable", validTestPrefix: false, at: now() } });
+    try {
+      const endpoint = new URL(configured);
+      if (endpoint.protocol !== "https:" || endpoint.port || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || endpoint.pathname !== "/v1/status") return { state: "unconfigured" };
+      const stored = await secret(c);
+      if (stored.parsed.kind !== "session") return { state: "action_required" };
+      const verified = await verifySessionToken(stored.parsed.token, c.binding.siteId);
+      if (verified.subject !== c.binding.subject || c.binding.issuer !== REGISTRY_ISSUER) return { state: "action_required" };
+      if ((await current())?.revision !== prior!.revision || c.expiresAt <= now()) return { state: "action_required" };
+      const response = await options.http.fetch(`${endpoint.origin}/v1/connect/provider-identity`, noRedirect({ headers: { Authorization: `Bearer ${verified.token}`, "X-Dinkus-Site": c.binding.siteId } }));
+      if ((await current())?.revision !== prior!.revision || c.expiresAt <= now()) return { state: "action_required" };
+      if (!response.ok) return unavailable();
+      return { state: "provider_identity", providerIdentity: decodeProviderIdentityDiagnostic(await response.json(), now()) };
+    } catch { return unavailable(); }
+  }
+  return { start, receipt, exchange, status, setupProcessor, providerIdentity, proofPath: REGISTRY_PROOF_PATH };
 }
 
 export function safeResponse(status: number, body: unknown) {

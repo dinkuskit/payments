@@ -5,6 +5,10 @@ import {
   type PaymentsStatus,
   type StatusProjection,
 } from "./status.js";
+import {
+  decodeProviderIdentityDiagnostic,
+  type ProviderIdentityDiagnostic,
+} from "../provider-identity.js";
 
 export type SetupStep = {
   title: string;
@@ -76,6 +80,9 @@ function testOrderStep(status: PaymentsStatus | null, connectionState?: string):
 }
 
 function connectionStep(status: PaymentsStatus | null, connectionState?: string, diagnostics?: ConnectionDiagnostics, checkFailure?: unknown): SetupStep {
+  if (connectionState === "provider_identity") {
+    return { title: "Connect payments", status: "incomplete", description: "The identity diagnostic does not refresh payment readiness. Use Check connection to check setup status." };
+  }
   if (connectionState === "setup_unconfirmed") {
     return { title: "Connect payments", status: "incomplete", description: describeStatusCheckFailure(checkFailure, true) };
   }
@@ -212,12 +219,37 @@ export function projectSetupScreen(input: unknown, diagnostics?: ConnectionDiagn
   };
 }
 
+export function describeProviderIdentity(diagnostic: ProviderIdentityDiagnostic): string {
+  const parts: string[] = [];
+  if (diagnostic.result === "match") {
+    parts.push("Stripe test platform identity matches configured account.");
+  } else if (diagnostic.result === "mismatch") {
+    parts.push("Stripe test platform identity does not match configured account.");
+  } else if (diagnostic.result === "unconfirmed") {
+    parts.push("Stripe test platform identity could not be confirmed.");
+  } else {
+    parts.push("Stripe test platform identity check is unavailable.");
+  }
+  if (diagnostic.validTestPrefix) {
+    parts.push("Test key prefix verified.");
+  }
+  if (diagnostic.httpStatus !== undefined) {
+    parts.push(`HTTP ${diagnostic.httpStatus}.`);
+  }
+  if (diagnostic.result !== "unavailable" && diagnostic.at) {
+    parts.push(`Checked at ${utcTime(diagnostic.at)}.`);
+  }
+  const failure = diagnostic.diagnostics?.lastFailure;
+  if (failure) parts.push(`Recorded setup failure: ${failure.category}${failure.status === undefined ? "" : ` (HTTP ${failure.status})`}, ${utcTime(failure.at)}. This is the prior attempt, not the identity check.`);
+  return parts.join(" ");
+}
+
 export function renderSetupScreen(input: unknown) {
   const nested = input && typeof input === "object" && "state" in input && "status" in input ? input.status : input;
   const projection = projectSetupScreen(nested, input && typeof input === "object" && "diagnostics" in input ? input.diagnostics as ConnectionDiagnostics : undefined);
   const state = typeof input === "object" && input !== null && !Array.isArray(input) &&
     typeof (input as { state?: unknown }).state === "string" ? (input as { state: string }).state : "disconnected";
-  const action = state === "pending" || state === "connecting" ? "continue" : state === "authorized" || state === "checking" || state === "check_failed" || state === "setup_unconfirmed" || state === "ready" || state === "processor_setup" ? "check" : "connect";
+  const action = state === "pending" || state === "connecting" ? "continue" : state === "provider_identity" || state === "authorized" || state === "checking" || state === "check_failed" || state === "setup_unconfirmed" || state === "ready" || state === "processor_setup" ? "check" : "connect";
   const statusValue = nested && typeof nested === "object" && "status" in nested ? nested.status : null;
   const processorPending = statusValue && typeof statusValue === "object" && "state" in statusValue && ["connecting", "recovery_required"].includes(statusValue.state as string);
   const needsRecovery = statusValue && typeof statusValue === "object" && "state" in statusValue && statusValue.state === "recovery_required";
@@ -226,6 +258,19 @@ export function renderSetupScreen(input: unknown) {
     (!evidence || typeof evidence !== "object" || !("provider" in evidence) ||
       (evidence.provider === "stripe" && "result" in evidence && evidence.result !== "verified"));
   const actionLabel = action === "continue" ? "Continue" : action === "check" ? "Check connection" : "Connect";
+  const isConnected = state === "ready" || state === "processor_setup" || state === "provider_identity";
+  const rawProviderIdentity = input && typeof input === "object" && "providerIdentity" in input
+    ? (input as { providerIdentity?: unknown }).providerIdentity
+    : undefined;
+  let providerIdentity: ProviderIdentityDiagnostic | undefined;
+  if (rawProviderIdentity) {
+    try {
+      providerIdentity = decodeProviderIdentityDiagnostic(rawProviderIdentity);
+    } catch {
+      providerIdentity = { result: "unconfirmed", validTestPrefix: false, at: Date.now() };
+    }
+  }
+
   return {
     blocks: [
       { type: "header", text: projection.title },
@@ -240,6 +285,10 @@ export function renderSetupScreen(input: unknown) {
         type: "section",
         text: `${step.title}: ${step.status === "complete" ? "Complete" : "Not complete"}. ${step.description}`,
       })),
+      ...(providerIdentity ? [{
+        type: "section",
+        text: `Provider identity: ${describeProviderIdentity(providerIdentity)}`,
+      }] : []),
       {
         type: "actions",
         elements: [
@@ -250,6 +299,7 @@ export function renderSetupScreen(input: unknown) {
           ...(canSetup ? [{ type: "button", label: "Set up or resume Stripe", action_id: "setup_processor" }] : []),
           { type: "button", label: actionLabel, action_id: action },
           ...(action === "check" && !processorPending ? [{ type: "button", label: "Reconnect", action_id: "connect" }] : []),
+          ...(isConnected ? [{ type: "button", label: "Check provider identity", action_id: "check_provider_identity" }] : []),
         ],
       },
     ],

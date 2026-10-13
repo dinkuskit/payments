@@ -30,6 +30,8 @@ import {
 } from "../authorize-net/checkout.js";
 import { AuthorizeNetWebhookError, createAuthorizeNetWebhookHandler } from "../authorize-net/webhook.js";
 import type { PaymentOutcome, PaymentRequest } from "../commerce/checkout-port.js";
+import { checkStripePlatformIdentity } from "../stripe/identity.js";
+import type { ProviderIdentityDiagnostic } from "../provider-identity.js";
 
 type WakeRow = Record<string, string | number | null> & WakeContext & { deliveryGeneration: number; wokeAt: number; acknowledgedAt: number | null; authorizeNetMerchantId: string | null };
 type PaidTestRow = Record<string, string | number> & { amountMinor: string; paidAt: number; noticed: number; recorded: number };
@@ -217,6 +219,79 @@ export class PaymentConnection extends DurableObject<Env> {
     });
   }
   async connectionDiagnostics(principal: Principal) { return this.connection().diagnostics(principal); }
+  async providerIdentityDiagnostic(principal: Principal): Promise<ProviderIdentityDiagnostic> {
+    if ((this.env.PAYMENT_PROVIDER as string) === "authorize_net") {
+      throw new ConnectionError("diagnostic_unavailable");
+    }
+    const operatorAccount = this.env.STRIPE_DIAGNOSTIC_OPERATOR_ACCOUNT;
+    const operatorSite = this.env.STRIPE_DIAGNOSTIC_OPERATOR_SITE;
+    const expectedAccount = this.env.STRIPE_DIAGNOSTIC_EXPECTED_ACCOUNT;
+    const apiKey = this.env.STRIPE_API_KEY;
+
+    if (!operatorAccount || !operatorSite || !expectedAccount || !apiKey) {
+      throw new ConnectionError("diagnostic_unavailable");
+    }
+    let parsedOperatorAccount: unknown;
+    try {
+      parsedOperatorAccount = JSON.parse(operatorAccount);
+    } catch {
+      throw new ConnectionError("diagnostic_unavailable");
+    }
+    if (
+      !Array.isArray(parsedOperatorAccount) ||
+      parsedOperatorAccount.length !== 2 ||
+      typeof parsedOperatorAccount[0] !== "string" ||
+      parsedOperatorAccount[0] !== this.env.ACCOUNT_ISSUER ||
+      typeof parsedOperatorAccount[1] !== "string" ||
+      !parsedOperatorAccount[1].trim() || parsedOperatorAccount[1].length > 200 || JSON.stringify(parsedOperatorAccount) !== operatorAccount
+    ) {
+      throw new ConnectionError("diagnostic_unavailable");
+    }
+    if (!/^[A-Za-z0-9_-]{1,200}$/.test(operatorSite)) {
+      throw new ConnectionError("diagnostic_unavailable");
+    }
+    if (!/^acct_[A-Za-z0-9]{1,200}$/.test(expectedAccount)) {
+      throw new ConnectionError("diagnostic_unavailable");
+    }
+    if (!/^sk_test_\S+$/.test(apiKey)) {
+      throw new ConnectionError("diagnostic_unavailable");
+    }
+
+    if (principal.accountId !== operatorAccount || principal.siteId !== operatorSite) {
+      throw new ConnectionError("connection_owner_mismatch");
+    }
+
+    const sql = this.ctx.storage.sql;
+    const row = sql.exec<{ value: string }>("SELECT value FROM connection_state WHERE id=1").toArray()[0];
+    if (!row) {
+      throw new ConnectionError("connection_owner_mismatch");
+    }
+    let record: Connection;
+    try {
+      record = JSON.parse(row.value) as Connection;
+    } catch {
+      throw new ConnectionError("connection_owner_mismatch");
+    }
+    if (
+      !record ||
+      !record.owner ||
+      record.owner.accountId !== principal.accountId ||
+      record.owner.siteId !== principal.siteId ||
+      record.mode !== "test"
+    ) {
+      throw new ConnectionError("connection_owner_mismatch");
+    }
+    if ((record.providerId ?? "stripe") !== "stripe") {
+      throw new ConnectionError("binding_provider_mismatch");
+    }
+
+    const safeDiagnostics = this.connection().diagnostics(principal);
+    const result = await checkStripePlatformIdentity({ apiKey, expectedAccountId: expectedAccount });
+    // Do not disclose a result after the stored owner/binding changed during I/O.
+    const after = sql.exec<{ value: string }>("SELECT value FROM connection_state WHERE id=1").toArray()[0];
+    if (after?.value !== row.value) throw new ConnectionError("connection_owner_mismatch");
+    return { ...result, diagnostics: safeDiagnostics };
+  }
   async startOnboarding(principal: Principal) { return this.connection().connect(principal); }
   async status(principal: Principal): Promise<Status> {
     const status = await this.connection().status(principal);
@@ -506,6 +581,7 @@ export default {
             diagnostics: p => stub.connectionDiagnostics(p),
             checkoutBinding: (p, ref) => stub.checkoutBinding(p, ref),
             existingBinding: (p, ref) => stub.existingBinding(p, ref),
+            providerIdentityDiagnostic: p => stub.providerIdentityDiagnostic(p),
           };
         },
         checkout: (principal, context) => {
