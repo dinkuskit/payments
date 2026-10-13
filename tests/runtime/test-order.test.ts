@@ -1,3 +1,4 @@
+import { stripeV2Account, stripeV2Link } from "../helpers/stripe-v2.js";
 import { env } from "cloudflare:workers";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import Stripe from "stripe";
@@ -7,18 +8,16 @@ import { decodeStatus } from "../../src/registry/status.js";
 
 afterEach(() => vi.restoreAllMocks());
 
-const readyAccount = (id: string) => ({
-  object: "account", id, details_submitted: true, charges_enabled: true, payouts_enabled: true,
-  capabilities: { card_payments: "active" }, requirements: {},
-});
+const readyAccount = (id: string) => stripeV2Account(id);
 
 function stripeFixture() {
   const state: { paid: boolean; session: Record<string, unknown> | null } = { paid: false, session: null };
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = new URL(String(input));
+    if (url.hostname === "api.stripe.com" && url.pathname === "/v1/account") return Response.json({ object: "account", id: "acct_platform" });
     if (url.hostname !== "api.stripe.com") throw new Error(`unexpected provider host: ${url.hostname}`);
-    if (url.pathname === "/v1/accounts" && init?.method === "POST") return Response.json(readyAccount("acct_fixture"));
-    if (url.pathname === "/v1/accounts/acct_fixture") return Response.json(readyAccount("acct_fixture"));
+    if (url.pathname === "/v2/core/accounts" && init?.method === "POST") return Response.json(readyAccount("acct_fixture"));
+    if (url.pathname === "/v2/core/accounts/acct_fixture") return Response.json(readyAccount("acct_fixture"));
     if (url.pathname === "/v1/checkout/sessions" && init?.method === "POST") {
       const params = new URLSearchParams(String(init.body ?? ""));
       const expiresAt = Number(params.get("expires_at"));
@@ -109,7 +108,8 @@ test("a paid TEST checkout shows in status, then counts once Commerce acknowledg
 test("only the current connection's paid TEST checkouts count, and a saved one wins over a newer one", async () => {
   vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
     const url = new URL(String(input));
-    if (url.hostname === "api.stripe.com" && url.pathname === "/v1/accounts/acct_runtime") return Response.json(readyAccount("acct_runtime"));
+    if (url.hostname === "api.stripe.com" && url.pathname === "/v1/account") return Response.json({ object: "account", id: "acct_platform" });
+    if (url.hostname === "api.stripe.com" && url.pathname === "/v2/core/accounts/acct_runtime") return Response.json(readyAccount("acct_runtime"));
     return new Response("missing", { status: 404 });
   });
   const siteId = crypto.randomUUID();

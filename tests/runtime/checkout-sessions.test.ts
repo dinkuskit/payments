@@ -1,3 +1,4 @@
+import { stripeV2Account, stripeV2Link } from "../helpers/stripe-v2.js";
 import { env } from "cloudflare:workers";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import Stripe from "stripe";
@@ -35,14 +36,15 @@ test.each(["historical-unpriced", "priced-v1"])("SQLite mapping survives evictio
   let loseCreationResponse = true;
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const path = new URL(String(input)).pathname;
-    if (path === "/v1/accounts" && init?.method === "POST") {
-      return new Response(JSON.stringify({ object: "account", id: "acct_fixture", details_submitted: true, charges_enabled: true, payouts_enabled: true, capabilities: { card_payments: "active" }, requirements: {} }), { headers: { "content-type": "application/json" } });
+    if (path === "/v1/account") return Response.json({ object: "account", id: "acct_platform" });
+    if (path === "/v2/core/accounts" && init?.method === "POST") {
+      return new Response(JSON.stringify(stripeV2Account("acct_fixture", true)), { headers: { "content-type": "application/json" } });
     }
-    if (path === "/v1/account_links") {
-      return new Response(JSON.stringify({ object: "account_link", url: "https://connect.stripe.com/setup/fixture", expires_at: Math.floor(Date.now() / 1000) + 600 }), { headers: { "content-type": "application/json" } });
+    if (path === "/v2/core/account_links") {
+      return new Response(JSON.stringify(stripeV2Link()), { headers: { "content-type": "application/json" } });
     }
-    if (path === "/v1/accounts/acct_fixture") {
-      return new Response(JSON.stringify({ object: "account", id: "acct_fixture", details_submitted: ready, charges_enabled: ready, payouts_enabled: ready, capabilities: { card_payments: ready ? "active" : "pending" }, requirements: {} }), { headers: { "content-type": "application/json" } });
+    if (path === "/v2/core/accounts/acct_fixture") {
+      return new Response(JSON.stringify(stripeV2Account("acct_fixture", ready)), { headers: { "content-type": "application/json" } });
     }
     if (path === "/v1/checkout/sessions" && init?.method === "POST") {
       created.count++;
@@ -138,7 +140,8 @@ test.each(["historical-unpriced", "priced-v1"])("SQLite mapping survives evictio
   expect(await again.existingBinding(principal, connected.bindingRef!)).toMatchObject({ stripeAccountId: "acct_fixture", bindingRef: connected.bindingRef });
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const path = new URL(String(input)).pathname;
-    if (path === "/v1/accounts/acct_fixture") {
+    if (path === "/v1/account") return Response.json({ object: "account", id: "acct_platform" });
+    if (path === "/v2/core/accounts/acct_fixture") {
       return new Response(JSON.stringify({ object: "account", id: "acct_fixture", details_submitted: false, charges_enabled: false, payouts_enabled: false, capabilities: { card_payments: "pending" }, requirements: {} }), { headers: { "content-type": "application/json" } });
     }
     if (path === "/v1/checkout/sessions/cs_fixture") {
@@ -253,16 +256,17 @@ test("characterization: lost create response leaves a claim unrecoverable by web
   const createAccounts: (string | null)[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = new URL(String(input));
+    if (url.hostname === "api.stripe.com" && url.pathname === "/v1/account") return Response.json({ object: "account", id: "acct_platform" });
     if (url.hostname !== "api.stripe.com") throw new Error(`unexpected provider host: ${url.hostname}`);
     const path = url.pathname;
-    if (path === "/v1/accounts" && init?.method === "POST") {
-      return Response.json({ object: "account", id: "acct_lostresponse", details_submitted: true, charges_enabled: true, payouts_enabled: true, capabilities: { card_payments: "active" }, requirements: {} });
+    if (path === "/v2/core/accounts" && init?.method === "POST") {
+      return Response.json(stripeV2Account("acct_lostresponse", true));
     }
-    if (path === "/v1/account_links") {
-      return Response.json({ object: "account_link", url: "https://connect.stripe.com/setup/lost-response", expires_at: Math.floor(Date.now() / 1000) + 600 });
+    if (path === "/v2/core/account_links") {
+      return Response.json(stripeV2Link("acct_lostresponse"));
     }
-    if (path === "/v1/accounts/acct_lostresponse") {
-      return Response.json({ object: "account", id: "acct_lostresponse", details_submitted: true, charges_enabled: true, payouts_enabled: true, capabilities: { card_payments: "active" }, requirements: {} });
+    if (path === "/v2/core/accounts/acct_lostresponse") {
+      return Response.json(stripeV2Account("acct_lostresponse", true));
     }
     if (path === "/v1/checkout/sessions" && init?.method === "POST") {
       createCalls++;

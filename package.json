@@ -1,6 +1,6 @@
 {
   "name": "@dinkuskit/payments",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "The open-source payment-provider plugin for EmDash commerce sites",
   "type": "module",
   "files": [
@@ -42,7 +42,7 @@
   },
   "dependencies": {
     "jose": "6.2.12",
-    "stripe": "22.6.2"
+    "stripe": "23.0.0"
   },
   "devDependencies": {
     "@astrojs/cloudflare": "14.3.4",
