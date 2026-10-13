@@ -5,6 +5,80 @@ import { vi } from "vitest";
 import { PluginBridge } from "@emdash-cms/cloudflare/sandbox";
 import { CONNECT, CONTROL, JWKS, SITE, STATUS, body, control, fixture, session, snapshot } from "./helpers/registry-runtime.js";
 
+test("compiled setup retains its verified link and diagnostics within ten bridge calls", async () => {
+  const f = await fixture({ installedId: "r_3brsc2on3bu673rn" }); const { host } = f;
+  const calls: string[] = [];
+  try {
+    await f.prepareStart("setup-budget"); await f.action("connect"); await f.pollDue();
+    await f.prepareExchange(); await f.action("continue"); host.http.clear();
+    for (const name of ["kvGetVersioned", "kvCompareAndSet", "settingsGetVersioned", "settingsCompareAndSet", "httpFetch"] as const) {
+      const original = PluginBridge.prototype[name];
+      vi.spyOn(PluginBridge.prototype, name).mockImplementation(async function(...args: unknown[]) {
+        if (!name.startsWith("kv") || args[0] === CONTROL) {
+          calls.push(name);
+          if (calls.length > 10) throw new Error("synthetic_subrequest_limit");
+        }
+        return (original as (...args: unknown[]) => Promise<unknown>).apply(this, args);
+      } as never);
+    }
+    const saved = await snapshot(host);
+    const link = "https://connect.stripe.com/setup/synthetic-budget";
+    await f.prepareSetupDiagnostics("connecting", { state: "connecting", mode: "test", processorAccountPresent: false, evidence: "unobserved" });
+    await host.http.respond("https://payments.dinkuskit.com/v1/connect", Response.json({ state: "setup_required", mode: "test", bindingRef: "synthetic-binding", url: link, expiresAt: Date.now() + 60_000 }));
+    const page = JSON.stringify(await f.action("setup_processor"));
+    assert.match(page, /Continue setup at Stripe/);
+    assert.ok(page.includes(link));
+    assert.doesNotMatch(page, /status_recheck_control|No processor setup was attempted/);
+    assert.deepEqual(calls, ["kvGetVersioned", "settingsGetVersioned", "httpFetch", "kvGetVersioned", "httpFetch", "kvGetVersioned", "httpFetch", "httpFetch", "kvGetVersioned", "kvGetVersioned"]);
+    assert.equal(host.http.requests().filter(r => r.url === JWKS).length, 1);
+    assert.equal(host.http.requests().filter(r => r.url.endsWith("/v1/connect")).length, 1);
+    assert.deepEqual(await snapshot(host), saved);
+    calls.length = 0; host.http.clear();
+    await f.prepareDiagnostics("connecting", { state: "connecting", mode: "test", processorAccountPresent: false, evidence: "unobserved" });
+    assert.match(JSON.stringify(await f.action("check")), /Your DinkusKit authorization is connected/);
+    assert.equal(calls.length, 7);
+    assert.equal(host.http.requests().some(r => r.method !== "GET"), false);
+  } finally { vi.restoreAllMocks(); await host.dispose(); }
+});
+
+test("compiled post-setup status failure does not claim that no setup was attempted", async () => {
+  const f = await fixture(); const { host } = f;
+  try {
+    await f.prepareStart("setup-uncertain"); await f.action("connect"); await f.pollDue();
+    await f.prepareExchange(); await f.action("continue"); host.http.clear();
+    await f.prepareSetupStatusResponse({ error: "synthetic-private-material" }, 503);
+    await host.http.respond("https://payments.dinkuskit.com/v1/connect", Response.json({ state: "setup_required", mode: "test", bindingRef: "synthetic-binding", url: "https://connect.stripe.com/setup/synthetic", expiresAt: Date.now() + 60_000 }));
+    const page = JSON.stringify(await f.action("setup_processor"));
+    assert.match(page, /Processor setup was requested/);
+    assert.doesNotMatch(page, /No processor setup was attempted|synthetic-private-material|Continue setup at Stripe/);
+    assert.equal(host.http.requests().filter(r => r.url.endsWith("/v1/connect")).length, 1);
+    host.http.clear(); await f.prepareStatus(); await f.action("check");
+    assert.equal(host.http.requests().some(r => r.method !== "GET"), false);
+  } finally { await host.dispose(); }
+});
+
+test("compiled setup rejects concurrent flow replacement before and after status", async () => {
+  for (const changeAfter of ["/v1/connect", "/v1/status"]) {
+    const f = await fixture(); const { host } = f;
+    try {
+      await f.prepareStart("setup-race"); await f.action("connect"); await f.pollDue();
+      await f.prepareExchange(); await f.action("continue"); host.http.clear();
+      await f.prepareProcessorStatus();
+      await host.http.respond("https://payments.dinkuskit.com/v1/connect", Response.json({ state: "setup_required", mode: "test", bindingRef: "synthetic-binding", url: "https://connect.stripe.com/setup/synthetic-race", expiresAt: Date.now() + 60_000 }));
+      const fetch = PluginBridge.prototype.httpFetch;
+      vi.spyOn(PluginBridge.prototype, "httpFetch").mockImplementation(async function(url, init) {
+        const result = await fetch.call(this, url, init);
+        if (url.endsWith(changeAfter)) await host.fixtures.plugin.kv(CONTROL, { ...await control(host), flowId: "replacement-flow" });
+        return result;
+      });
+      const page = JSON.stringify(await f.action("setup_processor"));
+      assert.doesNotMatch(page, /Continue setup at Stripe|synthetic-race/);
+      assert.match(page, /Reconnect explicitly/);
+      assert.equal((await control(host)).flowId, "replacement-flow");
+    } finally { vi.restoreAllMocks(); await host.dispose(); }
+  }
+});
+
 test("compiled installed instance preserves encrypted session identity through renewal and restart", async () => {
   const f = await fixture({ installedId: "r_3brsc2on3bu673rn" }); const { host } = f;
   try {
