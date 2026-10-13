@@ -44,6 +44,9 @@ function utcTime(ms: number): string {
 
 function testOrderStep(status: PaymentsStatus | null, connectionState?: string): SetupStep {
   const title = "Place a test order";
+  if (connectionState === "authorized") {
+    return { title, status: "incomplete", description: `${unconfirmedCommerceOrder} Check the payment connection before placing a test order.` };
+  }
   const order = status?.testOrder;
   if (order) {
     const provider = providerName(order.provider);
@@ -73,6 +76,9 @@ function testOrderStep(status: PaymentsStatus | null, connectionState?: string):
 }
 
 function connectionStep(status: PaymentsStatus | null, connectionState?: string, diagnostics?: ConnectionDiagnostics, checkFailure?: unknown): SetupStep {
+  if (connectionState === "authorized") {
+    return { title: "Connect payments", status: "incomplete", description: "Your DinkusKit authorization was saved. Use Check connection to read the payment account status. No processor setup was attempted." };
+  }
   if (connectionState === "check_failed") {
     return { title: "Connect payments", status: "incomplete", description: describeStatusCheckFailure(checkFailure) };
   }
@@ -208,7 +214,7 @@ export function renderSetupScreen(input: unknown) {
   const projection = projectSetupScreen(nested, input && typeof input === "object" && "diagnostics" in input ? input.diagnostics as ConnectionDiagnostics : undefined);
   const state = typeof input === "object" && input !== null && !Array.isArray(input) &&
     typeof (input as { state?: unknown }).state === "string" ? (input as { state: string }).state : "disconnected";
-  const action = state === "pending" || state === "connecting" ? "continue" : state === "checking" || state === "check_failed" || state === "ready" || state === "processor_setup" ? "check" : "connect";
+  const action = state === "pending" || state === "connecting" ? "continue" : state === "authorized" || state === "checking" || state === "check_failed" || state === "ready" || state === "processor_setup" ? "check" : "connect";
   const statusValue = nested && typeof nested === "object" && "status" in nested ? nested.status : null;
   const processorPending = statusValue && typeof statusValue === "object" && "state" in statusValue && ["connecting", "recovery_required"].includes(statusValue.state as string);
   const needsRecovery = statusValue && typeof statusValue === "object" && "state" in statusValue && statusValue.state === "recovery_required";

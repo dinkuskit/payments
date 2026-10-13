@@ -44,8 +44,16 @@ export function body(request: ReturnType<Host["http"]["requests"]>[number]) {
   return JSON.parse(new TextDecoder().decode(request.body));
 }
 
-export async function fixture() {
-  const host = await createPluginRuntimeTestHost({ site: { url: SITE } });
+export async function fixture(options: { installedId?: string } = {}) {
+  const bindings = env as unknown as { EMDASH_PLUGIN_MANIFEST: string };
+  const originalManifest = bindings.EMDASH_PLUGIN_MANIFEST;
+  let host: Host;
+  try {
+    if (options.installedId) {
+      bindings.EMDASH_PLUGIN_MANIFEST = JSON.stringify({ ...JSON.parse(originalManifest), id: options.installedId });
+    }
+    host = await createPluginRuntimeTestHost({ site: { url: SITE } });
+  } finally { bindings.EMDASH_PLUGIN_MANIFEST = originalManifest; }
   const admin = await host.fixtures.user({ email: "connection-admin@example.invalid", role: "admin" });
   const { privateKey, publicKey } = await generateKeyPair("ES256");
   const jwk = { ...await exportJWK(publicKey), kid: "synthetic-connection-key", alg: "ES256" };
@@ -75,9 +83,8 @@ export async function fixture() {
     await host.http.respond(`${CONNECT}/token`, Response.json({
       access_token: token, token_type: "Bearer", site_id: "synthetic-site", expires_in: 300,
     }));
-    // Continue validates the exchange token and then validates it again for status.
+    // Continue validates and saves the exchange token. Status is a separate action.
     await host.http.respond(JWKS, Response.json({ keys: [jwk] }));
-    await prepareStatus();
     return token;
   }
   async function prepareStatus(disconnected: boolean | "setup" = false) {

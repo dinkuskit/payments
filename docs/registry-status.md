@@ -72,8 +72,8 @@ HTTP verifier and should redirect through the normal login boundary. The
 fixture only permits the fixed roles on loopback and is not a deployable
 production authentication adapter.
 
-This is seeded post-install Registry state for `0.2.3` release preparation: it
-writes the normal `registry/dinkus-payments/0.2.3/` artifacts and an active
+This is seeded post-install Registry state for `0.2.4` release preparation: it
+writes the normal `registry/dinkus-payments/0.2.4/` artifacts and an active
 `source=registry` row, then loads them through the normal local runtime. It is
 not installer proof. In particular, it does not provide authoritative
 publisher/release records, consent receipts, Registry publication, deployment,
@@ -157,3 +157,20 @@ of issuing a second status sequence. Optional unavailable diagnostics still leav
 a successfully verified status intact. These changes identify a failing stage;
 they do not establish the cause of a particular historical failure or change the
 sandbox resource limit.
+
+## Authorization request boundary (0.2.4 preparation)
+
+After a new grant is verified and saved, Continue now confirms **Your DinkusKit
+authorization was saved** and offers **Check connection**. It does not read
+processor status in that same request or imply a processor account is ready.
+The explicit check (or a later page load) reads the stored authorization and
+verifies it before fetching status. Already completed grants still use one
+status sequence per Check/Continue action.
+
+The new-grant path uses nine bridge calls. Combining it with status made the
+first saved-session read call eleven, exceeding the installed sandbox runner's
+configured ten-subrequest limit under per-call enforcement. A limit-enforced
+compiled test reproduces that failure stage and verifies the split succeeds;
+local Worker Loader does not enforce the configured limit, so this is not by
+itself proof of the historical production exception. No resource limit or
+encryption, signature, binding, or race guard is changed.
