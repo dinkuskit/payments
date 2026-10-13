@@ -25,8 +25,7 @@ messages to guess a platform diagnosis. Arbitrary thrown values become observed
 unknown; historic records without a captured exception remain unobserved.
 
 Verification uses only synthetic fixtures and offline-cached dependencies with
-Node 22.23.2. Full command output is retained outside this public source tree at
-`/Users/bobbybones/Developer/side-quests/x-api/runs/payments-onboarding-diagnostics-runs/20261013/`.
+Node 22.23.2. Full command output is retained in private operator evidence.
 No production/provider/browser/network/credential action was performed.
 
 ## Results
