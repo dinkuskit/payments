@@ -4,21 +4,26 @@ name: Release
 #
 # Flow summary:
 # 1. `inspect`: Classifies a push to `main`:
-#    - If pending version-bumping changesets exist -> `mode=beta_and_pr`
-#    - If no pending changesets exist and `package.json` version (>= 0.2.0) has no
-#      `vX.Y.Z` tag yet (i.e. the Release PR merge just landed) -> `mode=publish`
-#    - If `vX.Y.Z` already exists -> `mode=noop` (idempotent)
-# 2. `beta-and-e2e-gate` (`release-beta.yml`): Cuts `x.y.z-beta.N`, publishes it
-#    to the EmDash Registry under the separate build-time slug `dinkus-payments-beta`,
+#    - If pending version-bumping changesets exist -> `mode=beta_and_pr` (computes
+#      beta N as max over existing beta git tags and beta versions on the EmDash
+#      Registry + 1).
+#    - If no pending changesets exist and `package.json` version (>= 0.2.0) is missing
+#      any of git tag `vX.Y.Z`, GitHub Release `vX.Y.Z`, or EmDash Registry release
+#      `dinkus-payments@X.Y.Z` -> `mode=publish` (resumes whichever steps are missing).
+#    - Only when tag, GitHub Release, and Registry release all exist -> `mode=noop`.
+# 2. `beta-and-e2e-gate` (`release-beta.yml`): Reserves/pushes tag `vx.y.z-beta.N`
+#    before publishing, publishes `x.y.z-beta.N` to the EmDash Registry under the
+#    separate build-time slug `dinkus-payments-beta` (if not already on Registry),
 #    installs it on the demo store, and runs Ryan's E2E suite against `vars.DEMO_STORE_URL`.
 # 3. `release-pr`: Only after `beta-and-e2e-gate` passes, mints a token from the
 #    dedicated release GitHub App (`secrets.RELEASE_APP_ID` + `secrets.RELEASE_APP_PRIVATE_KEY`)
 #    and runs `changesets/action` to open/update the final (non-beta) release PR.
 #    No GitHub environment approval is used; merging the release PR is the human gate.
-# 4. `publish-release`: When the release PR merge lands on `main`, one job atomically
-#    creates tag `vX.Y.Z`, creates the GitHub Release from that version's `CHANGELOG.md`
-#    section, and builds/bundles/publishes `dinkus-payments@X.Y.Z` to the EmDash
-#    plugin Registry using `secrets.EMDASH_REGISTRY_TOKEN`.
+# 4. `publish-release`: Idempotently and resumably completes the stable release in order:
+#    (a) create/ensure git tag `vX.Y.Z`,
+#    (b) ensure GitHub Release `vX.Y.Z` from that version's `CHANGELOG.md` section,
+#    (c) query the EmDash Registry for `dinkus-payments@X.Y.Z` and build/bundle/publish
+#        only if that version does not already exist on the Registry.
 on:
   push:
     branches:
@@ -32,7 +37,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Stage 1: Inspect changeset and git tag state on `main`.
+  # Stage 1: Inspect changeset, git tag, GitHub Release, and Registry state on `main`.
   inspect:
     name: Inspect release state
     runs-on: ubuntu-latest
@@ -46,6 +51,9 @@ jobs:
       beta_tag: ${{ steps.state.outputs.beta_tag }}
       beta_plugin_slug: ${{ steps.state.outputs.beta_plugin_slug }}
       tag: ${{ steps.state.outputs.tag }}
+      tag_exists: ${{ steps.state.outputs.tag_exists }}
+      github_release_exists: ${{ steps.state.outputs.github_release_exists }}
+      registry_published: ${{ steps.state.outputs.registry_published }}
     steps:
       - name: Check out repository with tags
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -59,8 +67,10 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
-      - name: Inspect pending changesets and existing tags
+      - name: Inspect pending changesets, tags, GitHub Release, and Registry state
         id: state
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: node scripts/release-flow.mjs inspect
 
   # Stage 2: When pending changesets exist on `main`, cut/publish `dinkus-payments-beta`,
@@ -88,7 +98,7 @@ jobs:
     steps:
       - name: Mint release GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
@@ -114,17 +124,16 @@ jobs:
           git config user.email "159389674+saariuslystoned@users.noreply.github.com"
 
       - name: Open or update Release PR via Changesets
-        uses: changesets/action@v1
+        uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
-          version: npm run release:version
-          commit: "chore(release): version packages"
-          title: "chore(release): version packages"
-        env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          github-token: ${{ steps.app-token.outputs.token }}
+          version-script: npm run release:version
+          commit-message: "chore(release): version packages"
+          pr-title: "chore(release): version packages"
 
-  # Stage 4: When the Release PR merge lands on `main` (no pending changesets and
-  # `package.json` version is untagged), one job atomically publishes to the EmDash
-  # Registry, creates tag `vX.Y.Z`, and creates the GitHub Release from CHANGELOG.md.
+  # Stage 4: When the Release PR merge lands on `main` (or a previous release run was
+  # partially completed), idempotently ensure git tag vX.Y.Z, then ensure the GitHub
+  # Release from CHANGELOG.md, then publish to the EmDash Registry if not already present.
   publish-release:
     name: Tag, GitHub Release, and EmDash Registry publish
     needs: inspect
@@ -134,7 +143,7 @@ jobs:
     steps:
       - name: Mint release GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
@@ -154,22 +163,54 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Check tag idempotency
-        id: idempotency
+      - name: Ensure git tag vX.Y.Z
         env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           RELEASE_TAG: ${{ needs.inspect.outputs.tag }}
         run: |
           set -euo pipefail
-          if git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1 || \
-             git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "Tag ${RELEASE_TAG} already exists; skipping release steps (idempotent)."
-            echo "already_tagged=true" >> "${GITHUB_OUTPUT}"
+          git config user.name "saariuslystoned"
+          git config user.email "159389674+saariuslystoned@users.noreply.github.com"
+          if git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Tag ${RELEASE_TAG} already exists on origin; skipping tag creation."
           else
-            echo "already_tagged=false" >> "${GITHUB_OUTPUT}"
+            if ! git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+              git tag -a "${RELEASE_TAG}" -m "Release ${RELEASE_TAG}"
+            fi
+            git push origin "refs/tags/${RELEASE_TAG}"
           fi
 
+      - name: Ensure GitHub Release vX.Y.Z from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_VERSION: ${{ needs.inspect.outputs.current_version }}
+          RELEASE_TAG: ${{ needs.inspect.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "GitHub Release ${RELEASE_TAG} already exists; skipping creation."
+          else
+            NOTES_FILE="$(mktemp)"
+            node scripts/release-flow.mjs release-notes --version "${RELEASE_VERSION}" --out "${NOTES_FILE}"
+            gh release create "${RELEASE_TAG}" \
+              --verify-tag \
+              --title "${RELEASE_TAG}" \
+              --notes-file "${NOTES_FILE}"
+            rm -f "${NOTES_FILE}"
+          fi
+
+      - name: Check EmDash Registry for dinkus-payments@X.Y.Z
+        id: registry-check
+        env:
+          RELEASE_VERSION: ${{ needs.inspect.outputs.current_version }}
+        run: |
+          set -euo pipefail
+          node scripts/release-flow.mjs check-registry \
+            --slug "dinkus-payments" \
+            --version "${RELEASE_VERSION}"
+
       - name: Build, bundle, and publish stable plugin to EmDash Registry
-        if: ${{ steps.idempotency.outputs.already_tagged == 'false' }}
+        if: ${{ steps.registry-check.outputs.already_published != 'true' }}
         env:
           EMDASH_REGISTRY_TOKEN: ${{ secrets.EMDASH_REGISTRY_TOKEN }}
         run: |
@@ -178,27 +219,3 @@ jobs:
           npm run plugin:build
           npm run plugin:bundle
           npx emdash-plugin publish
-
-      - name: Create and push git tag vX.Y.Z and GitHub Release from CHANGELOG.md
-        if: ${{ steps.idempotency.outputs.already_tagged == 'false' }}
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          RELEASE_VERSION: ${{ needs.inspect.outputs.current_version }}
-          RELEASE_TAG: ${{ needs.inspect.outputs.tag }}
-        run: |
-          set -euo pipefail
-          git config user.name "saariuslystoned"
-          git config user.email "159389674+saariuslystoned@users.noreply.github.com"
-          NOTES_FILE="$(mktemp)"
-          node scripts/release-flow.mjs release-notes --version "${RELEASE_VERSION}" --out "${NOTES_FILE}"
-          git tag -a "${RELEASE_TAG}" -m "Release ${RELEASE_TAG}"
-          git push origin "refs/tags/${RELEASE_TAG}"
-          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "GitHub Release ${RELEASE_TAG} already exists; skipping creation."
-          else
-            gh release create "${RELEASE_TAG}" \
-              --verify-tag \
-              --title "${RELEASE_TAG}" \
-              --notes-file "${NOTES_FILE}"
-          fi
-          rm -f "${NOTES_FILE}"

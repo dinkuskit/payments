@@ -32,5 +32,17 @@ jobs:
           npm run build
           npm run plugin:build
 
-      - name: Publish preview via pkg.pr.new
-        run: npx pkg-pr-new publish
+      - name: Publish preview via pkg.pr.new (pass with notice if GitHub App is not installed)
+        run: |
+          set +e
+          PREVIEW_OUTPUT="$(npx pkg-pr-new publish 2>&1)"
+          PREVIEW_EXIT_CODE=$?
+          set -e
+          printf '%s\n' "${PREVIEW_OUTPUT}"
+          if [ "${PREVIEW_EXIT_CODE}" -ne 0 ]; then
+            if printf '%s' "${PREVIEW_OUTPUT}" | grep -Fq "is not installed on or does not have access"; then
+              echo "::notice::The pkg-pr-new GitHub App is not installed on or does not have access to this repository; install https://github.com/apps/pkg-pr-new to enable PR preview packages."
+              exit 0
+            fi
+            exit "${PREVIEW_EXIT_CODE}"
+          fi

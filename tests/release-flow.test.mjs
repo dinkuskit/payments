@@ -6,11 +6,16 @@ import test from "node:test";
 
 import {
   BETA_PLUGIN_SLUG,
+  PKG_PR_NEW_NOT_INSTALLED_TEXT,
   STABLE_PLUGIN_SLUG,
+  classifyPreviewPublishResult,
   computeNextBetaNumber,
   computeNextStableVersion,
   deriveRegistryPluginId,
+  evaluatePreviewPublish,
   extractChangelogSection,
+  fetchRegistryPackageVersions,
+  hasRegistryVersion,
   inspectReleaseState,
   parseChangesetFile,
   prepareBetaBuild,
@@ -132,48 +137,90 @@ test("validatePrChangesets enforces PR changeset requirement and 0.x bump policy
   }
 });
 
-test("inspectReleaseState distinguishes pending beta_and_pr, untagged publish, and idempotent noop", async () => {
-  const pendingDir = await makeSyntheticRepo({
-    version: "0.2.8",
-    changesets: {
-      "fix.md": '---\n"@dinkuskit/payments": patch\n---\n\nFix webhook retry.\n',
-      "feat.md": '---\n"@dinkuskit/payments": minor\n---\n\nAdd release flow.\n',
-    },
-  });
-  try {
-    const state = await inspectReleaseState({
-      root: pendingDir,
-      existingTags: ["v0.2.8", "v0.3.0-beta.0"],
-    });
-    assert.equal(state.mode, "beta_and_pr");
-    assert.equal(state.nextVersion, "0.3.0");
-    assert.equal(state.nextBetaVersion, "0.3.0-beta.1");
-    assert.equal(state.betaTag, "v0.3.0-beta.1");
-    assert.equal(state.betaPluginSlug, BETA_PLUGIN_SLUG);
-  } finally {
-    await rm(pendingDir, { recursive: true, force: true });
-  }
-
+test("inspectReleaseState resumes partial stable release states (untagged, tag only, tag+release, all done)", async () => {
   const mergedReleaseDir = await makeSyntheticRepo({
     version: "0.3.0",
     changesets: {},
   });
   try {
+    // 1. Untagged (nothing done yet)
     const untagged = await inspectReleaseState({
       root: mergedReleaseDir,
       existingTags: ["v0.2.8", "v0.3.0-beta.0"],
     });
     assert.equal(untagged.mode, "publish");
+    assert.equal(untagged.reason, "release-pr-merged-untagged");
     assert.equal(untagged.currentVersion, "0.3.0");
     assert.equal(untagged.tag, "v0.3.0");
     assert.equal(untagged.pluginSlug, STABLE_PLUGIN_SLUG);
+    assert.equal(untagged.tagExists, false);
+    assert.equal(untagged.githubReleaseExists, false);
+    assert.equal(untagged.registryPublished, false);
+    assert.deepEqual(untagged.missingSteps, ["tag", "github-release", "registry"]);
 
-    const alreadyTagged = await inspectReleaseState({
+    // 2. Partial state: tag exists ONLY (GitHub Release and Registry publish still missing)
+    const tagOnly = await inspectReleaseState({
       root: mergedReleaseDir,
       existingTags: ["v0.2.8", "v0.3.0"],
+      githubReleaseExists: false,
+      registryPublished: false,
     });
-    assert.equal(alreadyTagged.mode, "noop");
-    assert.equal(alreadyTagged.reason, "tag-already-exists");
+    assert.equal(tagOnly.mode, "publish");
+    assert.equal(tagOnly.reason, "resume-after-tag");
+    assert.equal(tagOnly.tagExists, true);
+    assert.equal(tagOnly.githubReleaseExists, false);
+    assert.equal(tagOnly.registryPublished, false);
+    assert.deepEqual(tagOnly.missingSteps, ["github-release", "registry"]);
+
+    // 3. Partial state: tag + GitHub Release exist, Registry publish still missing
+    const tagAndRelease = await inspectReleaseState({
+      root: mergedReleaseDir,
+      existingTags: ["v0.2.8", "v0.3.0"],
+      githubReleaseExists: true,
+      registryPublished: false,
+    });
+    assert.equal(tagAndRelease.mode, "publish");
+    assert.equal(tagAndRelease.reason, "resume-after-github-release");
+    assert.equal(tagAndRelease.tagExists, true);
+    assert.equal(tagAndRelease.githubReleaseExists, true);
+    assert.equal(tagAndRelease.registryPublished, false);
+    assert.deepEqual(tagAndRelease.missingSteps, ["registry"]);
+
+    // 4. All done: tag + GitHub Release + Registry version all exist -> noop
+    const allDone = await inspectReleaseState({
+      root: mergedReleaseDir,
+      existingTags: ["v0.2.8", "v0.3.0"],
+      githubReleaseExists: true,
+      registryPublished: true,
+    });
+    assert.equal(allDone.mode, "noop");
+    assert.equal(allDone.reason, "release-complete");
+    assert.equal(allDone.tagExists, true);
+    assert.equal(allDone.githubReleaseExists, true);
+    assert.equal(allDone.registryPublished, true);
+    assert.deepEqual(allDone.missingSteps, []);
+
+    // Also verify live fetchImpl integration for GitHub Release + EmDash Registry checks
+    const allDoneViaFetch = await inspectReleaseState({
+      root: mergedReleaseDir,
+      existingTags: ["v0.2.8", "v0.3.0"],
+      fetchImpl: async (url) => {
+        const href = String(url);
+        if (href.includes("/releases/tags/v0.3.0")) {
+          return { ok: true, status: 200, json: async () => ({ tag_name: "v0.3.0" }) };
+        }
+        if (href.includes("com.emdashcms.experimental.aggregator.listReleases")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ releases: [{ version: "0.2.8" }, { version: "0.3.0" }] }),
+          };
+        }
+        return { ok: false, status: 404, json: async () => ({ error: "NotFound" }) };
+      },
+    });
+    assert.equal(allDoneViaFetch.mode, "noop");
+    assert.equal(allDoneViaFetch.reason, "release-complete");
   } finally {
     await rm(mergedReleaseDir, { recursive: true, force: true });
   }
@@ -191,6 +238,91 @@ test("inspectReleaseState distinguishes pending beta_and_pr, untagged publish, a
     assert.equal(untaggedPre020.reason, "pre-0.2.0-untagged");
   } finally {
     await rm(pre020Dir, { recursive: true, force: true });
+  }
+});
+
+test("beta N derivation combines existing git tags and EmDash Registry beta versions without reuse", async () => {
+  // Registry ahead of git tags
+  assert.equal(
+    computeNextBetaNumber(
+      "0.3.0",
+      ["v0.3.0-beta.0", "v0.3.0-beta.1"],
+      ["0.3.0-beta.0", "0.3.0-beta.3"],
+    ),
+    4,
+  );
+  // Git tags ahead of Registry
+  assert.equal(
+    computeNextBetaNumber(
+      "0.3.0",
+      ["v0.3.0-beta.4"],
+      ["0.3.0-beta.1", "0.3.0-beta.2"],
+    ),
+    5,
+  );
+  // Only Registry has beta.0 (e.g. previous run published before tag or tag was missing)
+  assert.equal(computeNextBetaNumber("0.3.0", ["v0.2.8"], ["0.3.0-beta.0"]), 1);
+  // Neither has any beta for 0.3.0
+  assert.equal(computeNextBetaNumber("0.3.0", ["v0.2.8", "v0.2.9-beta.5"], ["0.2.9-beta.7"]), 0);
+
+  const pendingDir = await makeSyntheticRepo({
+    version: "0.2.8",
+    changesets: {
+      "fix.md": '---\n"@dinkuskit/payments": patch\n---\n\nFix webhook retry.\n',
+      "feat.md": '---\n"@dinkuskit/payments": minor\n---\n\nAdd release flow.\n',
+    },
+  });
+  try {
+    const state = await inspectReleaseState({
+      root: pendingDir,
+      existingTags: ["v0.2.8", "v0.3.0-beta.0"],
+      registryBetaVersions: ["0.3.0-beta.0", "0.3.0-beta.2"],
+    });
+    assert.equal(state.mode, "beta_and_pr");
+    assert.equal(state.nextVersion, "0.3.0");
+    assert.equal(state.betaNumber, 3);
+    assert.equal(state.nextBetaVersion, "0.3.0-beta.3");
+    assert.equal(state.betaTag, "v0.3.0-beta.3");
+    assert.equal(state.betaPluginSlug, BETA_PLUGIN_SLUG);
+
+    // Also test via fetchImpl querying EmDash Registry XRPC listReleases for dinkus-payments-beta
+    const prepared = await prepareBetaBuild({
+      root: pendingDir,
+      existingTags: ["v0.2.8", "v0.3.0-beta.1"],
+      fetchImpl: async (url) => {
+        const href = String(url);
+        assert.match(href, /package=dinkus-payments-beta/);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            releases: [{ version: "0.3.0-beta.0" }, { version: "0.3.0-beta.4" }],
+          }),
+        };
+      },
+    });
+    assert.equal(prepared.betaVersion, "0.3.0-beta.5");
+    assert.equal(prepared.betaTag, "v0.3.0-beta.5");
+
+    const versions = await fetchRegistryPackageVersions({
+      slug: BETA_PLUGIN_SLUG,
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ releases: [{ version: "0.3.0-beta.5" }] }),
+      }),
+    });
+    assert.deepEqual(versions, ["0.3.0-beta.5"]);
+    assert.equal(
+      await hasRegistryVersion({
+        slug: BETA_PLUGIN_SLUG,
+        version: "0.3.0-beta.5",
+        registryVersions: versions,
+      }),
+      true,
+    );
+  } finally {
+    await rm(pendingDir, { recursive: true, force: true });
   }
 });
 
@@ -231,6 +363,36 @@ test("prepareBetaBuild overrides build-time manifest slug to dinkus-payments-bet
   }
 });
 
+test("preview publish classification detects missing pkg-pr-new GitHub App and fails on other errors", () => {
+  const success = classifyPreviewPublishResult({
+    exitCode: 0,
+    stdout: "Published https://pkg.pr.new/@dinkuskit/payments@51",
+  });
+  assert.equal(success.ok, true);
+  assert.equal(success.skippedMissingApp, false);
+  assert.equal(success.exitCode, 0);
+  assert.equal(success.notice, null);
+
+  const missingApp = evaluatePreviewPublish({
+    exitCode: 1,
+    stderr: `Error: The pkg-pr-new app ${PKG_PR_NEW_NOT_INSTALLED_TEXT} to dinkuskit/payments.`,
+  });
+  assert.equal(missingApp.ok, true);
+  assert.equal(missingApp.skippedMissingApp, true);
+  assert.equal(missingApp.appInstalled, false);
+  assert.equal(missingApp.exitCode, 0);
+  assert.match(missingApp.notice, /pkg-pr-new GitHub App is not installed/);
+
+  const otherFailure = classifyPreviewPublishResult({
+    exitCode: 2,
+    stderr: "Error: Failed to upload tarball (HTTP 502 Bad Gateway)",
+  });
+  assert.equal(otherFailure.ok, false);
+  assert.equal(otherFailure.skippedMissingApp, false);
+  assert.equal(otherFailure.exitCode, 2);
+  assert.equal(otherFailure.notice, null);
+});
+
 test("extractChangelogSection extracts the matching version notes from CHANGELOG.md", () => {
   const changelog = [
     "# @dinkuskit/payments",
@@ -259,7 +421,7 @@ test("extractChangelogSection extracts the matching version notes from CHANGELOG
   assert.equal(computeNextStableVersion("0.2.8", "minor"), "0.3.0");
 });
 
-test("repository workflows and docs wire the locked Changesets release flow", async () => {
+test("repository workflows and docs wire the locked Changesets release flow and SHA pins", async () => {
   const emdashManifest = JSON.parse(
     await readFile(join(repositoryRoot, "emdash-plugin.jsonc"), "utf8"),
   );
@@ -276,25 +438,59 @@ test("repository workflows and docs wire the locked Changesets release flow", as
   assert.equal(changesetConfig.baseBranch, "main");
 
   const releaseYml = await readFile(join(repositoryRoot, ".github/workflows/release.yml"), "utf8");
-  assert.match(releaseYml, /actions\/create-github-app-token/);
+  assert.match(
+    releaseYml,
+    /actions\/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3\.3\.0/,
+  );
+  assert.match(
+    releaseYml,
+    /changesets\/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2\.1\.2/,
+  );
+  assert.match(releaseYml, /version-script:\s*npm run release:version/);
+  assert.match(releaseYml, /commit-message:\s*"chore\(release\): version packages"/);
+  assert.match(releaseYml, /pr-title:\s*"chore\(release\): version packages"/);
   assert.match(releaseYml, /secrets\.RELEASE_APP_ID/);
   assert.match(releaseYml, /secrets\.RELEASE_APP_PRIVATE_KEY/);
   assert.match(releaseYml, /secrets\.EMDASH_REGISTRY_TOKEN/);
-  assert.match(releaseYml, /changesets\/action/);
   assert.match(releaseYml, /release-beta\.yml/);
   assert.doesNotMatch(releaseYml, /environment:/);
+
+  // Verify stable release step ordering: tag -> GitHub Release -> Registry check -> Registry publish
+  const tagStepIdx = releaseYml.indexOf("Ensure git tag vX.Y.Z");
+  const ghReleaseStepIdx = releaseYml.indexOf("Ensure GitHub Release vX.Y.Z from CHANGELOG.md");
+  const registryCheckIdx = releaseYml.indexOf("Check EmDash Registry for dinkus-payments@X.Y.Z");
+  const registryPublishIdx = releaseYml.indexOf(
+    "Build, bundle, and publish stable plugin to EmDash Registry",
+  );
+  assert.ok(tagStepIdx > 0 && ghReleaseStepIdx > tagStepIdx);
+  assert.ok(registryCheckIdx > ghReleaseStepIdx && registryPublishIdx > registryCheckIdx);
 
   const releaseBetaYml = await readFile(
     join(repositoryRoot, ".github/workflows/release-beta.yml"),
     "utf8",
   );
+  assert.match(
+    releaseBetaYml,
+    /actions\/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3\.3\.0/,
+  );
   assert.match(releaseBetaYml, /dinkus-payments-beta/);
   assert.match(releaseBetaYml, /vars\.DEMO_STORE_URL/);
   assert.match(releaseBetaYml, /secrets\.DEMO_STORE_E2E_TOKEN/);
   assert.match(releaseBetaYml, /e2e-gate/);
+  const betaTagStepIdx = releaseBetaYml.indexOf("Reserve and push beta git tag before publishing");
+  const betaRegistryCheckIdx = releaseBetaYml.indexOf(
+    "Check EmDash Registry for dinkus-payments-beta@x.y.z-beta.N",
+  );
+  const betaPublishIdx = releaseBetaYml.indexOf(
+    "Build, bundle, and publish beta plugin to EmDash Registry",
+  );
+  assert.ok(betaTagStepIdx > 0 && betaRegistryCheckIdx > betaTagStepIdx);
+  assert.ok(betaPublishIdx > betaRegistryCheckIdx);
 
   const previewYml = await readFile(join(repositoryRoot, ".github/workflows/preview.yml"), "utf8");
   assert.match(previewYml, /npx pkg-pr-new publish/);
+  assert.match(previewYml, /is not installed on or does not have access/);
+  assert.match(previewYml, /::notice::/);
 
   const readme = await readFile(join(repositoryRoot, "README.md"), "utf8");
   assert.match(readme, /\[RELEASING\.md\]\(RELEASING\.md\)/);
@@ -305,4 +501,5 @@ test("repository workflows and docs wire the locked Changesets release flow", as
   assert.match(releasing, /EMDASH_REGISTRY_TOKEN/);
   assert.match(releasing, /DEMO_STORE_URL/);
   assert.match(releasing, /v0\.2\.0/);
+  assert.match(releasing, /Retry safety & resumability/);
 });

@@ -9,11 +9,18 @@ name: Release Beta & Demo-Store E2E Gate
 # `dinkus-payments-beta` at build time (without editing the committed stable
 # `dinkus-payments` ID in `package.json`), installed ONLY on the demo store, and
 # verified by Ryan's E2E suite before the stable release PR can open or update.
+#
+# Retry safety:
+# - Beta number N is computed as max(existing beta git tags, beta versions already
+#   on the EmDash Registry for `dinkus-payments-beta`) + 1 so beta numbers are never reused.
+# - The git tag `vx.y.z-beta.N` is reserved and pushed BEFORE publishing to the Registry.
+# - Registry presence for `dinkus-payments-beta@x.y.z-beta.N` is checked before publishing
+#   and publish is skipped if the version already exists on the Registry.
 on:
   workflow_call:
     inputs:
       beta_version:
-        description: "Computed prerelease version (x.y.z-beta.N); auto-computed from pending changesets if omitted"
+        description: "Computed prerelease version (x.y.z-beta.N); auto-computed from pending changesets, git tags, and Registry if omitted"
         required: false
         type: string
       beta_plugin_slug:
@@ -51,8 +58,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Stage 1: Cut x.y.z-beta.N and publish under the separate `dinkus-payments-beta`
-  # plugin slug/id set at build time (never editing the committed stable id in package.json).
+  # Stage 1: Cut x.y.z-beta.N, reserve/push the beta git tag before publishing, and publish
+  # under the separate `dinkus-payments-beta` plugin slug/id set at build time (skipping
+  # publish if the version already exists on the EmDash Registry).
   cut-and-publish-beta:
     name: Cut and publish beta plugin (dinkus-payments-beta)
     runs-on: ubuntu-latest
@@ -65,7 +73,7 @@ jobs:
     steps:
       - name: Mint release GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
@@ -98,17 +106,7 @@ jobs:
             node scripts/release-flow.mjs prepare-beta --slug "${INPUT_BETA_SLUG}"
           fi
 
-      - name: Build, bundle, and publish beta plugin to EmDash Registry
-        env:
-          EMDASH_REGISTRY_TOKEN: ${{ secrets.EMDASH_REGISTRY_TOKEN }}
-        run: |
-          set -euo pipefail
-          npm run plugin:validate
-          npm run plugin:build
-          npm run plugin:bundle
-          npx emdash-plugin publish
-
-      - name: Record beta git tag (idempotent)
+      - name: Reserve and push beta git tag before publishing
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           BETA_TAG: ${{ steps.prepare-beta.outputs.beta_tag }}
@@ -119,9 +117,33 @@ jobs:
           if git ls-remote --exit-code --tags origin "refs/tags/${BETA_TAG}" >/dev/null 2>&1; then
             echo "Beta tag ${BETA_TAG} already exists on origin; skipping tag push."
           else
-            git tag -a "${BETA_TAG}" -m "Beta release ${BETA_TAG} (dinkus-payments-beta)"
+            if ! git rev-parse -q --verify "refs/tags/${BETA_TAG}" >/dev/null 2>&1; then
+              git tag -a "${BETA_TAG}" -m "Beta release ${BETA_TAG} (dinkus-payments-beta)"
+            fi
             git push origin "refs/tags/${BETA_TAG}"
           fi
+
+      - name: Check EmDash Registry for dinkus-payments-beta@x.y.z-beta.N
+        id: registry-check
+        env:
+          BETA_SLUG: ${{ steps.prepare-beta.outputs.beta_slug }}
+          BETA_VERSION: ${{ steps.prepare-beta.outputs.beta_version }}
+        run: |
+          set -euo pipefail
+          node scripts/release-flow.mjs check-registry \
+            --slug "${BETA_SLUG}" \
+            --version "${BETA_VERSION}"
+
+      - name: Build, bundle, and publish beta plugin to EmDash Registry
+        if: ${{ steps.registry-check.outputs.already_published != 'true' }}
+        env:
+          EMDASH_REGISTRY_TOKEN: ${{ secrets.EMDASH_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          npm run plugin:validate
+          npm run plugin:build
+          npm run plugin:bundle
+          npx emdash-plugin publish
 
   # Stage 2: Install the published beta plugin ONLY on the demo store.
   install-beta-on-demo-store:
