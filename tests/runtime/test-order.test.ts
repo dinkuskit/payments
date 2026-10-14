@@ -1,3 +1,4 @@
+import { configureStripeCountry } from "../helpers/merchant-country.js";
 import { stripeV2Account, stripeV2Link } from "../helpers/stripe-v2.js";
 import { env } from "cloudflare:workers";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
@@ -62,6 +63,7 @@ test("a paid TEST checkout shows in status, then counts once Commerce acknowledg
   const stripe = stripeFixture();
   const principal = { accountId: "synthetic-owner", siteId: crypto.randomUUID(), siteOrigin: "https://store.example.invalid" };
   const stub = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", principal.siteId]));
+  await configureStripeCountry(stub, principal.siteId);
   const { bindingRef } = await stub.startOnboarding(principal);
   const request = payment(bindingRef!);
 
