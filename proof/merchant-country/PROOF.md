@@ -32,7 +32,8 @@ operator-controlled retry must inspect the actual result and stop on refusal.
 No live provider call, deployment, Registry publication or account mutation
 was performed by this source lane.
 
-Local validation: full suite passed217 unit/32 hosted/20 compiled tests, and
-the final quick suite passed218 unit tests after adding the explicit409
-regression. Typechecks and public repository audit passed. Registry plugin
-and manifest hashes match the released0.2.7 bytes; no Registry version bump.
+Local validation: `npm run verify:full` passed219 unit,32 hosted runtime and
+21 compiled Registry tests. Typechecks and public repository audit passed.
+The compiled support-reference test proves exact fields, no extra requests or
+state mutation, and refusal for another admin flow. Registry0.2.8 is required
+for this owner-visible support output; country itself remains host-configured.

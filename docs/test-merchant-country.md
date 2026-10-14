@@ -19,7 +19,9 @@ Country must have uppercase ISO alpha-2 syntax; Stripe remains authoritative
 for supported countries and eligibility. No default is supplied. A new v2
 binding without matching configuration fails before state/provider creation.
 Existing saved accounts do not require this setting to resume or read status.
-No Registry setting, package bump or merchant UI change is needed.
+The country itself stays in operator configuration, not a merchant setting.
+Registry0.2.8 adds only the owner-visible support reference needed to identify
+an existing rejected attempt without extracting credentials or raw responses.
 
 The country is persisted in `creationCountry` before the create POST. A later
 configuration change cannot change that operation's country. Missing later
@@ -50,9 +52,15 @@ failure timestamp; these sample values are synthetic:
 }
 ```
 
-Normal authenticated status and diagnostics are read-only and can provide the
-binding reference and failure timestamp. Keep actual values in private
-operator configuration. The code requires the same site, binding, failure
+After installing Registry0.2.8, open Payments and use **Check connection**.
+For a recorded TEST creation failure, the page shows **Setup support reference**
+with `bindingRef`, the exact numeric epoch-millisecond `failureAt`, category and
+bounded HTTP status. It uses the already authenticated status/diagnostics read
+and adds no request. With this pending, account-less binding, status and
+diagnostics do not contact Stripe. It never shows credentials, provider bodies,
+account IDs or headers. Copy only those closed fields into private operator configuration.
+Do not substitute the Workbench timestamp or the minute-rounded identity UI.
+An unavailable/unobserved/mismatched result has no support reference. The code requires the same site, binding, failure
 category `unknown`, HTTP400, timestamp, existing v2 protocol and previously
 recorded platform. The operator's code value attests to the independently
 verified provider error; this is not reconstructed from every generic400.

@@ -615,3 +615,17 @@ test("compiled provider identity rejects replaced flow after the read", async ()
     assert.equal((await control(host)).flowId,"replacement");
   } finally { vi.restoreAllMocks(); await host.dispose(); }
 });
+
+test("compiled Check exposes an exact support reference without extra requests or state changes",async()=>{
+ const f=await fixture();const {host}=f;
+ try {
+  await f.prepareStart("support-reference-flow");await f.action("connect");await f.pollDue();await f.prepareExchange();await f.action("continue");host.http.clear();
+  const before=await snapshot(host),at=Date.now()-1234;
+  await f.prepareStatusResponse({state:"connecting",mode:"test",bindingRef:"stripe_support_fixture"});
+  await host.http.respond("https://payments.dinkuskit.com/v1/connect/diagnostics",Response.json({state:"connecting",mode:"test",processorAccountPresent:false,evidence:"observed",lastFailure:{category:"unknown",status:400,at}}));
+  const page=await f.action("check");const ref=page.blocks.find((b:{text?:string})=>b.text?.startsWith("Setup support reference: "));
+  assert.deepEqual(JSON.parse(ref.text.slice("Setup support reference: ".length)),{bindingRef:"stripe_support_fixture",failureAt:at,category:"unknown",httpStatus:400});
+  assert.ok(host.http.requests().every(r=>r.method==="GET"));assert.equal(host.http.requests().filter(r=>r.url===STATUS).length,1);assert.equal(host.http.requests().filter(r=>r.url.endsWith("/diagnostics")).length,1);assert.deepEqual(await snapshot(host),before);
+  const other=await host.fixtures.user({email:"support-other@example.invalid",role:"admin"});host.http.clear();assert.doesNotMatch(JSON.stringify(await host.admin.act("/status","check",{user:other})),/Setup support reference/);assert.deepEqual(host.http.requests(),[]);
+ } finally {await host.dispose();}
+});
