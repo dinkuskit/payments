@@ -17,7 +17,7 @@ old operations stay blocked; a provider409 remains a failure with the same key.
 Wire tests verify non-US serialization and unchanged payment ownership.
 State tests cover missing/wrong-site configuration, immutable country, exact
 known-failure admission, unknown and mismatched refusals, platform changes,
-409 preservation and saved-account behavior. A real Durable Object test checks
+409 preservation, consumed-repair refusal after interruption or unknown outcome, concurrent repair exclusion, and saved-account behavior. A real Durable Object test checks
 same-key serialization, persistence and eviction. All inputs are synthetic.
 
 References:
@@ -32,8 +32,10 @@ operator-controlled retry must inspect the actual result and stop on refusal.
 No live provider call, deployment, Registry publication or account mutation
 was performed by this source lane.
 
-Local validation: `npm run verify:full` passed219 unit,32 hosted runtime and
+Local validation: `npm run verify:full` passed221 unit,32 hosted runtime and
 21 compiled Registry tests. Typechecks and public repository audit passed.
 The compiled support-reference test proves exact fields, no extra requests or
 state mutation, and refusal for another admin flow. Registry0.2.8 is required
 for this owner-visible support output; country itself remains host-configured.
+
+Review adjudication: accepted P2 (old-head OpenClaw request req-20261014T001447Z-267897328663). A persisted repair receipt now consumes the one authorized replay before provider I/O; an account-less consumed repair reports recovery and cannot issue another create. This also covers a lost response or concurrent Setup.

@@ -101,3 +101,5 @@ compatibility. Hosted tests exercise the real Durable Object path.
 The initial known-country correction requires explicit operator configuration
 and an authorized Setup; no tests or build commands perform that live action.
 The old unresolved merchant binding is outside this scoped correction.
+
+The repair receipt is persisted before the corrected create request and consumes that one authorization. If its response fails or is lost, subsequent Setup calls remain in recovery without a second provider create call. A successfully saved account can still resume onboarding.

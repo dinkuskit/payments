@@ -88,6 +88,9 @@ export function createConnectionService(options: {
   const authorizeNetMerchantId = options.authorizeNetMerchantId;
   function creationCountry(record: Connection, principal: Principal): string | undefined | null {
     if (provider.creationProtocol !== "accounts_v2") return undefined;
+    // Persisted before the corrected POST: consume the one authorized repair even
+    // when its result is refused, ambiguous, or lost to a process interruption.
+    if (record.creationCountryRepair) return null;
     const config = mode === "test" ? options.merchantCountry?.(principal.siteId) : undefined;
     const configured = config?.siteId === principal.siteId ? config : undefined;
     if (record.creationCountry !== undefined) {
@@ -150,7 +153,7 @@ export function createConnectionService(options: {
     if (!record) return { state: "disconnected", mode };
     const base = { mode, bindingRef: record.bindingRef };
     const merchantRef = providerId === "authorize_net" ? record.authorizeNetMerchantId : record.stripeAccountId;
-    if (!merchantRef) return { ...base, state: legacyCreation(record) || now() - record.startedAt >= CREATION_RETRY_WINDOW_MS ? "recovery_required" : "connecting" };
+    if (!merchantRef) return { ...base, state: legacyCreation(record) || !!record.creationCountryRepair || now() - record.startedAt >= CREATION_RETRY_WINDOW_MS ? "recovery_required" : "connecting" };
     if (providerId === "authorize_net") {
       return {
         ...base,

@@ -45,6 +45,23 @@ test('saved account resumes without reading new country configuration',async()=>
 test('a refused changed-payload replay preserves operation identity and the corrected country',async()=>{
  const f=fixture(rejected,{siteId:owner.siteId,country:'US',rejectedCreation:{bindingRef:rejected.bindingRef,failureAt:2000,code:'identity_country_required'}});
  f.provider.createAccount=async(key,country)=>{f.calls.push(['create',key,country]);throw new Stripe.errors.StripeIdempotencyError({message:'synthetic refusal',statusCode:409});};
- assert.equal((await f.service.connect(owner)).state,'connecting');assert.deepEqual(f.calls,[['scope'],['create','stripe_existing','US']]);
+ assert.equal((await f.service.connect(owner)).state,'recovery_required');assert.deepEqual(f.calls,[['scope'],['create','stripe_existing','US']]);
  assert.equal(f.record().bindingRef,rejected.bindingRef);assert.equal(f.record().startedAt,1000);assert.equal(f.record().creationCountry,'US');assert.equal(f.record().stripeAccountId,null);assert.equal(f.record().creationFailure.status,409);
+ const before=structuredClone(f.record());assert.equal((await f.service.connect(owner)).state,'recovery_required');assert.deepEqual(f.record(),before);assert.equal(f.calls.filter(x=>x[0]==='create').length,1);
+});
+
+test('a consumed country repair cannot replay after an interrupted or unknown outcome',async()=>{
+ const seed={...rejected,creationCountry:'US',creationCountryRepair:{code:'identity_country_required',failureAt:2000}};
+ for(const creationFailure of [seed.creationFailure,{category:'transport_unknown',at:3000}]) {
+  const f=fixture({...seed,creationFailure},{siteId:owner.siteId,country:'US',rejectedCreation:{bindingRef:rejected.bindingRef,failureAt:2000,code:'identity_country_required'}});
+  assert.equal((await f.service.connect(owner)).state,'recovery_required');assert.equal((await f.service.status(owner)).state,'recovery_required');assert.deepEqual(f.calls,[]);
+ }
+});
+test('concurrent Setup cannot duplicate the admitted country repair',async()=>{
+ const f=fixture(rejected,{siteId:owner.siteId,country:'US',rejectedCreation:{bindingRef:rejected.bindingRef,failureAt:2000,code:'identity_country_required'}});
+ let release;const pending=new Promise(resolve=>{release=resolve;});let started;const entered=new Promise(resolve=>{started=resolve;});
+ f.provider.createAccount=async(key,country)=>{f.calls.push(['create',key,country]);started();await pending;return 'acct_recipient';};
+ const first=f.service.connect(owner);await entered;
+ try { assert.equal((await f.service.connect(owner)).state,'recovery_required');assert.equal(f.calls.filter(x=>x[0]==='create').length,1); }
+ finally { release();await first; }
 });
