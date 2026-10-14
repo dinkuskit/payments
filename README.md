@@ -96,6 +96,16 @@ Run `bin/verify-payments quick` during edits and `bin/verify-payments full` befo
 delivery. See [the project verification skill](skills/payments-verification/SKILL.md)
 for prerequisites, checks, and proof limits.
 
+## Releasing
+
+Every pull request declares its bump in `.changeset/` (`patch` for fixes,
+`minor` for everything else during `0.x`). Pushes to `main` publish a beta
+plugin (`dinkus-payments-beta`) to the EmDash Registry, verify it on the demo
+store via E2E, and open/update the Changesets release PR; merging the release PR
+tags `vX.Y.Z`, creates the GitHub Release, and publishes `dinkus-payments` to
+the EmDash Registry. See [RELEASING.md](RELEASING.md) for the full release flow
+and required repository secrets/variables.
+
 ## Command-line client
 
 `dinkus-payments` is a dependency-free command-line client for the hosted
