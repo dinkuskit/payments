@@ -1,4 +1,4 @@
-import type { ConnectionDiagnostics } from "../connection-diagnostics.js";
+import { decodeDiagnostics, type ConnectionDiagnostics } from "../connection-diagnostics.js";
 import { describeStatusCheckFailure } from "./check-failure.js";
 import {
   decodeStatus,
@@ -244,6 +244,22 @@ export function describeProviderIdentity(diagnostic: ProviderIdentityDiagnostic)
   return parts.join(" ");
 }
 
+function setupSupportReference(status: unknown, diagnostics: unknown): string | undefined {
+  try {
+    const current = decodeStatus(status);
+    const detail = decodeDiagnostics(diagnostics);
+    if (current.mode !== "test" || !current.bindingRef ||
+        !["connecting", "recovery_required"].includes(current.state) ||
+        detail.state !== current.state || detail.mode !== current.mode || !detail.lastFailure) return;
+    return JSON.stringify({
+      bindingRef: current.bindingRef,
+      failureAt: detail.lastFailure.at,
+      category: detail.lastFailure.category,
+      ...(detail.lastFailure.status === undefined ? {} : { httpStatus: detail.lastFailure.status }),
+    });
+  } catch { return; }
+}
+
 export function renderSetupScreen(input: unknown) {
   const nested = input && typeof input === "object" && "state" in input && "status" in input ? input.status : input;
   const projection = projectSetupScreen(nested, input && typeof input === "object" && "diagnostics" in input ? input.diagnostics as ConnectionDiagnostics : undefined);
@@ -259,6 +275,8 @@ export function renderSetupScreen(input: unknown) {
       (evidence.provider === "stripe" && "result" in evidence && evidence.result !== "verified"));
   const actionLabel = action === "continue" ? "Continue" : action === "check" ? "Check connection" : "Connect";
   const isConnected = state === "ready" || state === "processor_setup" || state === "provider_identity";
+  const supportReference = (state === "ready" || state === "processor_setup") && input && typeof input === "object" && "diagnostics" in input
+    ? setupSupportReference(statusValue, input.diagnostics) : undefined;
   const rawProviderIdentity = input && typeof input === "object" && "providerIdentity" in input
     ? (input as { providerIdentity?: unknown }).providerIdentity
     : undefined;
@@ -285,6 +303,7 @@ export function renderSetupScreen(input: unknown) {
         type: "section",
         text: `${step.title}: ${step.status === "complete" ? "Complete" : "Not complete"}. ${step.description}`,
       })),
+      ...(supportReference ? [{ type: "section", text: `Setup support reference: ${supportReference}` }] : []),
       ...(providerIdentity ? [{
         type: "section",
         text: `Provider identity: ${describeProviderIdentity(providerIdentity)}`,

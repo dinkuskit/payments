@@ -339,3 +339,15 @@ test("TEST-order step says what comes first when there is no paid TEST order", (
   }
 });
 
+
+test("setup support reference preserves exact closed failure fields only",()=>{
+ const at=Date.now()-1234;
+ const status={state:"connecting",mode:"test",bindingRef:"stripe_support_fixture"};
+ const diagnostics={state:"connecting",mode:"test",processorAccountPresent:false,evidence:"observed",lastFailure:{category:"unknown",status:400,at}};
+ const render=(d=diagnostics,s=status,state="ready")=>renderSetupScreen({state,status:{availability:"available",status:s},diagnostics:d});
+ const ref=render().blocks.find(b=>b.text?.startsWith("Setup support reference: "));
+ assert.deepEqual(JSON.parse(ref.text.slice("Setup support reference: ".length)),{bindingRef:status.bindingRef,failureAt:at,category:"unknown",httpStatus:400});
+ for(const [d,s,state] of [[{...diagnostics,raw:"PRIVATE_CANARY"},status,"ready"],[{...diagnostics,mode:"live"},status,"ready"],[{...diagnostics,evidence:"unobserved",lastFailure:undefined},status,"ready"],[diagnostics,{...status,state:"disconnected"},"ready"],[diagnostics,status,"action_required"]]) {
+  const out=JSON.stringify(render(d,s,state));assert.doesNotMatch(out,/Setup support reference|PRIVATE_CANARY/);
+ }
+});

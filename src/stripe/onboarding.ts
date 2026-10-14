@@ -1,4 +1,5 @@
 import { validOnboardingUrl } from "../onboarding-url.js";
+import { countryCode } from "../hosted/merchant-country.js";
 import Stripe from "stripe";
 import type { Mode, OnboardingProvider } from "../hosted/connection.js";
 
@@ -64,8 +65,10 @@ export function createStripeOnboarding(options: { apiKey: string; mode: Mode; re
       if (!account || account.object !== "account" || !validId(account.id)) throw new Error("invalid_platform_identity");
       return account.id;
     },
-    async createAccount(bindingRef) {
+    async createAccount(bindingRef, country) {
+      if (!countryCode(country)) throw new Error("merchant_country_required");
       const account = await stripe.v2.core.accounts.create({
+        identity: { country },
         dashboard: "full",
         configuration: { merchant: { capabilities: { card_payments: { requested: true } } } },
         defaults: { responsibilities: { fees_collector: "stripe", losses_collector: "stripe" } },

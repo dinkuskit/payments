@@ -144,9 +144,10 @@ when new payments are disabled. It must never substitute another account.
 The account lifecycle uses the official Stripe SDK 23.0.0 with Accounts v2
 on API `2026-09-30.endive`: creation, readiness reads and hosted account links.
 It requests merchant card payments, full Stripe Dashboard access, and Stripe
-fee collection/negative balance responsibility. It leaves identity details
-and account currency to hosted onboarding. Direct-charge Checkout and
-platform diagnostics retain API `2026-08-26.dahlia`. No application fee,
+fee collection/negative balance responsibility. An explicit site-scoped TEST
+configuration supplies the merchant country before creation; other identity details and account currency remain with hosted
+onboarding. See [TEST merchant country](test-merchant-country.md). Direct-charge
+Checkout and platform diagnostics retain API `2026-08-26.dahlia`. No application fee,
 subscription billing, embedded component or existing-account OAuth linkage is
 introduced. Provider eligibility and live activation remain separate gates.
 

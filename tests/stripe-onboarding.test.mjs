@@ -14,11 +14,11 @@ test('v2 account lifecycle uses Endive JSON and stable scope without changing pa
   });
   const p=createStripeOnboarding({...config,httpClient});
   assert.equal(p.creationProtocol,'accounts_v2'); assert.equal(await p.creationScope(),'acct_platform');
-  assert.equal(await p.createAccount('binding-one'),'acct_fixture');
+  assert.equal(await p.createAccount('binding-one','GB'),'acct_fixture');
   const request=calls.at(-1);const params=JSON.parse(request.init.body);
   assert.equal(new URL(request.url).pathname,'/v2/core/accounts'); assert.equal(new Headers(request.init.headers).get('stripe-version'),'2026-09-30.endive');
   assert.equal(new Headers(request.init.headers).get('content-type'),'application/json');
-  assert.deepEqual(params,{dashboard:'full',configuration:{merchant:{capabilities:{card_payments:{requested:true}}}},defaults:{responsibilities:{fees_collector:'stripe',losses_collector:'stripe'}},metadata:{dinkus_binding:'binding-one'}});
+  assert.deepEqual(params,{identity:{country:'GB'},dashboard:'full',configuration:{merchant:{capabilities:{card_payments:{requested:true}}}},defaults:{responsibilities:{fees_collector:'stripe',losses_collector:'stripe'}},metadata:{dinkus_binding:'binding-one'}});
   assert.equal(new Headers(request.init.headers).get('idempotency-key'),'dinkus-connect:v2:binding-one');
   assert.equal(new Headers(request.init.headers).has('stripe-account'),false);
   assert.equal((await p.accountStatus('acct_fixture')).ready,true);
@@ -54,7 +54,7 @@ test('v2 link rejects wrong account/mode, expired or malformed dates and unsafe 
 test('v2 creation has no hidden connection-reset retry', async () => {
   for(const code of ['ECONNRESET','EPIPE']) {
     let calls=0;const p=createStripeOnboarding({...config,httpClient:Stripe.createFetchHttpClient(async()=>{calls++;throw Object.assign(Error('synthetic-private'),{code});})});
-    await assert.rejects(p.createAccount('binding-one'));assert.equal(calls,1);
+    await assert.rejects(p.createAccount('binding-one','GB'));assert.equal(calls,1);
   }
 });
 

@@ -1,3 +1,4 @@
+import { configureStripeCountry } from "../helpers/merchant-country.js";
 import { stripeV2Account, stripeV2Link } from "../helpers/stripe-v2.js";
 import { env, exports } from "cloudflare:workers";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
@@ -19,6 +20,7 @@ test("real Durable Object storage preserves the binding across eviction and gate
   const principal = { accountId: "synthetic-owner", siteId: crypto.randomUUID() };
   const name = JSON.stringify(["test", principal.siteId]);
   const first = env.PAYMENT_CONNECTIONS.getByName(name);
+  await configureStripeCountry(first, principal.siteId);
   const connected = await first.startOnboarding(principal);
   expect(connected.state).toBe("setup_required");
   expect(connected.url).toBe("https://accounts.stripe.com/r/acct_fixture#alu_test_synthetic");
@@ -71,6 +73,7 @@ test("persisted create failure diagnostics survive eviction without another prov
   vi.spyOn(globalThis, "fetch").mockImplementation(async input => { if (new URL(String(input)).pathname === "/v1/account") return Response.json({object:"account",id:"acct_platform"}); calls++; throw Error("synthetic-private-provider-material"); });
   const principal = { accountId: "synthetic-diagnostic-owner", siteId: crypto.randomUUID() };
   const stub = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", principal.siteId]));
+  await configureStripeCountry(stub, principal.siteId);
   expect((await stub.startOnboarding(principal)).state).toBe("connecting");
   expect(calls).toBe(1);
   await evictDurableObject(stub);

@@ -5,7 +5,7 @@ const owner={accountId:'synthetic-owner',siteId:'synthetic-site'};
 function fixture(seed=null) {
   let saved=seed, scope='acct_platformA', fail=true, scopes=0, creates=0, statuses=0;
   const provider={creationProtocol:'accounts_v2',async creationScope(){scopes++;return scope;},async createAccount(){creates++;if(fail)throw Error('synthetic-private');return 'acct_recipient';},async accountStatus(id){statuses++;return{id,ready:true,actionRequired:false};},async createLink(){throw Error('unexpected');}};
-  const service=createConnectionService({store:{transaction(fn){return fn({read:()=>saved,write:v=>{saved=v;}});}},provider,mode:'test',newId:()=> 'binding',now:()=>10000});
+  const service=createConnectionService({store:{transaction(fn){return fn({read:()=>saved,write:v=>{saved=v;}});}},provider,merchantCountry:siteId=>({siteId,country:'GB'}),mode:'test',newId:()=> 'binding',now:()=>10000});
   return {service,saved:()=>saved,scope:v=>scope=v,succeed:()=>fail=false,calls:()=>({scopes,creates,statuses})};
 }
 test('legacy unresolved creation cannot become a v2 operation',async()=>{
@@ -25,13 +25,13 @@ test('saved legacy account remains readable without recreation',async()=>{
 test('owner replacement during platform lookup prevents creation',async()=>{
  let saved=null,creates=0;
  const provider={creationProtocol:'accounts_v2',async creationScope(){saved={...saved,owner:{...owner,accountId:'other-owner'}};return 'acct_platform';},async createAccount(){creates++;return 'acct_recipient';},async accountStatus(id){return{id,ready:true,actionRequired:false};},async createLink(){throw Error('unexpected');}};
- const service=createConnectionService({store:{transaction:fn=>fn({read:()=>saved,write:v=>saved=v})},provider,mode:'test',now:()=>10000});
+ const service=createConnectionService({store:{transaction:fn=>fn({read:()=>saved,write:v=>saved=v})},provider,merchantCountry:siteId=>({siteId,country:'GB'}),mode:'test',now:()=>10000});
  assert.equal((await service.connect(owner)).state,'recovery_required');assert.equal(creates,0);assert.equal(saved.owner.accountId,'other-owner');assert.equal(saved.stripeAccountId,null);
 });
 
 test('owner replacement after a create response cannot acquire the returned account',async()=>{
  let saved=null;
  const provider={creationProtocol:'accounts_v2',async creationScope(){return 'acct_platform';},async createAccount(){saved={...saved,owner:{...owner,accountId:'other-owner'}};return 'acct_recipient';},async accountStatus(id){return{id,ready:true,actionRequired:false};},async createLink(){throw Error('unexpected');}};
- const service=createConnectionService({store:{transaction:fn=>fn({read:()=>saved,write:v=>saved=v})},provider,mode:'test',now:()=>10000});
+ const service=createConnectionService({store:{transaction:fn=>fn({read:()=>saved,write:v=>saved=v})},provider,merchantCountry:siteId=>({siteId,country:'GB'}),mode:'test',now:()=>10000});
  await assert.rejects(service.connect(owner),/connection_conflict/);assert.equal(saved.owner.accountId,'other-owner');assert.equal(saved.stripeAccountId,null);
 });

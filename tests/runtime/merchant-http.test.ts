@@ -1,3 +1,4 @@
+import { configureStripeCountry } from "../helpers/merchant-country.js";
 import { stripeV2Account, stripeV2Link } from "../helpers/stripe-v2.js";
 import { env } from 'cloudflare:workers';
 import { afterEach, expect, test, vi } from 'vitest';
@@ -17,6 +18,7 @@ test('signed merchant connect accepts empty runtime streams and verifies return 
   const issuer = 'https://accounts.example.invalid';
   const audience = 'payments-runtime-admin';
   const site = crypto.randomUUID();
+  await configureStripeCountry(env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test",site])), site);
   const { publicKey, privateKey } = await generateKeyPair('ES256');
   const jwk = { ...await exportJWK(publicKey), kid: 'synthetic-http', alg: 'ES256', use: 'sig' };
   let ready = false, unavailable = false, creates = 0, links = 0, providerCalls = 0;
@@ -87,6 +89,7 @@ test('a checkout sends shoppers back to the store address signed into its pass, 
   const issuer = 'https://accounts.example.invalid';
   const audience = 'payments-runtime-checkout';
   const site = crypto.randomUUID();
+  await configureStripeCountry(env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test",site])), site);
   const origin = 'https://shop.example.invalid';
   const { publicKey, privateKey } = await generateKeyPair('ES256');
   const jwk = { ...await exportJWK(publicKey), kid: 'synthetic-checkout', alg: 'ES256', use: 'sig' };
