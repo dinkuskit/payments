@@ -15,8 +15,10 @@ export const BETA_PLUGIN_NAME = "DinkusKit Payments (Beta)";
 export const MIN_TAGGED_VERSION = "0.2.0";
 export const DEFAULT_PUBLISHER_DID = "did:plc:ekk4pjmkh3k3ql2kfoex3qt4";
 export const DEFAULT_REGISTRY_URL = "https://registry.emdashcms.com";
+export const DEFAULT_REGISTRY_TIMEOUT_MS = 15_000;
 export const PKG_PR_NEW_NOT_INSTALLED_TEXT = "is not installed on or does not have access";
 
+const DEFAULT_FETCH = globalThis.fetch;
 const BASE32_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
 
 function base32Encode(bytes) {
@@ -252,18 +254,41 @@ export function resolveRegistryUrl(registryUrl) {
   return String(raw).replace(/\/+$/, "");
 }
 
+function formatRegistryLookupError(slug, version, reason) {
+  const normalizedSlug = String(slug ?? "").trim() || PACKAGE_NAME;
+  const normalizedVersion = String(version ?? "").trim().replace(/^v/, "") || "*";
+  const detail = String(reason ?? "unknown error").trim() || "unknown error";
+  return new Error(
+    `Registry lookup failed for ${normalizedSlug}@${normalizedVersion}: ${detail}; refusing to publish with unknown state`,
+  );
+}
+
 export async function fetchRegistryPackageVersions({
   publisherDid = DEFAULT_PUBLISHER_DID,
   slug,
+  version = null,
   registryUrl = resolveRegistryUrl(),
   fetchImpl = globalThis.fetch,
-  includeDirectPds = fetchImpl === globalThis.fetch,
+  includeDirectPds,
+  pdsClient = null,
+  timeoutMs = DEFAULT_REGISTRY_TIMEOUT_MS,
 } = {}) {
-  if (!slug) {
+  if (!slug || !String(slug).trim()) {
     throw new Error("fetchRegistryPackageVersions requires a non-empty plugin slug");
   }
   const versions = new Set();
   const baseUrl = resolveRegistryUrl(registryUrl);
+  const shouldQueryDirectPds =
+    includeDirectPds !== undefined
+      ? Boolean(includeDirectPds)
+      : Boolean(pdsClient) ||
+        (fetchImpl === DEFAULT_FETCH &&
+          baseUrl === DEFAULT_REGISTRY_URL &&
+          !process.env.NODE_TEST_CONTEXT);
+
+  if (typeof fetchImpl !== "function" && !pdsClient) {
+    throw formatRegistryLookupError(slug, version, "fetch implementation is unavailable");
+  }
 
   if (typeof fetchImpl === "function") {
     let cursor = null;
@@ -281,44 +306,155 @@ export async function fetchRegistryPackageVersions({
       }
 
       let response;
+      const controller = new AbortController();
+      let timeoutId = null;
+      let timedOut = false;
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+          reject(new Error(`request timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      });
       try {
-        response = await fetchImpl(url.toString(), {
-          headers: { Accept: "application/json" },
-        });
-      } catch {
-        break;
+        response = await Promise.race([
+          Promise.resolve().then(() =>
+            fetchImpl(url.toString(), {
+              headers: { Accept: "application/json" },
+              signal: controller.signal,
+            }),
+          ),
+          timeoutPromise,
+        ]);
+      } catch (error) {
+        const reason =
+          timedOut || error?.name === "AbortError" || error?.name === "TimeoutError"
+            ? `request timed out (${error?.message || `after ${timeoutMs}ms`})`
+            : error?.message || String(error);
+        throw formatRegistryLookupError(slug, version, reason);
+      } finally {
+        if (timeoutId !== null) clearTimeout(timeoutId);
       }
 
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => null);
-        if (
-          response.status === 404 ||
-          errorBody?.error === "NotFound" ||
-          errorBody?.error === "ListingUnavailable"
-        ) {
+      if (!response || typeof response !== "object") {
+        throw formatRegistryLookupError(slug, version, "invalid empty response from registry");
+      }
+
+      const status = Number(response.status ?? (response.ok ? 200 : 0));
+      const isOk =
+        typeof response.ok === "boolean"
+          ? response.ok && status >= 200 && status < 300
+          : status >= 200 && status < 300;
+
+      if (!isOk) {
+        let errorBody = null;
+        let bodyReadFailed = false;
+        if (typeof response.json === "function") {
+          try {
+            errorBody = await response.json();
+          } catch {
+            bodyReadFailed = true;
+          }
+        } else if (typeof response.text === "function") {
+          try {
+            const raw = await response.text();
+            errorBody = raw ? JSON.parse(raw) : null;
+          } catch {
+            bodyReadFailed = true;
+          }
+        }
+
+        const isDefinitiveNotFound =
+          (status === 404 &&
+            (!errorBody?.error ||
+              errorBody.error === "NotFound" ||
+              errorBody.error === "PackageNotFound" ||
+              errorBody.error === "RecordNotFound")) ||
+          (status === 400 &&
+            !bodyReadFailed &&
+            (errorBody?.error === "NotFound" ||
+              errorBody?.error === "PackageNotFound" ||
+              errorBody?.error === "RecordNotFound"));
+
+        if (isDefinitiveNotFound) {
           break;
         }
-        throw new Error(
-          `Failed to query EmDash Registry for ${slug} (HTTP ${response.status})`,
+
+        const errorCode =
+          typeof errorBody?.error === "string" && errorBody.error.trim()
+            ? ` (${errorBody.error.trim()})`
+            : "";
+        throw formatRegistryLookupError(
+          slug,
+          version,
+          `HTTP ${status || "error"}${errorCode}`,
         );
       }
 
-      const data = await response.json();
-      const releases = Array.isArray(data?.releases) ? data.releases : [];
+      let data;
+      try {
+        if (typeof response.json === "function") {
+          data = await response.json();
+        } else if (typeof response.text === "function") {
+          data = JSON.parse(await response.text());
+        } else {
+          throw new Error("response body reader is unavailable");
+        }
+      } catch (error) {
+        throw formatRegistryLookupError(
+          slug,
+          version,
+          `malformed response body (${error?.message || String(error)})`,
+        );
+      }
+
+      if (!data || typeof data !== "object" || Array.isArray(data) || !Array.isArray(data.releases)) {
+        throw formatRegistryLookupError(
+          slug,
+          version,
+          "malformed response body (expected object with releases array)",
+        );
+      }
+
+      if (
+        data.cursor !== undefined &&
+        data.cursor !== null &&
+        typeof data.cursor !== "string"
+      ) {
+        throw formatRegistryLookupError(
+          slug,
+          version,
+          "malformed response body (invalid cursor)",
+        );
+      }
+
+      const releases = data.releases;
       for (const entry of releases) {
-        const ver =
+        const rawVer =
           typeof entry === "string"
             ? entry
-            : typeof entry?.version === "string"
+            : entry && typeof entry === "object" && typeof entry.version === "string"
               ? entry.version
-              : typeof entry?.release?.version === "string"
+              : entry &&
+                  typeof entry === "object" &&
+                  entry.release &&
+                  typeof entry.release === "object" &&
+                  typeof entry.release.version === "string"
                 ? entry.release.version
                 : null;
-        if (ver) versions.add(ver.replace(/^v/, ""));
+        const normalizedVer = rawVer ? rawVer.trim().replace(/^v/, "") : "";
+        if (!normalizedVer || !parseSemver(normalizedVer)) {
+          throw formatRegistryLookupError(
+            slug,
+            version,
+            "malformed response body (release entry missing valid semver version)",
+          );
+        }
+        versions.add(normalizedVer);
       }
 
       const nextCursor =
-        typeof data?.cursor === "string" && data.cursor.length > 0 ? data.cursor : null;
+        typeof data.cursor === "string" && data.cursor.length > 0 ? data.cursor : null;
       if (!nextCursor || releases.length === 0 || seenCursors.has(nextCursor)) {
         break;
       }
@@ -329,19 +465,51 @@ export async function fetchRegistryPackageVersions({
 
   // Also check publisher PDS records directly so releases that were just published
   // (and may still be awaiting public aggregator indexing) are never missed.
-  if (includeDirectPds) {
+  // Fails closed on network, timeout, non-404 HTTP, or malformed record errors.
+  if (shouldQueryDirectPds) {
     try {
-      const { DirectPdsClient } = await import("@emdash-cms/registry-client");
-      const pdsClient = new DirectPdsClient({ did: publisherDid });
-      const repo = await pdsClient.getPackageRepository(slug);
-      for (const rel of repo?.releases ?? []) {
-        const ver = rel?.value?.version;
-        if (typeof ver === "string" && ver.trim()) {
-          versions.add(ver.trim().replace(/^v/, ""));
-        }
+      let client = pdsClient;
+      if (!client) {
+        const { DirectPdsClient } = await import("@emdash-cms/registry-client");
+        client = new DirectPdsClient({
+          did: publisherDid,
+          fetch: fetchImpl,
+          requestTimeoutMs: timeoutMs,
+        });
       }
-    } catch {
-      // Ignore PDS lookup failures when the package has no PDS records yet or offline.
+      const repo = await client.getPackageRepository(slug);
+      if (!repo || typeof repo !== "object" || !Array.isArray(repo.releases)) {
+        throw new Error("malformed PDS repository response: missing releases array");
+      }
+      for (const rel of repo.releases) {
+        const rawVer =
+          typeof rel?.value?.version === "string"
+            ? rel.value.version
+            : typeof rel?.version === "string"
+              ? rel.version
+              : null;
+        const normalizedVer = rawVer ? rawVer.trim().replace(/^v/, "") : "";
+        if (!normalizedVer || !parseSemver(normalizedVer)) {
+          throw new Error("malformed PDS release record: missing valid semver version");
+        }
+        versions.add(normalizedVer);
+      }
+    } catch (error) {
+      const code = error?.code;
+      const status = error?.status;
+      if (
+        code === "RECORD_NOT_FOUND" ||
+        code === "REPOSITORY_NOT_FOUND" ||
+        status === 404
+      ) {
+        // Definitive not-found on the publisher PDS counts as unpublished.
+      } else {
+        throw formatRegistryLookupError(
+          slug,
+          version,
+          error?.message || String(error),
+        );
+      }
     }
   }
 
@@ -355,17 +523,30 @@ export async function hasRegistryVersion({
   registryVersions = null,
   registryUrl = resolveRegistryUrl(),
   fetchImpl = globalThis.fetch,
+  includeDirectPds,
+  pdsClient = null,
+  timeoutMs = DEFAULT_REGISTRY_TIMEOUT_MS,
 } = {}) {
   const normalizedTarget = String(version ?? "").trim().replace(/^v/, "");
-  if (!normalizedTarget) return false;
+  if (!normalizedTarget || !parseSemver(normalizedTarget)) {
+    throw formatRegistryLookupError(
+      slug,
+      version,
+      `invalid target version "${version ?? ""}"`,
+    );
+  }
   const versions =
     registryVersions !== null
       ? Array.from(registryVersions, (v) => String(v).trim().replace(/^v/, ""))
       : await fetchRegistryPackageVersions({
           publisherDid,
           slug,
+          version: normalizedTarget,
           registryUrl,
           fetchImpl,
+          includeDirectPds,
+          pdsClient,
+          timeoutMs,
         });
   return versions.includes(normalizedTarget);
 }
@@ -396,7 +577,7 @@ export async function hasGithubRelease(
     );
     return set.has(normalizedTag);
   }
-  if (fetchImpl !== globalThis.fetch && typeof fetchImpl === "function") {
+  if (fetchImpl !== DEFAULT_FETCH && typeof fetchImpl === "function") {
     const headers = { Accept: "application/vnd.github+json" };
     if (token) headers.Authorization = `Bearer ${token}`;
     const response = await fetchImpl(
@@ -469,6 +650,9 @@ export async function inspectReleaseState({
   registryVersions = null,
   registryUrl = resolveRegistryUrl(),
   fetchImpl = globalThis.fetch,
+  includeDirectPds,
+  pdsClient = null,
+  timeoutMs = DEFAULT_REGISTRY_TIMEOUT_MS,
 } = {}) {
   const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
   const currentVersion = pkg.version;
@@ -480,8 +664,6 @@ export async function inspectReleaseState({
   const tags = existingTags ?? listGitTags(root);
   const tagSet = new Set(tags);
   const changesetFiles = await listChangesetFiles(root);
-  const isSyntheticOfflineTest =
-    existingTags !== null && fetchImpl === globalThis.fetch;
 
   let highestBump = null;
   for (const relPath of changesetFiles) {
@@ -506,19 +688,22 @@ export async function inspectReleaseState({
 
   if (highestBump) {
     const nextVersion = computeNextStableVersion(currentVersion, highestBump);
+    const preliminaryBeta = computeNextBetaNumber(nextVersion, tags, []);
     const providedBetaVersions =
       registryBetaVersions ?? existingRegistryVersions ?? registryVersions;
     const betaVersionsOnRegistry =
       providedBetaVersions !== null
         ? Array.from(providedBetaVersions)
-        : isSyntheticOfflineTest
-          ? []
-          : await fetchRegistryPackageVersions({
-              publisherDid,
-              slug: BETA_PLUGIN_SLUG,
-              registryUrl,
-              fetchImpl,
-            });
+        : await fetchRegistryPackageVersions({
+            publisherDid,
+            slug: BETA_PLUGIN_SLUG,
+            version: `${nextVersion}-beta.${preliminaryBeta}`,
+            registryUrl,
+            fetchImpl,
+            includeDirectPds,
+            pdsClient,
+            timeoutMs,
+          });
     const betaNumber = computeNextBetaNumber(
       nextVersion,
       tags,
@@ -572,17 +757,6 @@ export async function inspectReleaseState({
   const releaseTag = `v${currentVersion}`;
   const tagExists = tagSet.has(releaseTag) || tagSet.has(currentVersion);
 
-  const explicitGhRelease =
-    githubReleaseExists ?? releaseExists;
-  const ghReleasePresent =
-    typeof explicitGhRelease === "boolean"
-      ? explicitGhRelease
-      : existingGithubReleases !== null
-        ? await hasGithubRelease(releaseTag, { existingGithubReleases })
-        : isSyntheticOfflineTest
-          ? false
-          : await hasGithubRelease(releaseTag, { root, fetchImpl });
-
   const explicitRegistryPublished =
     registryPublished ?? registryReleaseExists ?? registryExists;
   const providedStableRegistryVersions =
@@ -597,15 +771,25 @@ export async function inspectReleaseState({
             version: currentVersion,
             registryVersions: providedStableRegistryVersions,
           })
-        : isSyntheticOfflineTest
-          ? false
-          : await hasRegistryVersion({
-              publisherDid,
-              slug: STABLE_PLUGIN_SLUG,
-              version: currentVersion,
-              registryUrl,
-              fetchImpl,
-            });
+        : await hasRegistryVersion({
+            publisherDid,
+            slug: STABLE_PLUGIN_SLUG,
+            version: currentVersion,
+            registryUrl,
+            fetchImpl,
+            includeDirectPds,
+            pdsClient,
+            timeoutMs,
+          });
+
+  const explicitGhRelease =
+    githubReleaseExists ?? releaseExists;
+  const ghReleasePresent =
+    typeof explicitGhRelease === "boolean"
+      ? explicitGhRelease
+      : existingGithubReleases !== null
+        ? await hasGithubRelease(releaseTag, { existingGithubReleases })
+        : await hasGithubRelease(releaseTag, { root, fetchImpl });
 
   const missingSteps = [];
   if (!tagExists) missingSteps.push("tag");
@@ -662,22 +846,29 @@ export async function prepareBetaBuild({
   registryVersions = null,
   registryUrl = resolveRegistryUrl(),
   fetchImpl = globalThis.fetch,
+  includeDirectPds,
+  pdsClient = null,
+  timeoutMs = DEFAULT_REGISTRY_TIMEOUT_MS,
 } = {}) {
   if (!/^[a-z][a-z0-9_-]*$/.test(betaSlug) || betaSlug === STABLE_PLUGIN_SLUG) {
     throw new Error(
       `Beta plugin slug must be a valid distinct slug (not "${STABLE_PLUGIN_SLUG}"), got "${betaSlug}"`,
     );
   }
+  const providedBetaVersions =
+    registryBetaVersions ?? existingRegistryVersions ?? registryVersions;
   const resolvedBetaVersion =
     betaVersion ??
     (
       await inspectReleaseState({
         root,
         existingTags,
-        registryBetaVersions:
-          registryBetaVersions ?? existingRegistryVersions ?? registryVersions,
+        registryBetaVersions: providedBetaVersions,
         registryUrl,
         fetchImpl,
+        includeDirectPds,
+        pdsClient,
+        timeoutMs,
       })
     ).nextBetaVersion;
   const parsedBeta = parseSemver(resolvedBetaVersion);
@@ -685,6 +876,20 @@ export async function prepareBetaBuild({
     throw new Error(
       `Beta build version must be an x.y.z-beta.N prerelease version, got "${resolvedBetaVersion}"`,
     );
+  }
+
+  const publisherDid = await readPublisherDid(root);
+  if (betaVersion !== null && providedBetaVersions === null) {
+    await hasRegistryVersion({
+      publisherDid,
+      slug: betaSlug,
+      version: resolvedBetaVersion,
+      registryUrl,
+      fetchImpl,
+      includeDirectPds,
+      pdsClient,
+      timeoutMs,
+    });
   }
 
   const pkgPath = join(root, "package.json");
@@ -911,5 +1116,10 @@ async function runCli(argv) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  await runCli(process.argv.slice(2));
+  try {
+    await runCli(process.argv.slice(2));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }

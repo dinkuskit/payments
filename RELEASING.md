@@ -8,7 +8,7 @@ DinkusKit Payments uses a locked Changesets release flow (decided 2026-10-13), m
 
 1. **Changeset per PR** ([`.github/workflows/changeset-check.yml`](.github/workflows/changeset-check.yml), [`.github/workflows/preview.yml`](.github/workflows/preview.yml)):
    - Every pull request must include a `.changeset/*.md` file declaring its bump (or an explicit empty changeset via `npx changeset --empty`).
-   - Pull requests also publish an ephemeral preview package via `npx pkg-pr-new publish`. If the `pkg-pr-new` GitHub App is not installed on the repository (`is not installed on or does not have access`), the workflow emits a `::notice::` annotation explaining that the App must be installed and exits `0` so PR checks still pass; any other `pkg-pr-new` failure still fails the job.
+   - Pull requests also publish an ephemeral preview package via `npx --no-install pkg-pr-new publish`. If the `pkg-pr-new` GitHub App is not installed on the repository (`is not installed on or does not have access`), the workflow emits a `::notice::` annotation explaining that the App must be installed and exits `0` so PR checks still pass; any other `pkg-pr-new` failure still fails the job.
 2. **Beta cut & publish** ([`.github/workflows/release-beta.yml`](.github/workflows/release-beta.yml)):
    - When changesets land on `main`, the release workflow cuts `x.y.z-beta.N` and publishes it to the EmDash plugin Registry under the separate build-time plugin slug/ID `dinkus-payments-beta` (set at build time via `scripts/release-flow.mjs`, never by editing the stable `dinkus-payments` ID in `package.json`), because the Registry has no prerelease filter and no true delete.
    - Beta numbers are never reused: `N` is computed as `max(existing beta git tags, existing dinkus-payments-beta versions on the EmDash Registry) + 1`.
@@ -32,6 +32,7 @@ DinkusKit Payments uses a locked Changesets release flow (decided 2026-10-13), m
 
 - **Stable release (`release.yml` + `scripts/release-flow.mjs`)**:
   - `inspectReleaseState` does **not** treat "git tag exists" as sufficient for `noop`. It inspects tag presence (`vX.Y.Z`), GitHub Release presence (`vX.Y.Z`), and EmDash Registry presence (`dinkus-payments@X.Y.Z`) independently, returning `mode=publish` whenever any step is incomplete (`release-pr-merged-untagged`, `resume-after-tag`, or `resume-after-github-release`) and `mode=noop` (`release-complete`) only when all three exist.
+  - Registry and PDS lookups fail closed: any network error, timeout, non-2xx response other than a definitive 404/not-found, or malformed response body throws and aborts the workflow before tag/publish steps.
   - Each step in `publish-release` checks target state first and skips when already done, so re-running a failed workflow after a partial failure safely resumes from the first incomplete step without failing on duplicate tags, duplicate GitHub Releases, or immutable Registry versions.
 - **Beta release (`release-beta.yml` + `scripts/release-flow.mjs`)**:
   - `computeNextBetaNumber` takes the maximum `N` across both git tags (`vX.Y.Z-beta.N`) and existing EmDash Registry versions for `dinkus-payments-beta` (`X.Y.Z-beta.N`) and adds `1`.

@@ -35,7 +35,7 @@ jobs:
       - name: Publish preview via pkg.pr.new (pass with notice if GitHub App is not installed)
         run: |
           set +e
-          PREVIEW_OUTPUT="$(npx pkg-pr-new publish 2>&1)"
+          PREVIEW_OUTPUT="$(npx --no-install pkg-pr-new publish 2>&1)"
           PREVIEW_EXIT_CODE=$?
           set -e
           printf '%s\n' "${PREVIEW_OUTPUT}"

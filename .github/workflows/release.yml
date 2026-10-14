@@ -67,11 +67,16 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
+      - name: Install dependencies
+        run: npm ci
+
       - name: Inspect pending changesets, tags, GitHub Release, and Registry state
         id: state
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/release-flow.mjs inspect
+        run: |
+          set -euo pipefail
+          node scripts/release-flow.mjs inspect
 
   # Stage 2: When pending changesets exist on `main`, cut/publish `dinkus-payments-beta`,
   # install it on the demo store, and run the E2E suite before opening/updating the release PR.
