@@ -12,4 +12,6 @@ interface Env {
   STRIPE_DIAGNOSTIC_EXPECTED_ACCOUNT?: string;
   /** Private operator JSON selecting the country for one explicitly approved TEST site. */
   STRIPE_TEST_MERCHANT_COUNTRY_CONFIG?: string;
+  /** Optional JSON array of closed {siteId, country} entries selecting countries for explicit approved TEST sites. */
+  STRIPE_TEST_MERCHANT_COUNTRY_SITES?: string;
 }
