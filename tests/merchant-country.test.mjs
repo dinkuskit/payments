@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Stripe from 'stripe';
-import { testMerchantCountry } from '../src/hosted/merchant-country.ts';
+import { testMerchantCountry, resolveMerchantCountry } from '../src/hosted/merchant-country.ts';
 import { createConnectionService } from '../src/hosted/connection.ts';
 const owner={accountId:'synthetic-owner',siteId:'synthetic-site'};
 const rejected={bindingRef:'stripe_existing',owner,mode:'test',providerId:'stripe',startedAt:1000,stripeAccountId:null,authorizeNetMerchantId:null,creationProtocol:'accounts_v2',creationScope:'acct_platform',creationFailure:{category:'unknown',status:400,at:2000}};
@@ -64,4 +64,93 @@ test('concurrent Setup cannot duplicate the admitted country repair',async()=>{
  const first=f.service.connect(owner);await entered;
  try { assert.equal((await f.service.connect(owner)).state,'recovery_required');assert.equal(f.calls.filter(x=>x[0]==='create').length,1); }
  finally { release();await first; }
+});
+
+test('multi-site additive binding resolves configured sites and preserves legacy singleton fallback', () => {
+  const legacy = JSON.stringify({ siteId: 'site-legacy', country: 'GB', rejectedCreation: { bindingRef: 'stripe_legacy', failureAt: 2000, code: 'identity_country_required' } });
+  const sites = JSON.stringify([
+    { siteId: 'site-alpha', country: 'FR' },
+    { siteId: 'site-beta', country: 'DE' },
+  ]);
+  // Absent/empty sites binding -> EXACT old resolver semantics
+  assert.equal(resolveMerchantCountry(legacy, undefined, 'site-legacy').country, 'GB');
+  assert.equal(resolveMerchantCountry(legacy, '', 'site-legacy').rejectedCreation.bindingRef, 'stripe_legacy');
+  assert.equal(resolveMerchantCountry(legacy, undefined, 'site-alpha'), undefined);
+  assert.equal(resolveMerchantCountry(undefined, undefined, 'site-legacy'), undefined);
+
+  // Matching new site -> country only
+  const alpha = resolveMerchantCountry(legacy, sites, 'site-alpha');
+  assert.deepEqual(alpha, { siteId: 'site-alpha', country: 'FR' });
+  assert.equal(alpha.rejectedCreation, undefined);
+
+  const beta = resolveMerchantCountry(legacy, sites, 'site-beta');
+  assert.deepEqual(beta, { siteId: 'site-beta', country: 'DE' });
+
+  // Valid nonmatching site -> legacy fallback including rejectedCreation
+  const fromLegacy = resolveMerchantCountry(legacy, sites, 'site-legacy');
+  assert.equal(fromLegacy.country, 'GB');
+  assert.equal(fromLegacy.rejectedCreation.bindingRef, 'stripe_legacy');
+
+  // Site unknown to both configs -> undefined
+  assert.equal(resolveMerchantCountry(legacy, sites, 'site-unknown'), undefined);
+});
+
+test('multi-site binding rejects ambiguity with legacy singleton even if country matches', () => {
+  const legacy = JSON.stringify({ siteId: 'site-shared', country: 'US' });
+  const sites = JSON.stringify([{ siteId: 'site-shared', country: 'US' }]);
+  assert.throws(() => resolveMerchantCountry(legacy, sites, 'site-shared'), /merchant_country_configuration_invalid/);
+
+  const legacyDifferentCountry = JSON.stringify({ siteId: 'site-shared', country: 'CA' });
+  assert.throws(() => resolveMerchantCountry(legacyDifferentCountry, sites, 'site-shared'), /merchant_country_configuration_invalid/);
+
+  const legacyWithRejected = JSON.stringify({ siteId: 'site-shared', country: 'US', rejectedCreation: { bindingRef: 'stripe_shared', failureAt: 2000, code: 'identity_country_required' } });
+  assert.throws(() => resolveMerchantCountry(legacyWithRejected, sites, 'site-shared'), /merchant_country_configuration_invalid/);
+});
+
+test('multi-site binding fails closed on malformed configuration or invalid entries', () => {
+  const validLegacy = JSON.stringify({ siteId: 'site-legacy', country: 'US' });
+  const malformedCases = [
+    'not-json',
+    '{}',
+    '123',
+    '"string"',
+    'null',
+    'true',
+    JSON.stringify(Array.from({ length: 17 }, (_, i) => ({ siteId: `site-${i}`, country: 'US' }))),
+    JSON.stringify([{ siteId: 'site-1', country: 'US' }, { siteId: 'site-1', country: 'GB' }]),
+    JSON.stringify([{ siteId: 'site-1', country: 'US' }, { siteId: 'site-1', country: 'US' }]),
+    JSON.stringify([{ siteId: 'site-1', country: 'USA' }]),
+    JSON.stringify([{ siteId: 'site-1', country: 'us' }]),
+    JSON.stringify([{ siteId: 'site-1', country: '12' }]),
+    JSON.stringify([{ siteId: 'site with spaces', country: 'US' }]),
+    JSON.stringify([{ siteId: 'site-1' }]),
+    JSON.stringify([{ country: 'US' }]),
+    JSON.stringify([{ siteId: 'site-1', country: 'US', extra: 'forbidden' }]),
+    JSON.stringify([{ siteId: 'site-1', country: 'US', rejectedCreation: { bindingRef: 'stripe_x', failureAt: 1000, code: 'identity_country_required' } }]),
+    JSON.stringify([{ siteId: '', country: 'US' }]),
+    JSON.stringify([{ siteId: 'x'.repeat(201), country: 'US' }]),
+    '[' + '{"siteId":"s","country":"US"},'.repeat(500) + '{"siteId":"end","country":"US"}]',
+  ];
+  for (const bad of malformedCases) {
+    assert.throws(() => resolveMerchantCountry(validLegacy, bad, 'site-legacy'), /merchant_country_configuration_invalid/);
+    assert.throws(() => resolveMerchantCountry(validLegacy, bad, 'any-site'), /merchant_country_configuration_invalid/);
+  }
+  // Malformed legacy configuration also fails closed when sites config is present
+  const badLegacy = '{not-json}';
+  const validSites = JSON.stringify([{ siteId: 'site-alpha', country: 'FR' }]);
+  assert.throws(() => resolveMerchantCountry(badLegacy, validSites, 'site-alpha'), /merchant_country_configuration_invalid/);
+});
+
+test('additive admission refuses unknown, malformed and live creation before state or provider I/O', async () => {
+  const sites = JSON.stringify([{siteId:owner.siteId,country:'US'}]);
+  for (const [mode, config] of [['test',JSON.stringify([{siteId:'other-site',country:'US'}])], ['test','broken'], ['live',sites]]) {
+    let saved=null, calls=0;
+    const service=createConnectionService({
+      store:{transaction:fn=>fn({read:()=>saved,write:value=>{saved=value;}})},
+      provider:{creationProtocol:'accounts_v2',async creationScope(){calls++;return 'acct_platform';},async createAccount(){calls++;return 'acct_recipient';},async accountStatus(id){calls++;return {id,ready:true,actionRequired:false};},async createLink(){calls++;throw Error('unused');}},
+      mode,newId:()=> 'synthetic',merchantCountry:siteId=>resolveMerchantCountry(undefined,config,siteId),
+    });
+    await assert.rejects(service.connect(owner),/merchant_country_(required|configuration_invalid)/);
+    assert.equal(saved,null);assert.equal(calls,0);
+  }
 });
