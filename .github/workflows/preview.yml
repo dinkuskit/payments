@@ -1,48 +1,48 @@
-name: PR package preview (pkg.pr.new)
+name: PR Preview Release
 
 on:
   pull_request:
+    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
   preview:
-    name: Publish PR preview package
-    if: ${{ !startsWith(github.head_ref, 'changeset-release/') }}
+    name: Build and publish pkg.pr.new preview
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref != 'changeset-release/main' &&
+      github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     steps:
-      - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
-      - name: Build distribution artifacts
-        run: |
-          npm run build
-          npm run plugin:build
+      - name: Run unit tests
+        run: npm test
 
-      - name: Publish preview via pkg.pr.new (pass with notice if GitHub App is not installed)
-        run: |
-          set +e
-          PREVIEW_OUTPUT="$(npx --no-install pkg-pr-new publish 2>&1)"
-          PREVIEW_EXIT_CODE=$?
-          set -e
-          printf '%s\n' "${PREVIEW_OUTPUT}"
-          if [ "${PREVIEW_EXIT_CODE}" -ne 0 ]; then
-            if printf '%s' "${PREVIEW_OUTPUT}" | grep -Fq "is not installed on or does not have access"; then
-              echo "::notice::The pkg-pr-new GitHub App is not installed on or does not have access to this repository; install https://github.com/apps/pkg-pr-new to enable PR preview packages."
-              exit 0
-            fi
-            exit "${PREVIEW_EXIT_CODE}"
-          fi
+      - name: Run typecheck
+        run: npm run typecheck
+
+      - name: Build package
+        run: npm run build
+
+      - name: Publish preview tarball with pkg.pr.new
+        run: npx pkg-pr-new publish --json preview.json
+
+      - name: Upload preview metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-pr-new-preview
+          path: preview.json
+          if-no-files-found: ignore

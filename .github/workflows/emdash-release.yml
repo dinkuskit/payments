@@ -1,0 +1,141 @@
+name: Publish to EmDash Registry
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Release version (e.g. 0.2.9 or 0.2.9-beta.1)"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional version override (leave blank to cut next x.y.z-beta.N from pending changesets on main)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: emdash-registry-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Bundle and publish plugin to EmDash Registry
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint release GitHub App token
+        id: app-token
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token || github.token }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Run typecheck
+        run: npm run typecheck
+
+      - name: Build plugin
+        run: npm run build
+
+      - name: Resolve release version (and cut beta tag when dispatched for beta)
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          EMDASH_REGISTRY_URL: ${{ vars.EMDASH_REGISTRY_URL || 'https://emdash-registry.pages.dev' }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -z "$INPUT_VERSION" ]; then
+            node scripts/release-flow.mjs cut-beta --github-output "$GITHUB_OUTPUT"
+          else
+            VERSION="$INPUT_VERSION"
+            if [ -z "$VERSION" ]; then
+              VERSION="$(node -p "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version")"
+            fi
+            if [[ "$VERSION" == *-beta.* ]]; then
+              SLUG="dinkus-payments-beta"
+              if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+                node scripts/release-flow.mjs cut-beta --version "$VERSION" --github-output "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            else
+              SLUG="dinkus-payments"
+            fi
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare EmDash Registry release directory
+        env:
+          RELEASE_VERSION: ${{ steps.meta.outputs.version }}
+        run: node .github/scripts/prepare-emdash-release.mjs --version "$RELEASE_VERSION" --out-dir dist/emdash-release
+
+      - name: Validate staged plugin manifest
+        working-directory: dist/emdash-release
+        run: npx --no-install emdash-plugin validate
+
+      - name: Bundle staged plugin archive
+        working-directory: dist/emdash-release
+        run: npx --no-install emdash-plugin bundle --out-dir dist
+
+      - name: Upload bundled EmDash release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: emdash-plugin-${{ steps.meta.outputs.slug }}-${{ steps.meta.outputs.version }}
+          path: |
+            dist/emdash-release/dist/bundle.tar.gz
+            dist/emdash-release/dist/bundle.manifest.json
+            dist/emdash-release/emdash-plugin.jsonc
+          if-no-files-found: error
+
+      - name: Publish plugin to EmDash Registry
+        working-directory: dist/emdash-release
+        env:
+          EMDASH_PDS_HANDLE: ${{ secrets.EMDASH_PDS_HANDLE }}
+          EMDASH_PDS_PASSWORD: ${{ secrets.EMDASH_PDS_PASSWORD }}
+          EMDASH_PDS_SERVICE: ${{ secrets.EMDASH_PDS_SERVICE }}
+          EMDASH_REGISTRY_URL: ${{ vars.EMDASH_REGISTRY_URL || 'https://emdash-registry.pages.dev' }}
+        run: |
+          if [ -z "$EMDASH_PDS_HANDLE" ] || [ -z "$EMDASH_PDS_PASSWORD" ]; then
+            echo "::error::Missing EMDASH_PDS_HANDLE or EMDASH_PDS_PASSWORD secret required for EmDash Registry publish."
+            exit 1
+          fi
+          SERVICE_ARGS=()
+          if [ -n "$EMDASH_PDS_SERVICE" ]; then
+            SERVICE_ARGS=(--service "$EMDASH_PDS_SERVICE")
+          fi
+          npx --no-install emdash-plugin publish \
+            --handle "$EMDASH_PDS_HANDLE" \
+            --password "$EMDASH_PDS_PASSWORD" \
+            --registry-url "$EMDASH_REGISTRY_URL" \
+            "${SERVICE_ARGS[@]}"
+
+      - name: Verify release is indexed in EmDash Registry
+        env:
+          EMDASH_REGISTRY_URL: ${{ vars.EMDASH_REGISTRY_URL || 'https://emdash-registry.pages.dev' }}
+          EMDASH_PLUGIN_SLUG: ${{ steps.meta.outputs.slug }}
+          RELEASE_VERSION: ${{ steps.meta.outputs.version }}
+        run: node .github/scripts/verify-registry-release.mjs --slug "$EMDASH_PLUGIN_SLUG" --version "$RELEASE_VERSION"

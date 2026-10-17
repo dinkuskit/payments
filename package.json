@@ -28,10 +28,10 @@
     "test": "node --import tsx --test tests/*.test.mjs tests/cli/*.test.mjs",
     "audit:repo": "node scripts/repo-contract.mjs",
     "changeset": "changeset",
-    "changeset:check": "node scripts/release-flow.mjs check-pr",
+    "changeset:check": "node .github/scripts/check-changeset.mjs",
     "release:version": "changeset version && npm install --package-lock-only --ignore-scripts",
     "plugin:validate": "emdash-plugin validate",
-    "plugin:build": "emdash-plugin build --out-dir dist/registry",
+    "plugin:build": "emdash-plugin build --out-dir dist/registry && node scripts/build-plugin.mjs",
     "plugin:bundle": "emdash-plugin bundle --out-dir dist/registry",
     "test:plugin-runtime": "vitest run --config vitest.plugin.config.ts",
     "verify:quick": "bin/verify-payments quick",
@@ -41,7 +41,7 @@
     "test:runtime": "vitest run",
     "typecheck": "tsc --noEmit && tsc --noEmit --project tsconfig.plugin.json",
     "types": "wrangler types --include-runtime false",
-    "build": "wrangler deploy --dry-run --outdir dist"
+    "build": "wrangler deploy --dry-run --outdir dist && npm run plugin:build"
   },
   "dependencies": {
     "jose": "6.2.12",

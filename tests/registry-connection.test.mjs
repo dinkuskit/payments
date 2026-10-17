@@ -3,6 +3,7 @@ import test from 'node:test';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { readFile } from 'node:fs/promises';
 import { createRegistryConnection, REGISTRY_CONNECT_URL, REGISTRY_ISSUER, REGISTRY_JWKS_URL, REGISTRY_SCOPE } from '../src/registry/connection.ts';
+import { ACCEPTED_INSTALLED_PLUGIN_IDS } from '../src/registry/identity.ts';
 import { PRODUCTION_STATUS_ENDPOINT } from '../src/plugin.ts';
 
 function memory() {
@@ -22,17 +23,25 @@ function memory() {
   return { kv: access('kv:'), settings: access('secret:'), values };
 }
 const json = (body, status = 200) => Response.json(body, { status });
-async function fixture({ testOnly, endpoint = { status: 'https://payments-proof.invalid/v1/status' } } = {}) {
+async function fixture({ testOnly, installedPluginId, pluginId, endpoint = { status: 'https://payments-proof.invalid/v1/status' } } = {}) {
   const store = memory(); const { privateKey, publicKey } = await generateKeyPair('ES256');
   const jwk = { ...await exportJWK(publicKey), kid: 'test-key', alg: 'ES256' };
+  const expectedPluginId = installedPluginId === 'dinkus-payments-beta' || pluginId === 'dinkus-payments-beta'
+    ? 'r_sffx6l4z6mpqliki'
+    : (installedPluginId ?? (pluginId === 'dinkus-payments' ? 'r_3brsc2on3bu673rn' : pluginId) ?? 'r_3brsc2on3bu673rn');
   const f = { now: 1_800_000_000_000, starts: 0, exchanges: 0, statuses: 0, approved: false, siteId: 'site', subject: 'org', error: null, calls: [], gate: null, claims: {}, setupReply: { state: 'setup_required', mode: 'test', bindingRef: 'synthetic-binding', url: 'https://connect.stripe.com/setup/synthetic', expiresAt: 1_800_000_300_000 }, setupStatus: 200 };
-  const connection = createRegistryConnection({ ...store, config: { endpoint, testOnly }, site: { url: testOnly?.storeOrigin ?? 'https://shop.example' }, now: () => f.now,
+  const connection = createRegistryConnection({
+    ...store,
+    config: { endpoint, testOnly, ...(installedPluginId ? { installedPluginId } : {}) },
+    ...(pluginId ? { plugin: { id: pluginId } } : {}),
+    site: { url: testOnly?.storeOrigin ?? 'https://shop.example' },
+    now: () => f.now,
     http: { async fetch(url, init) {
       assert.equal(init.redirect, 'manual'); f.calls.push({ url, init });
       if (url === REGISTRY_CONNECT_URL) {
         f.starts++; const body = JSON.parse(init.body);
         assert.equal(body.protocol_version, 2); assert.equal(body.service, 'payments'); assert.equal('site_id' in body, false);
-        assert.equal(body.callback_uri, `${testOnly?.storeOrigin ?? 'https://shop.example'}/_emdash/admin/plugins/r_3brsc2on3bu673rn/status`);
+        assert.equal(body.callback_uri, `${testOnly?.storeOrigin ?? 'https://shop.example'}/_emdash/admin/plugins/${expectedPluginId}/status`);
         f.challenge = body.code_challenge;
         return json({ protocol_version: 2, site_id: f.siteId, connection_id: 'c' + f.starts, challenge: 'public-challenge', expires_at: f.now + 600_000, expires_in: 600, interval: 5,
           verification_uri: `${testOnly?.verificationOrigin ?? 'https://dinkuskit.com'}/account/connect?connection_id=c${f.starts}` });
@@ -80,6 +89,30 @@ test('ES256 consent, status and reconnect use fresh tokens with stable canonical
   assert.equal((await f.connect()).state, 'ready');
   assert.equal((await connection.status({ id: 'admin' })).state, 'ready');
   assert.equal(f.statuses, 2);
+});
+
+test('connection accepts both stable (r_3brsc2on3bu673rn) and beta (r_sffx6l4z6mpqliki) Registry plugin IDs and rejects unknown IDs', async () => {
+  assert.deepEqual(ACCEPTED_INSTALLED_PLUGIN_IDS, ['r_3brsc2on3bu673rn', 'r_sffx6l4z6mpqliki']);
+  for (const pluginId of ACCEPTED_INSTALLED_PLUGIN_IDS) {
+    const { f, connection } = await fixture({ pluginId });
+    assert.equal(connection.installedPluginId, pluginId);
+    assert.equal(connection.callbackPath, `/_emdash/admin/plugins/${pluginId}/status`);
+    assert.equal(connection.proofPath, `/_emdash/api/plugins/${pluginId}/store-proof`);
+    assert.equal((await connection.start({ id: 'admin' })).state, 'pending');
+    const receipt = await connection.receipt('c1');
+    assert.equal(receipt.callback_uri, `https://shop.example/_emdash/admin/plugins/${pluginId}/status`);
+    f.now += 5000; f.approved = true;
+    assert.equal((await connection.exchange({ id: 'admin' })).state, 'ready');
+    assert.equal((await connection.status({ id: 'admin' })).state, 'ready');
+  }
+  const betaBySlug = await fixture({ pluginId: 'dinkus-payments-beta' });
+  assert.equal(betaBySlug.connection.installedPluginId, 'r_sffx6l4z6mpqliki');
+  assert.equal((await betaBySlug.f.connect()).state, 'ready');
+
+  const untrusted = await fixture({ pluginId: 'r_untrustedpluginid' });
+  assert.equal(untrusted.connection.installedPluginId, null);
+  assert.equal((await untrusted.connection.start({ id: 'admin' })).state, 'unconfigured');
+  assert.equal(untrusted.f.starts, 0);
 });
 
 test('canonical site and organization remapping is refused', async () => {

@@ -629,3 +629,27 @@ test("compiled Check exposes an exact support reference without extra requests o
   const other=await host.fixtures.user({email:"support-other@example.invalid",role:"admin"});host.http.clear();assert.doesNotMatch(JSON.stringify(await host.admin.act("/status","check",{user:other})),/Setup support reference/);assert.deepEqual(host.http.requests(),[]);
  } finally {await host.dispose();}
 });
+
+test("compiled beta Registry installation identity (r_sffx6l4z6mpqliki) uses beta callback and proof paths alongside stable (r_3brsc2on3bu673rn)", async () => {
+  for (const installedId of ["r_3brsc2on3bu673rn", "r_sffx6l4z6mpqliki"] as const) {
+    const f = await fixture({ installedId });
+    const { host } = f;
+    try {
+      await f.prepareStart(`conn-${installedId}`);
+      await f.action("connect");
+      const start = host.http.requests()[0];
+      assert.equal(body(start).callback_uri, `${SITE}/_emdash/admin/plugins/${installedId}/status`);
+      const proof = await f.receipt(`conn-${installedId}`);
+      assert.equal(proof.status, 200);
+      const receipt = await proof.json() as Record<string, unknown>;
+      assert.equal(receipt.callback_uri, `${SITE}/_emdash/admin/plugins/${installedId}/status`);
+      await f.pollDue();
+      await f.prepareExchange(`conn-${installedId}`);
+      assert.match(JSON.stringify(await f.action("continue")), /Your DinkusKit authorization was saved/);
+      await f.prepareStatus();
+      assert.match(JSON.stringify(await f.action("check")), /Connected: Stripe test mode\. Test card payments work at checkout/);
+    } finally {
+      await host.dispose();
+    }
+  }
+});

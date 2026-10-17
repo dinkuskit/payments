@@ -4,37 +4,47 @@
 
 EmDash 1.2 supports `public: boolean` plus `permission`; it has no `admin`
 classification field. Every Payments plugin route must explicitly declare
-`public`. Private routes also declare a permission. The current routes are:
+`public`. Private routes also declare a permission. The current routes for the
+stable (`dinkus-payments`, `r_3brsc2on3bu673rn`) and beta (`dinkus-payments-beta`,
+`r_sffx6l4z6mpqliki`) Registry packages are:
 
-| Method | Installed Registry path | Access | EmDash authorization |
-| --- | --- | --- | --- |
-| POST | `/_emdash/api/plugins/r_3brsc2on3bu673rn/admin` | Keep protected | `public: false`, `plugins:manage` |
-| GET | `/_emdash/api/plugins/r_3brsc2on3bu673rn/store-proof` | Exact public exception for ownership proof | `public: true`, redacted short-lived receipt |
+| Package | Method | Installed Registry path | Access | EmDash authorization |
+| --- | --- | --- | --- | --- |
+| `dinkus-payments` | POST | `/_emdash/api/plugins/r_3brsc2on3bu673rn/admin` | Keep protected | `public: false`, `plugins:manage` |
+| `dinkus-payments` | GET | `/_emdash/api/plugins/r_3brsc2on3bu673rn/store-proof` | Exact public exception for ownership proof | `public: true`, redacted short-lived receipt |
+| `dinkus-payments-beta` | POST | `/_emdash/api/plugins/r_sffx6l4z6mpqliki/admin` | Keep protected | `public: false`, `plugins:manage` |
+| `dinkus-payments-beta` | GET | `/_emdash/api/plugins/r_sffx6l4z6mpqliki/store-proof` | Exact public exception for ownership proof | `public: true`, redacted short-lived receipt |
 
-`src/registry/manifest.ts` exports `registryRouteManifest`, derived from the
-same route object as `src/plugin.ts`. Its `publicRoutes` contains only
-`/_emdash/api/plugins/r_3brsc2on3bu673rn/store-proof`. If an operator separately
-authorizes Access configuration, only that exact GET route may bypass it for
-website ownership verification. Keep the admin route and callback
-`/_emdash/admin/plugins/r_3brsc2on3bu673rn/status` protected. Never add a
+`src/registry/manifest.ts` exports `registryRouteManifest` (for stable
+`r_3brsc2on3bu673rn`) and `betaRegistryRouteManifest` (for beta
+`r_sffx6l4z6mpqliki`), derived from the same route object as `src/plugin.ts`.
+Its `publicRoutes` contains only `/_emdash/api/plugins/r_3brsc2on3bu673rn/store-proof`
+(and `/_emdash/api/plugins/r_sffx6l4z6mpqliki/store-proof` for the beta manifest).
+If an operator separately authorizes Access configuration, only that exact GET
+route may bypass it for website ownership verification. Keep the admin route and
+callbacks `/_emdash/admin/plugins/r_3brsc2on3bu673rn/status` and
+`/_emdash/admin/plugins/r_sffx6l4z6mpqliki/status` protected. Never add a
 plugin-wide or `/_emdash/api/plugins/*` bypass. Checkout does not change this
 boundary; there is no Registry shopper or webhook route in this slice.
 
-The publisher DID in `emdash-plugin.jsonc` and slug `dinkus-payments` derive the
-opaque Registry installation ID above. EmDash's `makeRegistryPluginId` uses
+The publisher DID in `emdash-plugin.jsonc` (`did:plc:ekk4pjmkh3k3ql2kfoex3qt4`)
+and slugs `dinkus-payments` (stable) and `dinkus-payments-beta` (beta) derive the
+opaque Registry installation IDs `r_3brsc2on3bu673rn` and `r_sffx6l4z6mpqliki`
+above. EmDash's `makeRegistryPluginId` uses
 `r_` plus the first 16 lowercase base32 characters of SHA-256 over
 `publisherDid + "\n" + slug`. The test uses the pinned framework implementation
 and checks the package metadata. A changed publisher or slug requires a fresh
 manifest and installed-state check. The ID identifies a package; it does not
 prove that the package is installed on a site.
 
-The shared-store Registry client uses that exact derived identity for its
-callback and proof paths. Native-slug or slug-seeded installations do not
-satisfy this client contract. The package publisher/slug identity is single-sourced
+The shared-store Registry client resolves the active installed identity
+(`r_3brsc2on3bu673rn` for stable or `r_sffx6l4z6mpqliki` for beta) for its
+callback and proof paths. Unknown or untrusted plugin IDs do not
+satisfy this client contract. The package publisher/slug identities are single-sourced
 in `src/registry/identity.ts`, verified against pinned EmDash derivation and
-package metadata. The website must register the same exact paths. Read the actual
-`_plugin_state.plugin_id`, `registry_publisher_did` and `registry_slug` before
-applying a site's route configuration.
+package metadata. The website must register the same exact paths for both stable
+and beta plugin IDs. Read the actual `_plugin_state.plugin_id`,
+`registry_publisher_did` and `registry_slug` before applying a site's route configuration.
 
 EmDash's production dispatcher checks user permission, admin token scope and
 session CSRF before invoking private handlers, independently of Access.

@@ -2,9 +2,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import plugin from "../src/plugin.ts";
 import {
+  ACCEPTED_INSTALLED_PLUGIN_IDS,
+  BETA_INSTALLED_PLUGIN_ID,
+  BETA_REGISTRY_SLUG,
+  STABLE_INSTALLED_PLUGIN_ID,
+  STABLE_REGISTRY_SLUG,
+  acceptedRegistryInstallationIdentities,
   assertExplicitRegistryRouteAuth,
+  betaRegistryInstallationIdentity,
+  betaRegistryRouteManifest,
+  isAcceptedRegistryPluginId,
+  makeRegistryPluginId as derivePaymentsRegistryPluginId,
+  parsePaymentsCallbackUri,
   registryInstallationIdentity,
   registryRouteManifest,
+  resolveRegistryInstallationIdentity,
+  verifyAcceptedRegistryInstallationIdentities,
   verifyRegistryInstallationIdentity,
 } from "../src/registry/manifest.ts";
 import { hostedHttpRoutes, hostedPublicRouteManifest } from "../src/hosted/manifest.ts";
@@ -17,6 +30,13 @@ test("Registry manifest is derived from explicit private route declarations", ()
     { name: "store-proof", path: `/_emdash/api/plugins/${registryInstallationIdentity.installedPluginId}/store-proof`, public: true, methods: ["GET"] },
   ]);
   assert.equal(registryRouteManifest.installedPluginId, registryInstallationIdentity.installedPluginId);
+
+  assert.deepEqual(betaRegistryRouteManifest.publicRoutes, [`/_emdash/api/plugins/${betaRegistryInstallationIdentity.installedPluginId}/store-proof`]);
+  assert.deepEqual(betaRegistryRouteManifest.routes, [
+    { name: "admin", path: `/_emdash/api/plugins/${betaRegistryInstallationIdentity.installedPluginId}/admin`, public: false, permission: "plugins:manage", methods: ["POST"] },
+    { name: "store-proof", path: `/_emdash/api/plugins/${betaRegistryInstallationIdentity.installedPluginId}/store-proof`, public: true, methods: ["GET"] },
+  ]);
+  assert.equal(betaRegistryRouteManifest.installedPluginId, betaRegistryInstallationIdentity.installedPluginId);
 });
 
 test("route-auth coverage rejects missing declarations, bare handlers, and public/admin mismatch", () => {
@@ -38,17 +58,45 @@ test("route-auth coverage rejects missing declarations, bare handlers, and publi
   );
 });
 
-test("Registry installation identity verifies the derived ID, not the native slug", () => {
-  assert.equal(verifyRegistryInstallationIdentity(registryInstallationIdentity), true);
+test("Registry installation identity verifies both stable and beta derived IDs, not native slugs", () => {
+  assert.equal(STABLE_INSTALLED_PLUGIN_ID, "r_3brsc2on3bu673rn");
+  assert.equal(BETA_INSTALLED_PLUGIN_ID, "r_sffx6l4z6mpqliki");
+  assert.deepEqual(ACCEPTED_INSTALLED_PLUGIN_IDS, ["r_3brsc2on3bu673rn", "r_sffx6l4z6mpqliki"]);
+  assert.equal(acceptedRegistryInstallationIdentities.length, 2);
+
+  for (const identity of acceptedRegistryInstallationIdentities) {
+    assert.equal(verifyRegistryInstallationIdentity(identity), true);
+    assert.equal(isAcceptedRegistryPluginId(identity.installedPluginId), true);
+    assert.equal(resolveRegistryInstallationIdentity(identity.installedPluginId), identity);
+    assert.equal(resolveRegistryInstallationIdentity(identity.slug), identity);
+    assert.match(identity.installedPluginId, /^r_[a-z2-7]{16}$/);
+    assert.equal(
+      verifyRegistryInstallationIdentity({
+        ...identity,
+        installedPluginId: identity.slug,
+      }),
+      false,
+    );
+  }
+
   assert.equal(
     verifyRegistryInstallationIdentity({
-      ...registryInstallationIdentity,
-      installedPluginId: registryInstallationIdentity.slug,
+      publisherDid: registryInstallationIdentity.publisherDid,
+      slug: STABLE_REGISTRY_SLUG,
+      installedPluginId: BETA_INSTALLED_PLUGIN_ID,
     }),
     false,
   );
-  assert.equal(registryInstallationIdentity.slug, "dinkus-payments");
-  assert.match(registryInstallationIdentity.installedPluginId, /^r_[a-z2-7]{16}$/);
+  assert.equal(
+    verifyRegistryInstallationIdentity({
+      publisherDid: betaRegistryInstallationIdentity.publisherDid,
+      slug: BETA_REGISTRY_SLUG,
+      installedPluginId: STABLE_INSTALLED_PLUGIN_ID,
+    }),
+    false,
+  );
+  assert.equal(isAcceptedRegistryPluginId("r_untrustedpluginid"), false);
+  assert.equal(resolveRegistryInstallationIdentity("r_untrustedpluginid"), null);
 });
 
 test("hosted public manifest emits exact signature-protected paths on the hosted surface", () => {
@@ -67,28 +115,41 @@ test("hosted public manifest emits exact signature-protected paths on the hosted
   }
 });
 
-test("pinned EmDash derivation matches the declared publisher and installed route paths", async () => {
+test("pinned EmDash derivation matches both stable (dinkus-payments) and beta (dinkus-payments-beta) installed route paths", async () => {
   const { makeRegistryPluginId } = await import("../node_modules/emdash/src/registry/plugin-id.ts");
   const { readFile } = await import("node:fs/promises");
   const metadata = JSON.parse(await readFile(new URL("../emdash-plugin.jsonc", import.meta.url), "utf8"));
   assert.equal(registryInstallationIdentity.publisherDid, metadata.publisher);
   assert.equal(registryInstallationIdentity.slug, metadata.slug);
-  const id = await makeRegistryPluginId(metadata.publisher, metadata.slug);
-  assert.equal(id, registryRouteManifest.installedPluginId);
-  assert.equal(registryRouteManifest.routes[0].path, `/_emdash/api/plugins/${id}/admin`);
+  assert.equal(betaRegistryInstallationIdentity.publisherDid, metadata.publisher);
+  assert.equal(betaRegistryInstallationIdentity.slug, `${metadata.slug}-beta`);
+
+  const stableId = await makeRegistryPluginId(metadata.publisher, metadata.slug);
+  const betaId = await makeRegistryPluginId(metadata.publisher, `${metadata.slug}-beta`);
+  assert.equal(stableId, "r_3brsc2on3bu673rn");
+  assert.equal(betaId, "r_sffx6l4z6mpqliki");
+  assert.equal(await derivePaymentsRegistryPluginId(metadata.publisher, metadata.slug), stableId);
+  assert.equal(await derivePaymentsRegistryPluginId(metadata.publisher, `${metadata.slug}-beta`), betaId);
+  assert.equal(stableId, registryRouteManifest.installedPluginId);
+  assert.equal(betaId, betaRegistryRouteManifest.installedPluginId);
+  assert.equal(registryRouteManifest.routes[0].path, `/_emdash/api/plugins/${stableId}/admin`);
+  assert.equal(betaRegistryRouteManifest.routes[0].path, `/_emdash/api/plugins/${betaId}/admin`);
+  assert.equal(await verifyAcceptedRegistryInstallationIdentities(makeRegistryPluginId), true);
 });
 
-test("production public-only dispatcher refuses Payments admin without invoking its handler", async () => {
+test("production public-only dispatcher refuses Payments admin without invoking its handler for both stable and beta IDs", async () => {
   const { createPublicPluginApiRouteHandler } = await import("../node_modules/emdash/src/astro/public-plugin-api-routes.ts");
-  let invoked = false;
-  const dispatch = createPublicPluginApiRouteHandler({
-    getPluginRouteMeta: () => plugin.routes.admin,
-    handlePluginApiRoute: async () => { invoked = true; return { success: true }; },
-  });
-  const result = await dispatch(registryInstallationIdentity.installedPluginId, "POST", "/admin", new Request("https://store.example.invalid/", { method: "POST" }));
-  assert.equal(result.success, false);
-  assert.equal(result.error.code, "NOT_FOUND");
-  assert.equal(invoked, false);
+  for (const pluginId of ACCEPTED_INSTALLED_PLUGIN_IDS) {
+    let invoked = false;
+    const dispatch = createPublicPluginApiRouteHandler({
+      getPluginRouteMeta: () => plugin.routes.admin,
+      handlePluginApiRoute: async () => { invoked = true; return { success: true }; },
+    });
+    const result = await dispatch(pluginId, "POST", "/admin", new Request("https://store.example.invalid/", { method: "POST" }));
+    assert.equal(result.success, false);
+    assert.equal(result.error.code, "NOT_FOUND");
+    assert.equal(invoked, false);
+  }
 });
 
 test("every hosted scoped route denies anonymous input before service/checkout/wake dispatch", async () => {
@@ -107,12 +168,38 @@ test("every hosted scoped route denies anonymous input before service/checkout/w
   }
 });
 
-test("shared-store callback, proof export and Access docs use the installed Registry identity", async () => {
-  const { REGISTRY_CALLBACK_PATH, REGISTRY_PROOF_PATH } = await import('../src/registry/connection.ts');
-  const { readFile } = await import('node:fs/promises');
+test("shared-store callback, proof export and Access docs accept both stable and beta Registry identities", async () => {
+  const {
+    REGISTRY_BETA_CALLBACK_PATH,
+    REGISTRY_BETA_PROOF_PATH,
+    REGISTRY_CALLBACK_PATH,
+    REGISTRY_PROOF_PATH,
+  } = await import("../src/registry/connection.ts");
+  const { readFile } = await import("node:fs/promises");
   assert.deepEqual(registryRouteManifest.publicRoutes, [REGISTRY_PROOF_PATH]);
+  assert.deepEqual(betaRegistryRouteManifest.publicRoutes, [REGISTRY_BETA_PROOF_PATH]);
   assert.equal(REGISTRY_CALLBACK_PATH, `/_emdash/admin/plugins/${registryInstallationIdentity.installedPluginId}/status`);
-  const docs = await readFile(new URL('../docs/route-auth.md', import.meta.url), 'utf8');
-  assert.ok(docs.includes(REGISTRY_PROOF_PATH)); assert.ok(docs.includes(REGISTRY_CALLBACK_PATH));
-  assert.equal(docs.includes('publicRoutes` is **`[]`**'), false);
+  assert.equal(REGISTRY_BETA_CALLBACK_PATH, `/_emdash/admin/plugins/${betaRegistryInstallationIdentity.installedPluginId}/status`);
+
+  const origin = "https://shop.example";
+  assert.deepEqual(parsePaymentsCallbackUri(`${origin}${REGISTRY_CALLBACK_PATH}`, origin), {
+    identity: registryInstallationIdentity,
+    installedPluginId: "r_3brsc2on3bu673rn",
+    callbackUri: `${origin}${REGISTRY_CALLBACK_PATH}`,
+    proofUri: `${origin}${REGISTRY_PROOF_PATH}`,
+  });
+  assert.deepEqual(parsePaymentsCallbackUri(`${origin}${REGISTRY_BETA_CALLBACK_PATH}`, origin), {
+    identity: betaRegistryInstallationIdentity,
+    installedPluginId: "r_sffx6l4z6mpqliki",
+    callbackUri: `${origin}${REGISTRY_BETA_CALLBACK_PATH}`,
+    proofUri: `${origin}${REGISTRY_BETA_PROOF_PATH}`,
+  });
+  assert.equal(parsePaymentsCallbackUri(`${origin}/_emdash/admin/plugins/dinkus-payments/status`, origin), null);
+
+  const docs = await readFile(new URL("../docs/route-auth.md", import.meta.url), "utf8");
+  assert.ok(docs.includes(REGISTRY_PROOF_PATH));
+  assert.ok(docs.includes(REGISTRY_CALLBACK_PATH));
+  assert.ok(docs.includes(REGISTRY_BETA_PROOF_PATH));
+  assert.ok(docs.includes(REGISTRY_BETA_CALLBACK_PATH));
+  assert.equal(docs.includes("publicRoutes` is **`[]`**"), false);
 });
