@@ -1,0 +1,228 @@
+name: Release Beta & Demo-Store E2E Gate
+
+# Reusable beta + demo-store E2E gate invoked by .github/workflows/release.yml
+# before opening or updating the final (non-beta) release PR.
+#
+# Why a separate beta plugin ID (`dinkus-payments-beta`):
+# The EmDash plugin Registry has no prerelease filter and no true delete.
+# Prerelease candidates (`x.y.z-beta.N`) are therefore built and published under
+# `dinkus-payments-beta` at build time (without editing the committed stable
+# `dinkus-payments` ID in `package.json`), installed ONLY on the demo store, and
+# verified by Ryan's E2E suite before the stable release PR can open or update.
+#
+# Retry safety:
+# - Beta number N is computed as max(existing beta git tags, beta versions already
+#   on the EmDash Registry for `dinkus-payments-beta`) + 1 so beta numbers are never reused.
+# - The git tag `vx.y.z-beta.N` is reserved and pushed BEFORE publishing to the Registry.
+# - Registry presence for `dinkus-payments-beta@x.y.z-beta.N` is checked before publishing
+#   and publish is skipped if the version already exists on the Registry.
+on:
+  workflow_call:
+    inputs:
+      beta_version:
+        description: "Computed prerelease version (x.y.z-beta.N); auto-computed from pending changesets, git tags, and Registry if omitted"
+        required: false
+        type: string
+      beta_plugin_slug:
+        description: "Build-time EmDash Registry slug for beta releases"
+        required: false
+        type: string
+        default: "dinkus-payments-beta"
+    outputs:
+      beta_version:
+        description: "Published beta version (x.y.z-beta.N)"
+        value: ${{ jobs.cut-and-publish-beta.outputs.beta_version }}
+      beta_tag:
+        description: "Published beta git tag (vx.y.z-beta.N)"
+        value: ${{ jobs.cut-and-publish-beta.outputs.beta_tag }}
+      beta_slug:
+        description: "Published beta plugin slug"
+        value: ${{ jobs.cut-and-publish-beta.outputs.beta_slug }}
+  workflow_dispatch:
+    inputs:
+      beta_version:
+        description: "Optional explicit x.y.z-beta.N version override"
+        required: false
+        type: string
+      beta_plugin_slug:
+        description: "Build-time EmDash Registry slug for beta releases"
+        required: false
+        type: string
+        default: "dinkus-payments-beta"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-beta-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Stage 1: Cut x.y.z-beta.N, reserve/push the beta git tag before publishing, and publish
+  # under the separate `dinkus-payments-beta` plugin slug/id set at build time (skipping
+  # publish if the version already exists on the EmDash Registry).
+  cut-and-publish-beta:
+    name: Cut and publish beta plugin (dinkus-payments-beta)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      beta_version: ${{ steps.prepare-beta.outputs.beta_version }}
+      beta_tag: ${{ steps.prepare-beta.outputs.beta_tag }}
+      beta_slug: ${{ steps.prepare-beta.outputs.beta_slug }}
+      installed_plugin_id: ${{ steps.prepare-beta.outputs.installed_plugin_id }}
+    steps:
+      - name: Mint release GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prepare x.y.z-beta.N build with build-time beta plugin slug
+        id: prepare-beta
+        env:
+          INPUT_BETA_SLUG: ${{ inputs.beta_plugin_slug || 'dinkus-payments-beta' }}
+          INPUT_BETA_VERSION: ${{ inputs.beta_version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_BETA_VERSION}" ]; then
+            node scripts/release-flow.mjs prepare-beta --slug "${INPUT_BETA_SLUG}" --version "${INPUT_BETA_VERSION}"
+          else
+            node scripts/release-flow.mjs prepare-beta --slug "${INPUT_BETA_SLUG}"
+          fi
+
+      - name: Reserve and push beta git tag before publishing
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BETA_TAG: ${{ steps.prepare-beta.outputs.beta_tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "saariuslystoned"
+          git config user.email "159389674+saariuslystoned@users.noreply.github.com"
+          if git ls-remote --exit-code --tags origin "refs/tags/${BETA_TAG}" >/dev/null 2>&1; then
+            echo "Beta tag ${BETA_TAG} already exists on origin; skipping tag push."
+          else
+            if ! git rev-parse -q --verify "refs/tags/${BETA_TAG}" >/dev/null 2>&1; then
+              git tag -a "${BETA_TAG}" -m "Beta release ${BETA_TAG} (dinkus-payments-beta)"
+            fi
+            git push origin "refs/tags/${BETA_TAG}"
+          fi
+
+      - name: Check EmDash Registry for dinkus-payments-beta@x.y.z-beta.N
+        id: registry-check
+        env:
+          BETA_SLUG: ${{ steps.prepare-beta.outputs.beta_slug }}
+          BETA_VERSION: ${{ steps.prepare-beta.outputs.beta_version }}
+        run: |
+          set -euo pipefail
+          node scripts/release-flow.mjs check-registry \
+            --slug "${BETA_SLUG}" \
+            --version "${BETA_VERSION}"
+
+      - name: Build, bundle, and publish beta plugin to EmDash Registry
+        if: ${{ steps.registry-check.outputs.already_published != 'true' }}
+        env:
+          EMDASH_REGISTRY_TOKEN: ${{ secrets.EMDASH_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          npm run plugin:validate
+          npm run plugin:build
+          npm run plugin:bundle
+          npx emdash-plugin publish
+
+  # Stage 2: Install the published beta plugin ONLY on the demo store.
+  install-beta-on-demo-store:
+    name: Install beta plugin on demo store
+    needs: cut-and-publish-beta
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install dinkus-payments-beta@${{ needs.cut-and-publish-beta.outputs.beta_version }} on demo store
+        env:
+          DEMO_STORE_URL: ${{ vars.DEMO_STORE_URL }}
+          DEMO_STORE_SITE_ID: ${{ vars.DEMO_STORE_SITE_ID }}
+          DEMO_STORE_DEPLOY_TOKEN: ${{ secrets.DEMO_STORE_DEPLOY_TOKEN }}
+          BETA_PLUGIN_SLUG: ${{ needs.cut-and-publish-beta.outputs.beta_slug }}
+          BETA_VERSION: ${{ needs.cut-and-publish-beta.outputs.beta_version }}
+          BETA_INSTALLED_PLUGIN_ID: ${{ needs.cut-and-publish-beta.outputs.installed_plugin_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DEMO_STORE_URL}" ]; then
+            echo "::error::vars.DEMO_STORE_URL is required to install ${BETA_PLUGIN_SLUG}@${BETA_VERSION} on the demo store."
+            exit 1
+          fi
+          if [ -z "${DEMO_STORE_DEPLOY_TOKEN}" ]; then
+            echo "::error::secrets.DEMO_STORE_DEPLOY_TOKEN is required to install ${BETA_PLUGIN_SLUG}@${BETA_VERSION} on the demo store."
+            exit 1
+          fi
+          curl --fail --silent --show-error --location \
+            --request POST "${DEMO_STORE_URL%/}/_emdash/api/admin/plugins/install" \
+            --header "Authorization: Bearer ${DEMO_STORE_DEPLOY_TOKEN}" \
+            --header "Content-Type: application/json" \
+            --data "{\"slug\":\"${BETA_PLUGIN_SLUG}\",\"version\":\"${BETA_VERSION}\",\"installedPluginId\":\"${BETA_INSTALLED_PLUGIN_ID}\",\"siteId\":\"${DEMO_STORE_SITE_ID}\"}"
+
+  # Stage 3: Trigger Ryan's E2E suite against the demo store and gate the final release PR.
+  # A passing E2E result allows release.yml's `release-pr` job to open/update the final release PR;
+  # a failing E2E result fails this job and blocks the release PR.
+  e2e-gate:
+    name: Demo-store E2E gate
+    needs:
+      - cut-and-publish-beta
+      - install-beta-on-demo-store
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Trigger and await Ryan's E2E suite against demo store
+        env:
+          GH_TOKEN: ${{ secrets.DEMO_STORE_E2E_TOKEN }}
+          DEMO_STORE_URL: ${{ vars.DEMO_STORE_URL }}
+          DEMO_STORE_E2E_REPO: ${{ vars.DEMO_STORE_E2E_REPO }}
+          DEMO_STORE_E2E_WORKFLOW: ${{ vars.DEMO_STORE_E2E_WORKFLOW || 'demo-store-e2e.yml' }}
+          BETA_PLUGIN_SLUG: ${{ needs.cut-and-publish-beta.outputs.beta_slug }}
+          BETA_VERSION: ${{ needs.cut-and-publish-beta.outputs.beta_version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DEMO_STORE_URL}" ]; then
+            echo "::error::vars.DEMO_STORE_URL is required for the demo-store E2E gate."
+            exit 1
+          fi
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::secrets.DEMO_STORE_E2E_TOKEN is required to dispatch and observe the demo-store E2E workflow."
+            exit 1
+          fi
+          TARGET_E2E_REPO="${DEMO_STORE_E2E_REPO:-${GITHUB_REPOSITORY}}"
+          DISPATCH_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh workflow run "${DEMO_STORE_E2E_WORKFLOW}" \
+            --repo "${TARGET_E2E_REPO}" \
+            --field demo_store_url="${DEMO_STORE_URL}" \
+            --field plugin_slug="${BETA_PLUGIN_SLUG}" \
+            --field plugin_version="${BETA_VERSION}"
+          sleep 5
+          RUN_ID="$(gh run list \
+            --repo "${TARGET_E2E_REPO}" \
+            --workflow "${DEMO_STORE_E2E_WORKFLOW}" \
+            --event workflow_dispatch \
+            --created ">=${DISPATCH_STARTED_AT}" \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId')"
+          if [ -z "${RUN_ID}" ] || [ "${RUN_ID}" = "null" ]; then
+            echo "::error::Failed to locate dispatched E2E workflow run in ${TARGET_E2E_REPO} (${DEMO_STORE_E2E_WORKFLOW})."
+            exit 1
+          fi
+          gh run watch "${RUN_ID}" --repo "${TARGET_E2E_REPO}" --exit-status

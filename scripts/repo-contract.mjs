@@ -6,7 +6,15 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const repositoryRoot = join(here, "..");
 
 const requiredFiles = [
+  ".changeset/README.md",
+  ".changeset/config.json",
   ".gitattributes",
+  ".github/workflows/changeset-check.yml",
+  ".github/workflows/clawsweeper-dispatch.yml",
+  ".github/workflows/preview.yml",
+  ".github/workflows/release-beta.yml",
+  ".github/workflows/release.yml",
+  ".github/workflows/repo-contract.yml",
   ".gitignore",
   ".grilltrack/.gitignore",
   ".grilltrack/events.jsonl",
@@ -18,6 +26,7 @@ const requiredFiles = [
   "FEATURE_MAP.md",
   "LICENSE",
   "README.md",
+  "RELEASING.md",
   "REPO_HYGIENE.md",
   "SECURITY.md",
   "VISION.md",
@@ -26,6 +35,7 @@ const requiredFiles = [
   "docs/README.md",
   "package-lock.json",
   "package.json",
+  "scripts/release-flow.mjs",
 ];
 
 const forbiddenSegments = new Set([
@@ -85,7 +95,13 @@ export async function auditRepository(root = repositoryRoot) {
   if (manifest.name !== "@dinkuskit/payments") {
     findings.push("package name must be @dinkuskit/payments");
   }
-  if (manifest.version !== "0.2.8") findings.push("package version must be 0.2.8");
+  if (
+    !/^(?:0\.(?:2\.(?:[89]|[1-9]\d+)|[3-9]\.\d+|[1-9]\d*\.\d+)|[1-9]\d*\.\d+\.\d+)$/.test(
+      String(manifest.version ?? ""),
+    )
+  ) {
+    findings.push("package version must be a valid semver >= 0.2.8");
+  }
   if (manifest.private === true) findings.push("package must be public for the approved release");
   if (manifest.license !== "MIT") findings.push("package license must be MIT");
   if (manifest.repository?.url !== "git+https://github.com/dinkuskit/payments.git") {
