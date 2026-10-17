@@ -12,15 +12,28 @@ import {
 
 export type SetupStep = {
   title: string;
-  status: "incomplete" | "complete";
+  // test_mode: verified for TEST payments only. unchecked: this page's own
+  // DinkusKit sign-in could not read status, which says nothing about checkout.
+  status: "incomplete" | "complete" | "test_mode" | "unchecked";
   description: string;
 };
 
+export type SetupOverall = "Not ready to sell" | "Connected: Stripe test mode" | "Payment status not checked";
+
 export type SetupScreenProjection = {
   title: "Payment setup";
-  overall: "Not ready to sell";
+  overall: SetupOverall;
   steps: [SetupStep, SetupStep];
 };
+
+const STEP_LABELS: Record<SetupStep["status"], string> = {
+  complete: "Complete",
+  incomplete: "Not complete",
+  test_mode: "Connected: Stripe test mode",
+  unchecked: "Not checked",
+};
+const signInLapsed =
+  "This page couldn't read your payment status because its DinkusKit sign-in has expired or no longer matches this admin and store. Select Sign in again to refresh it. Checkout doesn't use this sign-in.";
 
 const unavailableConnection =
   "Your payment connection is unavailable, so it could not be checked.";
@@ -48,6 +61,9 @@ function utcTime(ms: number): string {
 
 function testOrderStep(status: PaymentsStatus | null, connectionState?: string): SetupStep {
   const title = "Place a test order";
+  if (connectionState === "action_required") {
+    return { title, status: "unchecked", description: "Your test orders can't be checked until you sign in again on this page." };
+  }
   if (connectionState === "authorized") {
     return { title, status: "incomplete", description: `${unconfirmedCommerceOrder} Check the payment connection before placing a test order.` };
   }
@@ -120,11 +136,7 @@ function connectionStep(status: PaymentsStatus | null, connectionState?: string,
     };
   }
   if (connectionState === "action_required") {
-    return {
-      title: "Connect payments",
-      status: "incomplete",
-      description: "Your DinkusKit Payments connection needs attention. Reconnect explicitly to continue.",
-    };
+    return { title: "Connect payments", status: "unchecked", description: signInLapsed };
   }
   if (connectionState === "checking") {
     return {
@@ -158,9 +170,9 @@ function connectionStep(status: PaymentsStatus | null, connectionState?: string,
   if (evidence.result === "verified" && evidence.mode === "test") {
     return {
       title: "Connect payments",
-      status: "incomplete",
+      status: "test_mode",
       description:
-        "Stripe is connected for TEST payments only. A live connection still needs to be verified.",
+        "Test card payments work at checkout. Real customer payments need a live Stripe connection, which isn't set up yet.",
     };
   }
 
@@ -209,15 +221,22 @@ export function projectSetupScreen(input: unknown, diagnostics?: ConnectionDiagn
     }
   }
 
-  return {
-    title: "Payment setup",
-    overall: "Not ready to sell",
-    steps: [
-      connectionStep(status, connectionState, diagnostics, checkFailure),
-      testOrderStep(status, connectionState),
-    ],
-  };
+  const steps: [SetupStep, SetupStep] = [
+    connectionStep(status, connectionState, diagnostics, checkFailure),
+    testOrderStep(status, connectionState),
+  ];
+  // Ready to sell needs a verified live connection and a saved TEST order, which
+  // no status can show yet, so a verified TEST connection is the best result.
+  const overall: SetupOverall = steps[0].status === "test_mode" ? "Connected: Stripe test mode"
+    : steps[0].status === "unchecked" ? "Payment status not checked" : "Not ready to sell";
+  return { title: "Payment setup", overall, steps };
 }
+
+const BANNERS: Record<SetupOverall, { description: string; variant: "default" | "alert" }> = {
+  "Not ready to sell": { description: "Complete both steps before accepting regular customer payments.", variant: "alert" },
+  "Connected: Stripe test mode": { description: "Shoppers can pay with Stripe test cards. Real customer payments need a live Stripe connection.", variant: "default" },
+  "Payment status not checked": { description: "Sign in again to refresh this page's payment status. Checkout doesn't use this sign-in.", variant: "default" },
+};
 
 export function describeProviderIdentity(diagnostic: ProviderIdentityDiagnostic): string {
   const parts: string[] = [];
@@ -273,7 +292,7 @@ export function renderSetupScreen(input: unknown) {
   const canSetup = !needsRecovery && (state === "ready" || state === "processor_setup") &&
     (!evidence || typeof evidence !== "object" || !("provider" in evidence) ||
       (evidence.provider === "stripe" && "result" in evidence && evidence.result !== "verified"));
-  const actionLabel = action === "continue" ? "Continue" : action === "check" ? "Check connection" : "Connect";
+  const actionLabel = action === "continue" ? "Continue" : action === "check" ? "Check connection" : state === "action_required" ? "Sign in again" : "Connect";
   const isConnected = state === "ready" || state === "processor_setup" || state === "provider_identity";
   const supportReference = (state === "ready" || state === "processor_setup") && input && typeof input === "object" && "diagnostics" in input
     ? setupSupportReference(statusValue, input.diagnostics) : undefined;
@@ -292,16 +311,10 @@ export function renderSetupScreen(input: unknown) {
   return {
     blocks: [
       { type: "header", text: projection.title },
-      {
-        type: "banner",
-        title: projection.overall,
-        description:
-          "Complete both steps before accepting regular customer payments.",
-        variant: "alert",
-      },
+      { type: "banner", title: projection.overall, ...BANNERS[projection.overall] },
       ...projection.steps.map((step) => ({
         type: "section",
-        text: `${step.title}: ${step.status === "complete" ? "Complete" : "Not complete"}. ${step.description}`,
+        text: `${step.title}: ${STEP_LABELS[step.status]}. ${step.description}`,
       })),
       ...(supportReference ? [{ type: "section", text: `Setup support reference: ${supportReference}` }] : []),
       ...(providerIdentity ? [{

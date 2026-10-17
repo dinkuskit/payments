@@ -104,7 +104,9 @@ test("a paid TEST checkout shows in status, then counts once Commerce acknowledg
   expect(decodeStatus(JSON.parse(JSON.stringify(recorded)))).toEqual(recorded);
   const screen = projectSetupScreen({ availability: "available", status: recorded });
   expect(screen.steps[1].status).toBe("complete");
-  expect(screen.overall).toBe("Not ready to sell");
+  // The service verified this Stripe TEST connection, so the page says so.
+  expect(recorded.connectionEvidence).toMatchObject({ provider: "stripe", mode: "test", result: "verified" });
+  expect(screen.overall).toBe("Connected: Stripe test mode");
 });
 
 test("only the current connection's paid TEST checkouts count, and a saved one wins over a newer one", async () => {

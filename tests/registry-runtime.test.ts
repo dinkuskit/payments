@@ -73,7 +73,7 @@ test("compiled setup rejects concurrent flow replacement before and after status
       });
       const page = JSON.stringify(await f.action("setup_processor"));
       assert.doesNotMatch(page, /Continue setup at Stripe|synthetic-race/);
-      assert.match(page, /Reconnect explicitly/);
+      assert.match(page, /Select Sign in again to refresh it/);
       assert.equal((await control(host)).flowId, "replacement-flow");
     } finally { vi.restoreAllMocks(); await host.dispose(); }
   }
@@ -97,7 +97,7 @@ test("compiled installed instance preserves encrypted session identity through r
       assert.deepEqual(await snapshot(host), persisted);
       host.http.clear(); await f.prepareStatus();
       const page = JSON.stringify(await f.page());
-      assert.match(page, /Stripe is connected for TEST payments only/);
+      assert.match(page, /Connected: Stripe test mode\. Test card payments work at checkout/);
       assert.doesNotMatch(page, /status_read_session|check failed/);
       assert.deepEqual(host.http.requests().map(r => r.url), [JWKS, STATUS]);
       host.http.clear();
@@ -130,7 +130,7 @@ test("compiled Continue saves authorization within ten bridge calls and checks s
     const saved = await snapshot(host);
     assert.equal(saved.control.phase, "complete");
     calls.length = 0; host.http.clear(); await f.prepareStatus();
-    assert.match(JSON.stringify(await f.action("check")), /Stripe is connected for TEST payments only/);
+    assert.match(JSON.stringify(await f.action("check")), /Connected: Stripe test mode\. Test card payments work at checkout/);
     assert.equal(calls.length, 5);
     assert.deepEqual(await snapshot(host), saved);
   } finally { vi.restoreAllMocks(); await host.dispose(); }
@@ -309,7 +309,7 @@ test("compiled Connect, signed exchange and status persist through real settings
       ["POST", CONNECT], ["POST", `${CONNECT}/token`], ["GET", JWKS],
     ]);
     await f.prepareStatus();
-    assert.match(JSON.stringify(await f.action("check")), /Stripe is connected for TEST payments only/);
+    assert.match(JSON.stringify(await f.action("check")), /Connected: Stripe test mode\. Test card payments work at checkout/);
     assert.deepEqual(host.http.requests().map(r => [r.method, r.url]), [
       ["POST", CONNECT], ["POST", `${CONNECT}/token`], ["GET", JWKS], ["GET", JWKS], ["GET", STATUS],
     ]);
@@ -328,7 +328,7 @@ test("compiled Connect, signed exchange and status persist through real settings
     assert.deepEqual(await snapshot(host), persisted);
     host.http.clear();
     await f.prepareStatus();
-    assert.match(JSON.stringify(await f.page()), /Stripe is connected for TEST payments only/);
+    assert.match(JSON.stringify(await f.page()), /Connected: Stripe test mode\. Test card payments work at checkout/);
     assert.deepEqual(await snapshot(host), persisted);
     assert.deepEqual(host.http.requests().map(r => r.url), [JWKS, STATUS]);
   } finally { await host.dispose(); }
@@ -350,7 +350,7 @@ test("compiled expiry requires explicit reconnect and stale receipts preserve th
     await host.fixtures.plugin.kv(CONTROL, { ...old, expiresAt: Date.now() - 1 });
     const expired = await snapshot(host);
     host.http.clear();
-    assert.match(JSON.stringify(await f.page()), /Reconnect explicitly to continue/);
+    assert.match(JSON.stringify(await f.page()), /Select Sign in again to refresh it/);
     assert.match(JSON.stringify(await f.action("continue")), /"action_id":"connect"/);
     assert.deepEqual(await snapshot(host), expired);
     assert.deepEqual(host.http.requests(), []);
@@ -419,7 +419,7 @@ test("real host allowed-host denial blocks status before synthetic transport and
     assert.match(JSON.stringify(denied), /Payments setup check failed/);
     assert.match(JSON.stringify(denied), /status_fetch_status/);
     assert.match(JSON.stringify(denied), /"action_id":"check"/);
-    assert.doesNotMatch(JSON.stringify(denied), /Stripe is connected for TEST payments only/);
+    assert.doesNotMatch(JSON.stringify(denied), /Connected: Stripe test mode\. Test card payments work at checkout/);
     assert.deepEqual(host.http.requests().map(r => r.url), [JWKS]);
     assert.equal(host.http.requests().filter(r => r.url === STATUS).length, 0);
     assert.deepEqual(await snapshot(host), persisted);
@@ -428,7 +428,7 @@ test("real host allowed-host denial blocks status before synthetic transport and
     host.manifest.allowedHosts!.push("payments.dinkuskit.com");
     await host.restart();
     await f.prepareStatus();
-    assert.match(JSON.stringify(await f.page()), /Stripe is connected for TEST payments only/);
+    assert.match(JSON.stringify(await f.page()), /Connected: Stripe test mode\. Test card payments work at checkout/);
     assert.deepEqual(host.http.requests().map(r => r.url), [JWKS, JWKS, STATUS]);
     assert.deepEqual(await snapshot(host), persisted);
   } finally { await host.dispose(); }
@@ -517,7 +517,7 @@ test("compiled processor setup starts/resumes separately from consent and reject
     host.http.clear(); await f.prepareProcessorStatus(false);
     await host.http.respond(endpoint, Response.json({ state: "ready", mode: "test", bindingRef: "synthetic-binding" }));
     const ready = JSON.stringify(await f.action("setup_processor"));
-    assert.match(ready, /Stripe is connected for TEST payments only/);
+    assert.match(ready, /Connected: Stripe test mode\. Test card payments work at checkout/);
     assert.doesNotMatch(ready, /Continue setup at Stripe/);
     assert.ok(host.http.requests().some(r => r.url === STATUS));
     const other = await host.fixtures.user({ email: "other-admin@example.invalid", role: "admin" });

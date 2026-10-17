@@ -31,9 +31,10 @@ five-minute background check.
 | Complete | Stripe confirmed a paid TEST order of $12.00 on Oct 11, 2026 at 2:31 PM UTC, and Commerce saved it. You'll find it in Orders, marked TEST. |
 
 Authorize.net stores see its name instead of Stripe's. Before a connection
-exists the step asks the owner to connect payments first. The overall result
-stays **Not ready to sell** while Payments runs only in TEST mode, because
-**Connect payments** still needs a verified live connection (029).
+exists the step asks the owner to connect payments first. While Payments runs
+only in TEST mode the overall result is at most **Connected: Stripe test mode**,
+never **Ready to sell**, because selling still needs a verified live connection
+(029, 037).
 
 ## How it works
 
