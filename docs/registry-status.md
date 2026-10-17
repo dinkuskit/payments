@@ -16,10 +16,10 @@ endpoint. The plugin declares network access to exactly `dinkuskit.com` (consent
 and signing keys) and `payments.dinkuskit.com` (status); EmDash refuses any host
 not listed exactly. **Place a test order** completes once the provider confirmed
 a paid TEST checkout and Commerce saved its order, as described in
-[test order check](test-order-check.md). Connect payments still needs a verified
-live connection, so the overall state remains **Not ready to sell**. Explicit
-reconnect replaces expired consent; there is no silent refresh or provider
-selection from the browser.
+[test order check](test-order-check.md). Selling still needs a verified live
+connection, so the overall state never reads **Ready to sell** in TEST mode; see
+[setup status wording](#setup-status-wording). Explicit sign-in replaces expired
+consent; there is no silent refresh or provider selection from the browser.
 
 The official plugin runtime verifies Block Kit and admin role boundaries. An
 additional real local `handleRegistryInstall` run validated the official
@@ -197,3 +197,19 @@ deployment operator allowlist. Regular status/setup actions do not trigger it.
 The response contains a normalized match result and historical failure facts;
 it contains no platform account ID or credential. See
 [the diagnostic contract](provider-identity-diagnostic.md).
+
+## Setup status wording
+
+The page's own DinkusKit sign-in only reads status for this page. Checkout never
+uses it: Commerce trades its own store key. So the page separates three cases.
+
+| What the page knows | Banner | Connect payments | Place a test order |
+| --- | --- | --- | --- |
+| Payments verified a Stripe TEST connection | **Connected: Stripe test mode** (no alert) | Connected: Stripe test mode. Test card payments work; real payments need a live Stripe connection. | As in [test order check](test-order-check.md) |
+| This page's sign-in expired, belongs to another admin or store, or Payments refused it | **Payment status not checked** (no alert) | Not checked. Select **Sign in again**; checkout doesn't use this sign-in. | Not checked |
+| Anything else, including nothing connected | **Not ready to sell** (alert) | Unchanged | Unchanged |
+
+**Sign in again** runs the same Connect flow with the same site binding. It
+never offers **Set up or resume Stripe**, which still appears only after a
+successful status read without verified Stripe evidence. Nothing here changes
+what a connection is or how it is verified (037).

@@ -32,7 +32,7 @@ import { AuthorizeNetWebhookError, createAuthorizeNetWebhookHandler } from "../a
 import type { PaymentOutcome, PaymentRequest } from "../commerce/checkout-port.js";
 import { checkStripePlatformIdentity } from "../stripe/identity.js";
 import type { ProviderIdentityDiagnostic } from "../provider-identity.js";
-import { testMerchantCountry } from "../hosted/merchant-country.js";
+import { resolveMerchantCountry } from "../hosted/merchant-country.js";
 
 type WakeRow = Record<string, string | number | null> & WakeContext & { deliveryGeneration: number; wokeAt: number; acknowledgedAt: number | null; authorizeNetMerchantId: string | null };
 type PaidTestRow = Record<string, string | number> & { amountMinor: string; paidAt: number; noticed: number; recorded: number };
@@ -92,7 +92,7 @@ export class PaymentConnection extends DurableObject<Env> {
     const sql = this.ctx.storage.sql;
     return createConnectionService({
       mode: "test",
-      merchantCountry: siteId => testMerchantCountry(this.env.STRIPE_TEST_MERCHANT_COUNTRY_CONFIG, siteId),
+      merchantCountry: siteId => resolveMerchantCountry(this.env.STRIPE_TEST_MERCHANT_COUNTRY_CONFIG, this.env.STRIPE_TEST_MERCHANT_COUNTRY_SITES, siteId),
       store: { transaction: fn => this.ctx.storage.transactionSync(() => fn({
         read: () => {
           const row = sql.exec<{ value: string }>("SELECT value FROM connection_state WHERE id=1").toArray()[0];

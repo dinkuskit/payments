@@ -49,8 +49,9 @@ endpoint is `https://payments.dinkuskit.com/v1/status`; an operator packaging
 the plugin for another Payments service must provide an explicit build-time
 endpoint override. **Place a test order** completes once the provider
 confirmed a paid TEST checkout and Commerce saved its order
-([test order check](docs/test-order-check.md)). A live connection is still
-unverified, so the screen stays **Not ready to sell**.
+([test order check](docs/test-order-check.md)). A verified Stripe TEST
+connection reads **Connected: Stripe test mode**; **Ready to sell** still needs a
+verified live connection ([setup status wording](docs/registry-status.md#setup-status-wording)).
 
 The official bundle is covered by EmDash's plugin runtime and an actual local
 Registry installer/browser consent proof using synthetic authoritative records.
