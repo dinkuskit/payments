@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Optional version override (leave blank to cut next x.y.z-beta.N from pending changesets on main)"
+        description: "Optional beta version override (leave blank to cut next x.y.z-beta.N from pending changesets on main; stable versions are forbidden)"
         required: false
         default: ""
         type: string
@@ -25,24 +25,52 @@ concurrency:
 jobs:
   publish:
     name: Bundle and publish plugin to EmDash Registry
+    if: github.event_name == 'workflow_call' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     steps:
+      - name: Enforce manual workflow_dispatch gate before credential use or Registry I/O
+        id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TARGET_REF: ${{ github.ref }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$TARGET_REF" != "refs/heads/main" ]; then
+              echo "::error::Manual workflow_dispatch for emdash-release.yml is only allowed on refs/heads/main (got '$TARGET_REF')."
+              exit 1
+            fi
+            if [ -n "$INPUT_VERSION" ] && [[ ! "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
+              echo "::error::Manual workflow_dispatch may only cut a -beta.N release on refs/heads/main (got '$INPUT_VERSION'). Stable releases must publish via a merged 'ci: release' PR."
+              exit 1
+            fi
+          elif [ "$EVENT_NAME" = "workflow_call" ]; then
+            if [ -z "$INPUT_VERSION" ] || [[ ! "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$ ]]; then
+              echo "::error::workflow_call requires a valid semantic version (got '$INPUT_VERSION')."
+              exit 1
+            fi
+          else
+            echo "::error::Unsupported event '$EVENT_NAME' for emdash-release.yml."
+            exit 1
+          fi
+
       - name: Mint release GitHub App token
         id: app-token
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -64,29 +92,45 @@ jobs:
         env:
           INPUT_VERSION: ${{ inputs.version }}
           EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           EMDASH_REGISTRY_URL: ${{ vars.EMDASH_REGISTRY_URL || 'https://emdash-registry.pages.dev' }}
         run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -z "$INPUT_VERSION" ]; then
-            node scripts/release-flow.mjs cut-beta --github-output "$GITHUB_OUTPUT"
+          set -euo pipefail
+          node scripts/release-flow.mjs validate-emdash-dispatch \
+            --event-name "$EVENT_NAME" \
+            --ref "$GITHUB_REF" \
+            --version "$INPUT_VERSION"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ -z "$INPUT_VERSION" ]; then
+              node scripts/release-flow.mjs cut-beta --github-output "$GITHUB_OUTPUT"
+            else
+              node scripts/release-flow.mjs cut-beta --version "$INPUT_VERSION" --github-output "$GITHUB_OUTPUT"
+            fi
           else
             VERSION="$INPUT_VERSION"
-            if [ -z "$VERSION" ]; then
-              VERSION="$(node -p "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version")"
-            fi
             if [[ "$VERSION" == *-beta.* ]]; then
               SLUG="dinkus-payments-beta"
-              if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-                node scripts/release-flow.mjs cut-beta --version "$VERSION" --github-output "$GITHUB_OUTPUT"
-                exit 0
-              fi
             else
               SLUG="dinkus-payments"
             fi
             echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Check whether release version is already indexed in EmDash Registry
+        id: registry-check
+        env:
+          EMDASH_REGISTRY_URL: ${{ vars.EMDASH_REGISTRY_URL || 'https://emdash-registry.pages.dev' }}
+          EMDASH_PLUGIN_SLUG: ${{ steps.meta.outputs.slug }}
+          RELEASE_VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          node scripts/release-flow.mjs check-registry-version \
+            --slug "$EMDASH_PLUGIN_SLUG" \
+            --version "$RELEASE_VERSION" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Prepare EmDash Registry release directory
         env:
@@ -102,7 +146,7 @@ jobs:
         run: npx --no-install emdash-plugin bundle --out-dir dist
 
       - name: Upload bundled EmDash release artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: emdash-plugin-${{ steps.meta.outputs.slug }}-${{ steps.meta.outputs.version }}
           path: |
@@ -112,6 +156,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish plugin to EmDash Registry
+        if: steps.registry-check.outputs.already_published != 'true'
         working-directory: dist/emdash-release
         env:
           EMDASH_PDS_HANDLE: ${{ secrets.EMDASH_PDS_HANDLE }}

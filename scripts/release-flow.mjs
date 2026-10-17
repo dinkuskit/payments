@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { appendFile, cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,13 +22,19 @@ export const RELEASE_PR_TITLE_PREFIX = "ci: release";
 export const BETA_PROOF_TRAILER = "Release-Beta-Proof";
 export const DEFAULT_REGISTRY_URL = "https://emdash-registry.pages.dev";
 
+export const ALLOWED_RELEASE_TREE_PATHS = Object.freeze([
+  "package.json",
+  "package-lock.json",
+  "CHANGELOG.md",
+]);
+
 const BUMP_RANK = Object.freeze({
   patch: 1,
   minor: 2,
   major: 3,
 });
 
-function parseSemver(version) {
+export function parseSemver(version) {
   const match = /^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$/.exec(String(version).trim());
   if (!match) {
     throw new Error(`Invalid semantic version: ${version}`);
@@ -40,14 +47,95 @@ function parseSemver(version) {
   };
 }
 
+export function validateEmDashDispatchGate({
+  eventName = process.env.GITHUB_EVENT_NAME || "",
+  ref = process.env.GITHUB_REF || "",
+  inputVersion = process.env.INPUT_VERSION || "",
+} = {}) {
+  const normalizedEvent = String(eventName).trim();
+  const normalizedRef = String(ref).trim();
+  const normalizedVersion = String(inputVersion).trim();
+
+  if (normalizedEvent === "workflow_dispatch") {
+    if (normalizedRef !== "refs/heads/main") {
+      return {
+        ok: false,
+        code: "forbidden_dispatch_ref",
+        message: `Manual workflow_dispatch for emdash-release.yml is only allowed on refs/heads/main (got "${normalizedRef || "(empty)"}").`,
+      };
+    }
+
+    if (normalizedVersion !== "") {
+      let parsed;
+      try {
+        parsed = parseSemver(normalizedVersion);
+      } catch {
+        return {
+          ok: false,
+          code: "invalid_dispatch_version",
+          message: `Invalid manual workflow_dispatch version "${normalizedVersion}": expected blank or X.Y.Z-beta.N.`,
+        };
+      }
+      if (parsed.beta === null) {
+        return {
+          ok: false,
+          code: "manual_stable_dispatch_forbidden",
+          message: `Manual workflow_dispatch cannot publish stable version "${normalizedVersion}" (${STABLE_REGISTRY_SLUG}); stable releases may only publish via a merged "${RELEASE_PR_TITLE_PREFIX}" PR.`,
+        };
+      }
+    }
+
+    return {
+      ok: true,
+      mode: "cut-beta",
+      slug: BETA_REGISTRY_SLUG,
+      requestedVersion: normalizedVersion || null,
+    };
+  }
+
+  if (normalizedEvent === "workflow_call") {
+    if (!normalizedVersion) {
+      return {
+        ok: false,
+        code: "missing_workflow_call_version",
+        message: "workflow_call to emdash-release.yml requires a non-empty inputs.version.",
+      };
+    }
+    let parsed;
+    try {
+      parsed = parseSemver(normalizedVersion);
+    } catch {
+      return {
+        ok: false,
+        code: "invalid_workflow_call_version",
+        message: `Invalid workflow_call version "${normalizedVersion}".`,
+      };
+    }
+    const isBeta = parsed.beta !== null;
+    return {
+      ok: true,
+      mode: isBeta ? "beta-call" : "stable-call",
+      slug: isBeta ? BETA_REGISTRY_SLUG : STABLE_REGISTRY_SLUG,
+      requestedVersion: normalizedVersion,
+    };
+  }
+
+  return {
+    ok: false,
+    code: "unsupported_event",
+    message: `Unsupported event "${normalizedEvent}" for emdash-release.yml.`,
+  };
+}
+
 export function parseChangesetFrontmatter(markdown, filePath = ".changeset/unknown.md") {
   const normalized = String(markdown).replace(/\r\n/g, "\n");
-  const match = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(normalized);
+  const match = /^---\n(?:([\s\S]*?)\n)?---(?:\n([\s\S]*))?$/.exec(normalized);
   if (!match) {
     throw new Error(`Changeset ${filePath} is missing YAML frontmatter delimited by ---`);
   }
 
-  const [, frontmatter, body] = match;
+  const frontmatter = match[1] ?? "";
+  const body = match[2] ?? "";
   const entries = [];
   for (const rawLine of frontmatter.split("\n")) {
     const line = rawLine.trim();
@@ -60,6 +148,16 @@ export function parseChangesetFrontmatter(markdown, filePath = ".changeset/unkno
   }
 
   const summary = body.trim();
+  if (entries.length === 0) {
+    return {
+      filePath,
+      empty: true,
+      bump: null,
+      summary,
+      entries: [],
+    };
+  }
+
   if (!summary) {
     throw new Error(`Changeset ${filePath} must include a non-empty summary body`);
   }
@@ -71,6 +169,7 @@ export function parseChangesetFrontmatter(markdown, filePath = ".changeset/unkno
 
   return {
     filePath,
+    empty: false,
     bump: packageEntry.bump,
     summary,
     entries,
@@ -80,6 +179,7 @@ export function parseChangesetFrontmatter(markdown, filePath = ".changeset/unkno
 export function highestBumpType(bumpTypes) {
   let highest = null;
   for (const bump of bumpTypes) {
+    if (bump === null || bump === undefined) continue;
     if (!(bump in BUMP_RANK)) {
       throw new Error(`Unsupported changeset bump type: ${bump}`);
     }
@@ -106,6 +206,7 @@ export function computeTargetVersion(currentVersion, bumpTypes) {
 
 export async function listChangesetFiles(root = repositoryRoot) {
   const changesetDir = join(root, ".changeset");
+  if (!existsSync(changesetDir)) return [];
   const entries = await readdir(changesetDir, { withFileTypes: true });
   return entries
     .filter(
@@ -118,12 +219,15 @@ export async function listChangesetFiles(root = repositoryRoot) {
     .sort();
 }
 
-export async function readPendingChangesets(root = repositoryRoot) {
+export async function readPendingChangesets(root = repositoryRoot, { includeEmpty = false } = {}) {
   const files = await listChangesetFiles(root);
   const changesets = [];
   for (const relPath of files) {
     const content = await readFile(join(root, relPath), "utf8");
-    changesets.push(parseChangesetFrontmatter(content, relPath));
+    const parsed = parseChangesetFrontmatter(content, relPath);
+    if (!parsed.empty || includeEmpty) {
+      changesets.push(parsed);
+    }
   }
   return changesets;
 }
@@ -136,6 +240,79 @@ export function isChangesetMarkdownPath(filePath) {
     normalized.toLowerCase() !== ".changeset/readme.md" &&
     !normalized.slice(".changeset/".length).includes("/")
   );
+}
+
+export function isAllowedReleaseTreePath(filePath) {
+  const normalized = String(filePath).replace(/\\/g, "/").replace(/^\.\/+/, "");
+  if (ALLOWED_RELEASE_TREE_PATHS.includes(normalized)) {
+    return true;
+  }
+  return isChangesetMarkdownPath(normalized);
+}
+
+export function verifyApprovedBetaSourceTree({
+  version,
+  proof,
+  betaTagSha,
+  changedPathsSinceBeta = [],
+}) {
+  if (!proof || !proof.betaVersion || !proof.betaSha) {
+    return {
+      ok: false,
+      code: "missing_beta_proof_record",
+      message: `Refusing to tag v${version}: merged release commit is missing a valid ${BETA_PROOF_TRAILER} record for ${version}-beta.<N>.`,
+    };
+  }
+
+  if (!String(proof.betaVersion).startsWith(`${version}-beta.`) || parseSemver(proof.betaVersion).beta === null) {
+    return {
+      ok: false,
+      code: "beta_version_mismatch",
+      message: `Refusing to tag v${version}: ${BETA_PROOF_TRAILER} beta "${proof.betaVersion}" does not match target "${version}-beta.<N>".`,
+    };
+  }
+
+  const normalizedProofSha = String(proof.betaSha).trim().toLowerCase();
+  const normalizedTagSha = String(betaTagSha || "").trim().toLowerCase();
+  if (!normalizedTagSha) {
+    return {
+      ok: false,
+      code: "missing_beta_tag",
+      message: `Refusing to tag v${version}: approved beta tag "v${proof.betaVersion}" does not exist.`,
+    };
+  }
+
+  const shaMatches =
+    normalizedTagSha === normalizedProofSha ||
+    (normalizedProofSha.length >= 7 && normalizedTagSha.startsWith(normalizedProofSha));
+  if (!shaMatches) {
+    return {
+      ok: false,
+      code: "beta_tag_sha_mismatch",
+      message: `Refusing to tag v${version}: tag v${proof.betaVersion} points to ${betaTagSha}, which does not match approved ${BETA_PROOF_TRAILER} sha=${proof.betaSha}.`,
+    };
+  }
+
+  const disallowedPaths = changedPathsSinceBeta
+    .map((entry) => String(entry).replace(/\\/g, "/").trim())
+    .filter(Boolean)
+    .filter((entry) => !isAllowedReleaseTreePath(entry));
+
+  if (disallowedPaths.length > 0) {
+    return {
+      ok: false,
+      code: "unapproved_source_changes_since_beta",
+      message: `Refusing to tag v${version}: release tree differs from approved beta v${proof.betaVersion} (${betaTagSha}) outside allowlisted release files (${disallowedPaths.join(", ")}).`,
+      disallowedPaths,
+    };
+  }
+
+  return {
+    ok: true,
+    betaTag: `v${proof.betaVersion}`,
+    betaTagSha,
+    allowedChangedPaths: changedPathsSinceBeta,
+  };
 }
 
 export function findMissingChangesets({
@@ -376,7 +553,7 @@ export async function prepareRegistryWorkspace({
   };
 }
 
-function git(args, root = repositoryRoot) {
+function defaultGit(args, root = repositoryRoot) {
   return execFileSync("git", args, {
     cwd: root,
     encoding: "utf8",
@@ -384,27 +561,115 @@ function git(args, root = repositoryRoot) {
   }).trim();
 }
 
-function listGitTags(pattern, root = repositoryRoot) {
-  const out = git(["tag", "--list", pattern], root);
+function defaultGh(args, root = repositoryRoot) {
+  return execFileSync("gh", args, {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+}
+
+function listGitTags(pattern, root = repositoryRoot, gitExec = defaultGit) {
+  const out = gitExec(["tag", "--list", pattern], root);
   return out ? out.split("\n").map((line) => line.trim()).filter(Boolean) : [];
 }
 
-async function fetchRegistryVersions(slug, registryUrl = DEFAULT_REGISTRY_URL) {
-  const endpoint = `${registryUrl.replace(/\/+$/, "")}/api/registry/plugins/${encodeURIComponent(slug)}`;
+function resolveTagCommitSha(tag, root = repositoryRoot, gitExec = defaultGit) {
+  if (listGitTags(tag, root, gitExec).length === 0) return "";
+  return gitExec(["rev-list", "-n", "1", tag], root);
+}
+
+export async function fetchRegistryVersions(
+  slug,
+  registryUrl = DEFAULT_REGISTRY_URL,
+  { fetchImpl = globalThis.fetch } = {},
+) {
+  if (typeof fetchImpl !== "function") {
+    throw new Error(`Registry lookup failed for ${slug}: fetch implementation is unavailable.`);
+  }
+  const endpoint = `${String(registryUrl).replace(/\/+$/, "")}/api/registry/plugins/${encodeURIComponent(slug)}`;
+  let response;
   try {
-    const response = await fetch(endpoint, { headers: { accept: "application/json" } });
-    if (!response.ok) return [];
-    const payload = await response.json();
-    const versions = Array.isArray(payload?.versions)
-      ? payload.versions.map((entry) => entry?.version).filter(Boolean)
-      : [];
-    if (payload?.plugin?.latestVersion && !versions.includes(payload.plugin.latestVersion)) {
-      versions.push(payload.plugin.latestVersion);
-    }
-    return versions;
-  } catch {
+    response = await fetchImpl(endpoint, { headers: { accept: "application/json" } });
+  } catch (error) {
+    throw new Error(
+      `Registry lookup failed for ${slug} at ${endpoint}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (!response || typeof response !== "object") {
+    throw new Error(`Registry lookup failed for ${slug} at ${endpoint}: empty response.`);
+  }
+
+  const status = Number(response.status ?? (response.ok ? 200 : 0));
+  if (status === 404) {
     return [];
   }
+
+  if (!response.ok || status < 200 || status >= 300) {
+    let errorDetail = "";
+    if (typeof response.json === "function") {
+      try {
+        const body = await response.json();
+        if (
+          status === 400 &&
+          (body?.error === "NotFound" ||
+            body?.error === "PackageNotFound" ||
+            body?.error === "PluginNotFound")
+        ) {
+          return [];
+        }
+        if (typeof body?.error === "string" && body.error.trim()) {
+          errorDetail = ` (${body.error.trim()})`;
+        }
+      } catch {
+        // Ignore body parse failure on non-2xx and fail closed with HTTP status below.
+      }
+    }
+    throw new Error(
+      `Registry lookup failed for ${slug} at ${endpoint}: HTTP ${status || "error"}${errorDetail}`,
+    );
+  }
+
+  let payload;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    throw new Error(
+      `Registry lookup failed for ${slug} at ${endpoint}: invalid JSON (${error instanceof Error ? error.message : String(error)})`,
+    );
+  }
+
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error(`Registry lookup failed for ${slug} at ${endpoint}: malformed JSON payload.`);
+  }
+
+  if (
+    payload.error === "NotFound" ||
+    payload.error === "PackageNotFound" ||
+    payload.error === "PluginNotFound"
+  ) {
+    return [];
+  }
+
+  if (payload.versions !== undefined && !Array.isArray(payload.versions)) {
+    throw new Error(
+      `Registry lookup failed for ${slug} at ${endpoint}: expected "versions" to be an array.`,
+    );
+  }
+
+  const versions = Array.isArray(payload.versions)
+    ? payload.versions
+        .map((entry) => (typeof entry === "string" ? entry : entry?.version))
+        .filter(Boolean)
+    : [];
+  if (payload?.plugin?.latestVersion && !versions.includes(payload.plugin.latestVersion)) {
+    versions.push(payload.plugin.latestVersion);
+  }
+  for (const version of versions) {
+    parseSemver(version);
+  }
+  return versions;
 }
 
 async function writeGithubOutputs(outputFile, values) {
@@ -431,41 +696,73 @@ function parseCliFlags(args) {
   return flags;
 }
 
-async function runCli(argv) {
+function checkGithubReleaseExists(tag, root = repositoryRoot, ghExec = defaultGh) {
+  try {
+    ghExec(["release", "view", tag, "--json", "tagName"], root);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function runReleaseFlowCli(argv, deps = {}) {
   const [command, ...rest] = argv;
   const flags = parseCliFlags(rest);
-  const root = flags.root ? resolve(flags.root) : repositoryRoot;
+  const root = flags.root ? resolve(flags.root) : deps.root ? resolve(deps.root) : repositoryRoot;
+  const gitExec = deps.gitExec || defaultGit;
+  const ghExec = deps.ghExec || defaultGh;
+  const fetchImpl = deps.fetchImpl || globalThis.fetch;
+  const npmExec =
+    deps.npmExec ||
+    ((args, cwd) => execFileSync("npm", args, { cwd, stdio: "inherit" }));
+  const log = deps.log || ((line) => console.log(line));
+
+  if (command === "validate-emdash-dispatch") {
+    const eventName = flags["event-name"] ?? process.env.EVENT_NAME ?? process.env.GITHUB_EVENT_NAME ?? "";
+    const ref = flags.ref ?? process.env.GITHUB_REF ?? "";
+    const inputVersion = flags.version ?? process.env.INPUT_VERSION ?? "";
+    const gate = validateEmDashDispatchGate({ eventName, ref, inputVersion });
+    if (!gate.ok) {
+      throw new Error(gate.message);
+    }
+    await writeGithubOutputs(flags["github-output"], {
+      mode: gate.mode,
+      slug: gate.slug,
+      requested_version: gate.requestedVersion ?? "",
+    });
+    log(JSON.stringify(gate));
+    return gate;
+  }
 
   if (command === "check-pr") {
     const baseRef = flags.base || process.env.GITHUB_BASE_REF || "main";
     const headRef = flags.head || process.env.GITHUB_HEAD_REF || "";
     const title = flags.title || process.env.PR_TITLE || "";
     const diffRange = baseRef.startsWith("origin/") ? `${baseRef}...HEAD` : `origin/${baseRef}...HEAD`;
-    const diffOutput = git(["diff", "--name-only", "--diff-filter=ACMR", diffRange], root);
+    const diffOutput = gitExec(["diff", "--name-only", "--diff-filter=ACMR", diffRange], root);
     const changedFiles = diffOutput ? diffOutput.split("\n").filter(Boolean) : [];
     const result = findMissingChangesets({ changedFiles, headRef, title });
     if (!result.ok) {
-      console.error(result.message);
-      process.exitCode = 1;
-      return;
+      throw new Error(result.message);
     }
     for (const relPath of result.changesetFiles) {
       const content = await readFile(join(root, relPath), "utf8");
       parseChangesetFrontmatter(content, relPath);
     }
-    console.log(
-      result.exempted
-        ? "changeset_check=exempt_release_pr"
-        : `changeset_check=passed (${result.changesetFiles.join(", ")})`,
-    );
-    return;
+    const outputText = result.exempted
+      ? "changeset_check=exempt_release_pr"
+      : `changeset_check=passed (${result.changesetFiles.join(", ")})`;
+    log(outputText);
+    return result;
   }
 
   if (command === "plan-beta" || command === "cut-beta") {
     const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
     const pending = await readPendingChangesets(root);
     if (pending.length === 0 && !flags.version) {
-      throw new Error("Cannot cut beta: no pending `.changeset/*.md` files on main.");
+      throw new Error(
+        "Cannot cut beta: no pending version-bumping `.changeset/*.md` files on main.",
+      );
     }
 
     const registryUrl = flags["registry-url"] || process.env.EMDASH_REGISTRY_URL || DEFAULT_REGISTRY_URL;
@@ -476,11 +773,19 @@ async function runCli(argv) {
     );
 
     if (version) {
-      parseSemver(version);
+      const parsed = parseSemver(version);
+      if (parsed.beta === null) {
+        throw new Error(
+          `Cannot cut beta with non-beta version "${version}": expected X.Y.Z-beta.N.`,
+        );
+      }
       targetVersion = version.replace(/-beta\.\d+$/, "");
+      await fetchRegistryVersions(BETA_REGISTRY_SLUG, registryUrl, { fetchImpl });
     } else {
-      const gitTags = listGitTags(`v${targetVersion}-beta.*`, root);
-      const registryVersions = await fetchRegistryVersions(BETA_REGISTRY_SLUG, registryUrl);
+      const gitTags = listGitTags(`v${targetVersion}-beta.*`, root, gitExec);
+      const registryVersions = await fetchRegistryVersions(BETA_REGISTRY_SLUG, registryUrl, {
+        fetchImpl,
+      });
       const next = computeNextBetaVersion({ targetVersion, gitTags, registryVersions });
       version = next.version;
     }
@@ -498,12 +803,12 @@ async function runCli(argv) {
     };
 
     if (command === "cut-beta") {
-      const existingTagSha = listGitTags(tag, root).length > 0 ? git(["rev-list", "-n", "1", tag], root) : "";
-      const headSha = git(["rev-parse", "HEAD"], root);
+      const existingTagSha = resolveTagCommitSha(tag, root, gitExec);
+      const headSha = gitExec(["rev-parse", "HEAD"], root);
       if (!existingTagSha) {
-        git(["tag", tag, headSha], root);
+        gitExec(["tag", tag, headSha], root);
         if (flags["no-push"] !== "true") {
-          git(["push", "origin", `refs/tags/${tag}`], root);
+          gitExec(["push", "origin", `refs/tags/${tag}`], root);
         }
       } else if (existingTagSha !== headSha) {
         throw new Error(`Tag ${tag} already exists at ${existingTagSha} (HEAD is ${headSha}).`);
@@ -511,8 +816,8 @@ async function runCli(argv) {
     }
 
     await writeGithubOutputs(flags["github-output"], result);
-    console.log(JSON.stringify(result));
-    return;
+    log(JSON.stringify(result));
+    return result;
   }
 
   if (command === "promote") {
@@ -528,16 +833,18 @@ async function runCli(argv) {
     );
 
     const betaTag = `v${betaVersion}`;
-    const hasTag = listGitTags(betaTag, root).length > 0;
-    const betaTagSha = hasTag ? git(["rev-list", "-n", "1", betaTag], root) : "";
-    const currentMainSha = git(["rev-parse", "HEAD"], root);
+    const betaTagSha = resolveTagCommitSha(betaTag, root, gitExec);
+    const currentMainSha = gitExec(["rev-parse", "HEAD"], root);
     const changedFilesSinceBeta =
       betaTagSha && betaTagSha !== currentMainSha
-        ? git(["diff", "--name-only", `${betaTagSha}..${currentMainSha}`], root)
+        ? gitExec(["diff", "--name-only", `${betaTagSha}..${currentMainSha}`], root)
             .split("\n")
             .filter(Boolean)
         : [];
-    const registryVersions = await fetchRegistryVersions(BETA_REGISTRY_SLUG, registryUrl);
+    const registryVersions =
+      flags["skip-registry-check"] === "true"
+        ? []
+        : await fetchRegistryVersions(BETA_REGISTRY_SLUG, registryUrl, { fetchImpl });
     const registryHasBetaVersion =
       flags["skip-registry-check"] === "true" || registryVersions.includes(betaVersion);
 
@@ -554,9 +861,9 @@ async function runCli(argv) {
       throw new Error(gate.message);
     }
 
-    execFileSync("npm", ["run", "release:version"], { cwd: root, stdio: "inherit" });
-    git(["checkout", "-B", RELEASE_PR_BRANCH], root);
-    git(["add", "-A"], root);
+    await npmExec(["run", "release:version"], root);
+    gitExec(["checkout", "-B", RELEASE_PR_BRANCH], root);
+    gitExec(["add", "-A"], root);
     const prTitle = `${RELEASE_PR_TITLE_PREFIX} v${targetVersion}`;
     const commitBody = [
       prTitle,
@@ -565,10 +872,10 @@ async function runCli(argv) {
       "",
       gate.trailer,
     ].join("\n");
-    git(["commit", "-m", commitBody], root);
+    gitExec(["commit", "-m", commitBody], root);
 
     if (flags["no-push"] !== "true") {
-      git(["push", "--force-with-lease", "origin", `HEAD:refs/heads/${RELEASE_PR_BRANCH}`], root);
+      gitExec(["push", "--force-with-lease", "origin", `HEAD:refs/heads/${RELEASE_PR_BRANCH}`], root);
       const prBody = [
         `## Release \`${PACKAGE_NAME}@${targetVersion}\``,
         "",
@@ -581,29 +888,37 @@ async function runCli(argv) {
         gate.trailer,
       ].join("\n");
 
-      const existingPr = execFileSync(
-        "gh",
-        ["pr", "list", "--head", RELEASE_PR_BRANCH, "--base", "main", "--state", "open", "--json", "number", "--jq", ".[0].number // empty"],
-        { cwd: root, encoding: "utf8" },
-      ).trim();
+      const existingPr = ghExec(
+        [
+          "pr",
+          "list",
+          "--head",
+          RELEASE_PR_BRANCH,
+          "--base",
+          "main",
+          "--state",
+          "open",
+          "--json",
+          "number",
+          "--jq",
+          ".[0].number // empty",
+        ],
+        root,
+      );
 
       if (existingPr) {
-        execFileSync("gh", ["pr", "edit", existingPr, "--title", prTitle, "--body", prBody], {
-          cwd: root,
-          stdio: "inherit",
-        });
+        ghExec(["pr", "edit", existingPr, "--title", prTitle, "--body", prBody], root);
       } else {
-        execFileSync(
-          "gh",
+        ghExec(
           ["pr", "create", "--base", "main", "--head", RELEASE_PR_BRANCH, "--title", prTitle, "--body", prBody],
-          { cwd: root, stdio: "inherit" },
+          root,
         );
       }
     }
 
     await writeGithubOutputs(flags["github-output"], gate);
-    console.log(JSON.stringify(gate));
-    return;
+    log(JSON.stringify(gate));
+    return gate;
   }
 
   if (command === "publish-merged-release") {
@@ -611,29 +926,53 @@ async function runCli(argv) {
     const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
     const version = pkg.version;
     const tag = `v${version}`;
-    const existingTags = listGitTags(tag, root);
+    const registryUrl = flags["registry-url"] || process.env.EMDASH_REGISTRY_URL || DEFAULT_REGISTRY_URL;
 
-    if (pending.length > 0 || existingTags.length > 0) {
+    if (pending.length > 0) {
       const skipped = {
         published: false,
+        registryNeeded: false,
         version,
-        reason: pending.length > 0 ? "pending_changesets_present" : "tag_already_exists",
+        reason: "pending_changesets_present",
       };
-      await writeGithubOutputs(flags["github-output"], skipped);
-      console.log(JSON.stringify(skipped));
-      return;
+      await writeGithubOutputs(flags["github-output"], {
+        published: false,
+        registry_needed: false,
+        version,
+        reason: skipped.reason,
+      });
+      log(JSON.stringify(skipped));
+      return skipped;
     }
 
-    const headMessage = git(["log", "-1", "--format=%B"], root);
+    const headSha = gitExec(["rev-parse", "HEAD"], root);
+    const existingTagSha = resolveTagCommitSha(tag, root, gitExec);
+    if (existingTagSha && existingTagSha !== headSha) {
+      const skipped = {
+        published: false,
+        registryNeeded: false,
+        version,
+        tag,
+        reason: "tag_already_exists_at_prior_commit",
+      };
+      await writeGithubOutputs(flags["github-output"], {
+        published: false,
+        registry_needed: false,
+        version,
+        reason: skipped.reason,
+      });
+      log(JSON.stringify(skipped));
+      return skipped;
+    }
+
+    const headMessage = gitExec(["log", "-1", "--format=%B"], root);
     let proof = parseBetaProofRecord(headMessage);
     if (!proof && flags["no-gh"] !== "true") {
       try {
-        const headSha = git(["rev-parse", "HEAD"], root);
-        const prBody = execFileSync(
-          "gh",
+        const prBody = ghExec(
           ["pr", "list", "--state", "merged", "--search", headSha, "--json", "body", "--jq", ".[0].body // empty"],
-          { cwd: root, encoding: "utf8" },
-        ).trim();
+          root,
+        );
         proof = parseBetaProofRecord(prBody);
       } catch {
         proof = null;
@@ -641,46 +980,146 @@ async function runCli(argv) {
     }
 
     if (!proof || !proof.betaVersion.startsWith(`${version}-beta.`)) {
+      if (!existingTagSha && version === BASELINE_VERSION) {
+        const skipped = {
+          published: false,
+          registryNeeded: false,
+          version,
+          reason: "baseline_version_no_release_commit",
+        };
+        await writeGithubOutputs(flags["github-output"], {
+          published: false,
+          registry_needed: false,
+          version,
+          reason: skipped.reason,
+        });
+        log(JSON.stringify(skipped));
+        return skipped;
+      }
       throw new Error(
         `Refusing to tag ${tag}: merged release commit is missing a valid ${BETA_PROOF_TRAILER} record for ${version}-beta.<N>.`,
       );
     }
 
+    const betaTag = `v${proof.betaVersion}`;
+    const betaTagSha = resolveTagCommitSha(betaTag, root, gitExec);
+    const changedPathsSinceBeta = betaTagSha
+      ? gitExec(["diff", "--name-only", betaTagSha, headSha], root)
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+      : [];
+
+    const sourceCheck = verifyApprovedBetaSourceTree({
+      version,
+      proof,
+      betaTagSha,
+      changedPathsSinceBeta,
+    });
+    if (!sourceCheck.ok) {
+      throw new Error(sourceCheck.message);
+    }
+
     const changelog = await readFile(join(root, "CHANGELOG.md"), "utf8");
     const notes = extractChangelogSection(changelog, version) || `Release ${PACKAGE_NAME} ${version}`;
 
-    git(["tag", tag, "HEAD"], root);
-    if (flags["no-push"] !== "true") {
-      git(["push", "origin", `refs/tags/${tag}`], root);
-      execFileSync(
-        "gh",
-        ["release", "create", tag, "--title", tag, "--notes", notes, "--verify-tag"],
-        { cwd: root, stdio: "inherit" },
-      );
+    let tagCreated = false;
+    if (!existingTagSha) {
+      gitExec(["tag", tag, headSha], root);
+      tagCreated = true;
+      if (flags["no-push"] !== "true") {
+        gitExec(["push", "origin", `refs/tags/${tag}`], root);
+      }
+    } else if (flags["no-push"] !== "true") {
+      gitExec(["push", "origin", `refs/tags/${tag}`], root);
     }
 
+    let githubReleaseCreated = false;
+    if (flags["no-push"] !== "true") {
+      const releaseAlreadyExists = checkGithubReleaseExists(tag, root, ghExec);
+      if (!releaseAlreadyExists) {
+        ghExec(["release", "create", tag, "--title", tag, "--notes", notes, "--verify-tag"], root);
+        githubReleaseCreated = true;
+      }
+    }
+
+    let registryAlreadyPublished = false;
+    if (flags["skip-registry-check"] !== "true") {
+      const stableRegistryVersions = await fetchRegistryVersions(STABLE_REGISTRY_SLUG, registryUrl, {
+        fetchImpl,
+      });
+      registryAlreadyPublished = stableRegistryVersions.includes(version);
+    }
+
+    const registryNeeded = !registryAlreadyPublished;
     const published = {
-      published: true,
+      published: registryNeeded,
+      registryNeeded,
+      registryAlreadyPublished,
+      tagCreated,
+      githubReleaseCreated,
+      resumedFromExistingTag: Boolean(existingTagSha),
       version,
       tag,
       betaVersion: proof.betaVersion,
+      betaSha: betaTagSha,
     };
-    await writeGithubOutputs(flags["github-output"], published);
-    console.log(JSON.stringify(published));
-    return;
+    await writeGithubOutputs(flags["github-output"], {
+      published: published.published,
+      registry_needed: published.registryNeeded,
+      registry_already_published: published.registryAlreadyPublished,
+      tag_created: published.tagCreated,
+      github_release_created: published.githubReleaseCreated,
+      resumed_from_existing_tag: published.resumedFromExistingTag,
+      version: published.version,
+      tag: published.tag,
+      beta_version: published.betaVersion,
+      beta_sha: published.betaSha,
+    });
+    log(JSON.stringify(published));
+    return published;
+  }
+
+  if (command === "check-registry-version") {
+    const slug = flags.slug || process.env.EMDASH_PLUGIN_SLUG || STABLE_REGISTRY_SLUG;
+    const version = flags.version || process.env.RELEASE_VERSION || "";
+    const registryUrl = flags["registry-url"] || process.env.EMDASH_REGISTRY_URL || DEFAULT_REGISTRY_URL;
+    if (!version) {
+      throw new Error("check-registry-version requires --version <version>.");
+    }
+    parseSemver(version);
+    const versions = await fetchRegistryVersions(slug, registryUrl, { fetchImpl });
+    const alreadyPublished = versions.includes(version);
+    const result = {
+      slug,
+      version,
+      alreadyPublished,
+    };
+    await writeGithubOutputs(flags["github-output"], {
+      already_published: alreadyPublished,
+      slug,
+      version,
+    });
+    log(JSON.stringify(result));
+    return result;
   }
 
   if (command === "check-bundle-size") {
     const relPath = flags.bundle || "dist/sandbox/plugin.mjs";
     const info = await verifyBuiltPluginBundleSize(root, relPath);
     await writeGithubOutputs(flags["github-output"], info);
-    console.log(JSON.stringify(info));
-    return;
+    log(JSON.stringify(info));
+    return info;
   }
 
   throw new Error(`Unknown release-flow command: ${command ?? "(none)"}`);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  await runCli(process.argv.slice(2));
+  try {
+    await runReleaseFlowCli(process.argv.slice(2));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }

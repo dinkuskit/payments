@@ -36,6 +36,7 @@
     "test:plugin-runtime": "vitest run --config vitest.plugin.config.ts",
     "verify:quick": "bin/verify-payments quick",
     "verify:full": "bin/verify-payments full",
+    "proof:release-authority": "node scripts/release-authority-proof.mjs",
     "proof:stripe-test": "node --import tsx scripts/stripe-test-mode-proof.mjs",
     "proof:registry-status": "node scripts/registry-status-proof.mjs",
     "test:runtime": "vitest run",

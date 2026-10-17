@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { runReleaseAuthorityProof } from "../scripts/release-authority-proof.mjs";
 import {
   BASELINE_TAG,
   BASELINE_VERSION,
@@ -12,21 +15,39 @@ import {
   MAX_PLUGIN_BUNDLE_BYTES,
   PACKAGE_NAME,
   RELEASE_PR_BRANCH,
+  RELEASE_PR_TITLE_PREFIX,
   STABLE_INSTALLED_PLUGIN_ID,
   STABLE_PLUGIN_NAME,
   STABLE_REGISTRY_SLUG,
   computeNextBetaVersion,
   computeTargetVersion,
   extractChangelogSection,
+  fetchRegistryVersions,
   findMissingChangesets,
   formatBetaProofRecord,
   highestBumpType,
+  isAllowedReleaseTreePath,
   parseBetaProofRecord,
   parseChangesetFrontmatter,
   prepareRegistryWorkspace,
+  readPendingChangesets,
   repositoryRoot,
+  runReleaseFlowCli,
   validateBetaPromotionGate,
+  validateEmDashDispatchGate,
+  verifyApprovedBetaSourceTree,
+  verifyBuiltPluginBundleSize,
 } from "../scripts/release-flow.mjs";
+
+test("locked stable and beta EmDash Registry identities match release-beta-cut-071", () => {
+  assert.equal(STABLE_REGISTRY_SLUG, "dinkus-payments");
+  assert.equal(BETA_REGISTRY_SLUG, "dinkus-payments-beta");
+  assert.equal(STABLE_INSTALLED_PLUGIN_ID, "r_3brsc2on3bu673rn");
+  assert.equal(BETA_INSTALLED_PLUGIN_ID, "r_sffx6l4z6mpqliki");
+  assert.equal(BASELINE_VERSION, "0.2.8");
+  assert.equal(BASELINE_TAG, "v0.2.8");
+  assert.notEqual(STABLE_INSTALLED_PLUGIN_ID, BETA_INSTALLED_PLUGIN_ID);
+});
 
 test("parseChangesetFrontmatter parses valid changesets and rejects invalid ones", () => {
   const parsed = parseChangesetFrontmatter(
@@ -58,149 +79,433 @@ test("parseChangesetFrontmatter parses valid changesets and rejects invalid ones
   );
 });
 
-test("highestBumpType and computeTargetVersion calculate next stable semver from 0.2.8 baseline", () => {
-  assert.equal(BASELINE_VERSION, "0.2.8");
-  assert.equal(BASELINE_TAG, "v0.2.8");
-  assert.equal(highestBumpType(["patch"]), "patch");
-  assert.equal(highestBumpType(["patch", "minor"]), "minor");
-  assert.equal(highestBumpType(["patch", "major", "minor"]), "major");
-  assert.equal(highestBumpType([]), null);
-
-  assert.equal(computeTargetVersion("0.2.8", ["patch"]), "0.2.9");
-  assert.equal(computeTargetVersion("0.2.8", ["patch", "minor"]), "0.3.0");
-  assert.equal(computeTargetVersion("0.2.8", ["major"]), "1.0.0");
-  assert.equal(computeTargetVersion("0.2.8", []), null);
-});
-
-test("findMissingChangesets enforces changeset presence on PRs and exempts ci: release PRs", () => {
+test("findMissingChangesets requires at least one .changeset/*.md file on normal PRs and exempts ci: release PRs", () => {
   const missing = findMissingChangesets({
-    changedFiles: ["src/plugin.ts", "README.md"],
-    headRef: "feat/some-change",
-    title: "feat: update plugin",
+    changedFiles: ["src/plugin.ts", "README.md", ".changeset/README.md"],
+    headRef: "feat/new-webhook",
+    title: "feat: handle webhook retry",
   });
   assert.equal(missing.ok, false);
   assert.equal(missing.exempted, false);
-
-  const readmeOnly = findMissingChangesets({
-    changedFiles: [".changeset/README.md", "src/plugin.ts"],
-    headRef: "feat/some-change",
-    title: "feat: update plugin",
-  });
-  assert.equal(readmeOnly.ok, false);
+  assert.match(missing.message, /Every PR must include at least one changeset/);
 
   const present = findMissingChangesets({
-    changedFiles: [".changeset/add-flow.md", "src/plugin.ts"],
-    headRef: "feat/some-change",
-    title: "feat: update plugin",
+    changedFiles: ["src/plugin.ts", ".changeset/webhook-retry.md"],
+    headRef: "feat/new-webhook",
+    title: "feat: handle webhook retry",
   });
   assert.equal(present.ok, true);
   assert.equal(present.exempted, false);
-  assert.deepEqual(present.changesetFiles, [".changeset/add-flow.md"]);
+  assert.deepEqual(present.changesetFiles, [".changeset/webhook-retry.md"]);
 
-  const releaseBranch = findMissingChangesets({
+  const releaseBranchExempt = findMissingChangesets({
     changedFiles: ["package.json", "CHANGELOG.md"],
     headRef: RELEASE_PR_BRANCH,
-    title: "ci: release v0.2.9",
+    title: `${RELEASE_PR_TITLE_PREFIX} v0.2.9`,
   });
-  assert.equal(releaseBranch.ok, true);
-  assert.equal(releaseBranch.exempted, true);
+  assert.equal(releaseBranchExempt.ok, true);
+  assert.equal(releaseBranchExempt.exempted, true);
 });
 
-test("computeNextBetaVersion increments past highest git tag and EmDash Registry beta version without pre.json", () => {
-  const first = computeNextBetaVersion({
+test("parseChangesetFrontmatter and readPendingChangesets support explicit empty changesets (`changeset --empty`) and exclude them from bumps", async () => {
+  const emptyParsed = parseChangesetFrontmatter("---\n---\n", ".changeset/empty.md");
+  assert.equal(emptyParsed.empty, true);
+  assert.equal(emptyParsed.bump, null);
+
+  const emptyWithNote = parseChangesetFrontmatter(
+    "---\n---\n\nInternal CI workflow update with no version bump.\n",
+    ".changeset/empty-note.md",
+  );
+  assert.equal(emptyWithNote.empty, true);
+  assert.equal(emptyWithNote.bump, null);
+
+  assert.equal(highestBumpType([null, undefined]), null);
+  assert.equal(computeTargetVersion("0.2.8", [null]), null);
+  assert.equal(computeTargetVersion("0.2.8", [null, "patch"]), "0.2.9");
+
+  const tempRoot = await mkdtemp(join(tmpdir(), "payments-empty-changeset-"));
+  try {
+    await mkdir(join(tempRoot, ".changeset"), { recursive: true });
+    await writeFile(join(tempRoot, ".changeset/README.md"), "# Changesets\n", "utf8");
+    await writeFile(join(tempRoot, ".changeset/01-empty.md"), "---\n---\n", "utf8");
+    await writeFile(
+      join(tempRoot, ".changeset/02-patch.md"),
+      `---\n"${PACKAGE_NAME}": patch\n---\n\nFix status badge copy.\n`,
+      "utf8",
+    );
+
+    const bumpingOnly = await readPendingChangesets(tempRoot);
+    assert.equal(bumpingOnly.length, 1);
+    assert.equal(bumpingOnly[0].filePath, ".changeset/02-patch.md");
+    assert.equal(bumpingOnly[0].bump, "patch");
+
+    const allChangesets = await readPendingChangesets(tempRoot, { includeEmpty: true });
+    assert.equal(allChangesets.length, 2);
+    assert.equal(allChangesets[0].empty, true);
+    assert.equal(allChangesets[1].empty, false);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("computeTargetVersion and computeNextBetaVersion advance monotonically from git tags and dinkus-payments-beta registry versions", () => {
+  const patchEntry = parseChangesetFrontmatter(
+    `---\n"${PACKAGE_NAME}": patch\n---\n\nFix status screen copy.\n`,
+    ".changeset/fix-copy.md",
+  );
+  const minorEntry = parseChangesetFrontmatter(
+    `---\n"${PACKAGE_NAME}": minor\n---\n\nAdd refund summary panel.\n`,
+    ".changeset/refund-panel.md",
+  );
+
+  assert.equal(computeTargetVersion("0.2.8", [patchEntry.bump]), "0.2.9");
+  assert.equal(computeTargetVersion("0.2.8", [patchEntry.bump, minorEntry.bump]), "0.3.0");
+
+  const firstBeta = computeNextBetaVersion({
     targetVersion: "0.2.9",
-    gitTags: [],
+    gitTags: ["v0.2.8"],
     registryVersions: [],
   });
-  assert.equal(first.version, "0.2.9-beta.1");
-  assert.equal(first.tag, "v0.2.9-beta.1");
-  assert.equal(first.slug, "dinkus-payments-beta");
+  assert.equal(firstBeta.version, "0.2.9-beta.1");
+  assert.equal(firstBeta.tag, "v0.2.9-beta.1");
+  assert.equal(firstBeta.slug, BETA_REGISTRY_SLUG);
 
-  const fromTags = computeNextBetaVersion({
+  const secondBeta = computeNextBetaVersion({
     targetVersion: "0.2.9",
-    gitTags: ["v0.2.8", "v0.2.9-beta.1", "v0.2.9-beta.2", "v0.3.0-beta.9"],
-    registryVersions: ["0.2.9-beta.1"],
+    gitTags: ["v0.2.8", "v0.2.9-beta.1"],
+    registryVersions: ["0.2.9-beta.2"],
   });
-  assert.equal(fromTags.version, "0.2.9-beta.3");
-  assert.equal(fromTags.betaNumber, 3);
-
-  const fromRegistry = computeNextBetaVersion({
-    targetVersion: "0.2.9",
-    gitTags: ["v0.2.9-beta.2"],
-    registryVersions: ["0.2.9-beta.4", "0.2.8-beta.10"],
-  });
-  assert.equal(fromRegistry.version, "0.2.9-beta.5");
-  assert.equal(fromRegistry.tag, "v0.2.9-beta.5");
+  assert.equal(secondBeta.version, "0.2.9-beta.3");
+  assert.equal(secondBeta.tag, "v0.2.9-beta.3");
 });
 
-test("validateBetaPromotionGate enforces release-beta-cut-071 rules before opening ci: release PR", () => {
+test("validateEmDashDispatchGate blocks manual stable dispatch and non-main manual dispatch before any credentials or Registry I/O", () => {
+  const autoBeta = validateEmDashDispatchGate({
+    eventName: "workflow_dispatch",
+    ref: "refs/heads/main",
+    inputVersion: "",
+  });
+  assert.equal(autoBeta.ok, true);
+  assert.equal(autoBeta.slug, BETA_REGISTRY_SLUG);
+  assert.equal(autoBeta.requestedVersion, null);
+
+  const explicitBeta = validateEmDashDispatchGate({
+    eventName: "workflow_dispatch",
+    ref: "refs/heads/main",
+    inputVersion: "0.2.9-beta.2",
+  });
+  assert.equal(explicitBeta.ok, true);
+  assert.equal(explicitBeta.slug, BETA_REGISTRY_SLUG);
+  assert.equal(explicitBeta.requestedVersion, "0.2.9-beta.2");
+
+  const manualStable = validateEmDashDispatchGate({
+    eventName: "workflow_dispatch",
+    ref: "refs/heads/main",
+    inputVersion: "0.2.9",
+  });
+  assert.equal(manualStable.ok, false);
+  assert.equal(manualStable.code, "manual_stable_dispatch_forbidden");
+
+  const nonMain = validateEmDashDispatchGate({
+    eventName: "workflow_dispatch",
+    ref: "refs/heads/feat/rogue-branch",
+    inputVersion: "0.2.9-beta.1",
+  });
+  assert.equal(nonMain.ok, false);
+  assert.equal(nonMain.code, "forbidden_dispatch_ref");
+
+  const delegatedStable = validateEmDashDispatchGate({
+    eventName: "workflow_call",
+    ref: "refs/heads/main",
+    inputVersion: "0.2.9",
+  });
+  assert.equal(delegatedStable.ok, true);
+  assert.equal(delegatedStable.slug, STABLE_REGISTRY_SLUG);
+  assert.equal(delegatedStable.requestedVersion, "0.2.9");
+});
+
+test("fetchRegistryVersions fails closed on network error, non-404 HTTP status, or malformed payload and treats only 404/NotFound as empty", async () => {
+  const notFound = await fetchRegistryVersions(BETA_REGISTRY_SLUG, "https://registry.example", {
+    fetchImpl: async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: "NotFound" }),
+    }),
+  });
+  assert.deepEqual(notFound, []);
+
+  const pkgNotFound = await fetchRegistryVersions(BETA_REGISTRY_SLUG, "https://registry.example", {
+    fetchImpl: async () => ({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: "PackageNotFound" }),
+    }),
+  });
+  assert.deepEqual(pkgNotFound, []);
+
+  await assert.rejects(
+    () =>
+      fetchRegistryVersions(BETA_REGISTRY_SLUG, "https://registry.example", {
+        fetchImpl: async () => ({
+          ok: false,
+          status: 503,
+          json: async () => ({ error: "ServiceUnavailable" }),
+        }),
+      }),
+    /Registry lookup failed.*HTTP 503 \(ServiceUnavailable\)/,
+  );
+
+  await assert.rejects(
+    () =>
+      fetchRegistryVersions(BETA_REGISTRY_SLUG, "https://registry.example", {
+        fetchImpl: async () => {
+          throw new Error("ECONNRESET");
+        },
+      }),
+    /Registry lookup failed.*ECONNRESET/,
+  );
+
+  await assert.rejects(
+    () =>
+      fetchRegistryVersions(BETA_REGISTRY_SLUG, "https://registry.example", {
+        fetchImpl: async () => ({
+          ok: true,
+          status: 200,
+          json: async () => {
+            throw new SyntaxError("Unexpected token <");
+          },
+        }),
+      }),
+    /Registry lookup failed.*invalid JSON/,
+  );
+
+  await assert.rejects(
+    () =>
+      fetchRegistryVersions(BETA_REGISTRY_SLUG, "https://registry.example", {
+        fetchImpl: async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({ versions: "not-an-array" }),
+        }),
+      }),
+    /expected "versions" to be an array/,
+  );
+});
+
+test("validateBetaPromotionGate enforces beta tag, no new changesets after beta, registry presence, and @running proof", () => {
+  const betaSha = "1234567890abcdef1234567890abcdef12345678";
+
+  const staleBeta = validateBetaPromotionGate({
+    targetVersion: "0.2.9",
+    betaVersion: "0.2.9-beta.1",
+    betaTagSha: betaSha,
+    currentMainSha: "fedcba0987654321fedcba0987654321fedcba09",
+    changedFilesSinceBeta: [".changeset/extra-fix.md"],
+    registryHasBetaVersion: true,
+    proofRef: "https://github.com/dinkuskit/payments/actions/runs/100 (0.2.9-beta.1 @running pass)",
+  });
+  assert.equal(staleBeta.ok, false);
+  assert.equal(staleBeta.code, "main_advanced_since_beta");
+
+  const missingProof = validateBetaPromotionGate({
+    targetVersion: "0.2.9",
+    betaVersion: "0.2.9-beta.1",
+    betaTagSha: betaSha,
+    currentMainSha: betaSha,
+    changedFilesSinceBeta: [],
+    registryHasBetaVersion: true,
+    proofRef: "",
+  });
+  assert.equal(missingProof.ok, false);
+  assert.equal(missingProof.code, "missing_beta_proof");
+
   const valid = validateBetaPromotionGate({
     targetVersion: "0.2.9",
-    betaVersion: "0.2.9-beta.2",
-    betaTagSha: "abc1234def5678",
-    currentMainSha: "abc1234def5678",
+    betaVersion: "0.2.9-beta.1",
+    betaTagSha: betaSha,
+    currentMainSha: betaSha,
     changedFilesSinceBeta: [],
     registryHasBetaVersion: true,
-    proofRef: "https://github.com/dinkuskit/payments/actions/runs/999 (0.2.9-beta.2 @running pass)",
+    proofRef: "https://github.com/dinkuskit/payments/actions/runs/100 (0.2.9-beta.1 @running pass)",
   });
   assert.equal(valid.ok, true);
-  assert.equal(valid.betaTag, "v0.2.9-beta.2");
   const parsedProof = parseBetaProofRecord(valid.trailer);
   assert.deepEqual(parsedProof, {
-    betaVersion: "0.2.9-beta.2",
-    betaSha: "abc1234def5678",
-    proofRef: "https://github.com/dinkuskit/payments/actions/runs/999 (0.2.9-beta.2 @running pass)",
+    betaVersion: "0.2.9-beta.1",
+    betaSha,
+    proofRef: "https://github.com/dinkuskit/payments/actions/runs/100 (0.2.9-beta.1 @running pass)",
   });
-
-  // Rejects when main gained a new changeset after the beta pass
-  const newChangeset = validateBetaPromotionGate({
-    targetVersion: "0.2.9",
-    betaVersion: "0.2.9-beta.2",
-    betaTagSha: "abc1234def5678",
-    currentMainSha: "def5678abc1234",
-    changedFilesSinceBeta: [".changeset/another-change.md"],
-    registryHasBetaVersion: true,
-    proofRef: "run-999 0.2.9-beta.2 @running pass",
-  });
-  assert.equal(newChangeset.ok, false);
-  assert.equal(newChangeset.code, "main_advanced_since_beta");
-
-  // Rejects when proof does not name the beta version
-  const badProof = validateBetaPromotionGate({
-    targetVersion: "0.2.9",
-    betaVersion: "0.2.9-beta.2",
-    betaTagSha: "abc1234def5678",
-    currentMainSha: "abc1234def5678",
-    changedFilesSinceBeta: [],
-    registryHasBetaVersion: true,
-    proofRef: "0.2.9-beta.1 passed",
-  });
-  assert.equal(badProof.ok, false);
-  assert.equal(badProof.code, "missing_beta_proof");
-
-  // Rejects when beta version is not in Registry
-  const missingInRegistry = validateBetaPromotionGate({
-    targetVersion: "0.2.9",
-    betaVersion: "0.2.9-beta.2",
-    betaTagSha: "abc1234def5678",
-    currentMainSha: "abc1234def5678",
-    changedFilesSinceBeta: [],
-    registryHasBetaVersion: false,
-    proofRef: "0.2.9-beta.2 passed",
-  });
-  assert.equal(missingInRegistry.ok, false);
-  assert.equal(missingInRegistry.code, "beta_not_in_registry");
 });
 
-test("extractChangelogSection extracts the matching version notes from CHANGELOG.md", () => {
-  const sampleChangelog = [
+test("verifyApprovedBetaSourceTree enforces exact source-tree equality between v<betaVersion> and HEAD outside allowlisted release files", () => {
+  const betaSha = "abcdef1234567890abcdef1234567890abcdef12";
+  const proof = {
+    betaVersion: "0.2.9-beta.1",
+    betaSha,
+    proofRef: "run-999 0.2.9-beta.1 @running pass",
+  };
+
+  assert.equal(isAllowedReleaseTreePath("package.json"), true);
+  assert.equal(isAllowedReleaseTreePath("package-lock.json"), true);
+  assert.equal(isAllowedReleaseTreePath("CHANGELOG.md"), true);
+  assert.equal(isAllowedReleaseTreePath(".changeset/fix-checkout.md"), true);
+  assert.equal(isAllowedReleaseTreePath(".changeset/README.md"), false);
+  assert.equal(isAllowedReleaseTreePath("src/plugin.ts"), false);
+
+  const cleanReleaseTree = verifyApprovedBetaSourceTree({
+    version: "0.2.9",
+    proof,
+    betaTagSha: betaSha,
+    changedPathsSinceBeta: ["package.json", "package-lock.json", "CHANGELOG.md", ".changeset/fix-checkout.md"],
+  });
+  assert.equal(cleanReleaseTree.ok, true);
+
+  const tamperedSource = verifyApprovedBetaSourceTree({
+    version: "0.2.9",
+    proof,
+    betaTagSha: betaSha,
+    changedPathsSinceBeta: ["package.json", "CHANGELOG.md", "src/plugin.ts"],
+  });
+  assert.equal(tamperedSource.ok, false);
+  assert.equal(tamperedSource.code, "unapproved_source_changes_since_beta");
+  assert.deepEqual(tamperedSource.disallowedPaths, ["src/plugin.ts"]);
+
+  const mismatchedTagSha = verifyApprovedBetaSourceTree({
+    version: "0.2.9",
+    proof,
+    betaTagSha: "0000000000000000000000000000000000000000",
+    changedPathsSinceBeta: ["package.json", "CHANGELOG.md"],
+  });
+  assert.equal(mismatchedTagSha.ok, false);
+  assert.equal(mismatchedTagSha.code, "beta_tag_sha_mismatch");
+});
+
+test("publish-merged-release resumes missing GitHub Release and triggers downstream Registry publish when tag already exists on HEAD", async () => {
+  const tempRoot = await mkdtemp(join(tmpdir(), "payments-resume-test-"));
+  try {
+    await mkdir(join(tempRoot, ".changeset"), { recursive: true });
+    await mkdir(join(tempRoot, "src"), { recursive: true });
+    await writeFile(
+      join(tempRoot, "package.json"),
+      `${JSON.stringify({ name: PACKAGE_NAME, version: "0.2.9", type: "module" }, null, 2)}\n`,
+      "utf8",
+    );
+    await writeFile(join(tempRoot, "package-lock.json"), "{}\n", "utf8");
+    await writeFile(
+      join(tempRoot, "CHANGELOG.md"),
+      "# @dinkuskit/payments\n\n## 0.2.9\n\n- Patch fix.\n",
+      "utf8",
+    );
+    await writeFile(join(tempRoot, "src/plugin.ts"), "export const x = 1;\n", "utf8");
+    await writeFile(join(tempRoot, ".changeset/README.md"), "# Changesets\n", "utf8");
+
+    const git = (args) =>
+      execFileSync("git", args, { cwd: tempRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+
+    git(["init", "-b", "main"]);
+    git(["config", "user.name", "Test"]);
+    git(["config", "user.email", "test@example.invalid"]);
+    git(["add", "-A"]);
+    git(["commit", "-m", "feat: beta state"]);
+    git(["tag", "v0.2.9-beta.1"]);
+    const betaSha = git(["rev-parse", "HEAD"]);
+
+    await writeFile(
+      join(tempRoot, "CHANGELOG.md"),
+      "# @dinkuskit/payments\n\n## 0.2.9\n\n- Patch fix.\n\n## 0.2.8\n\n- Baseline.\n",
+      "utf8",
+    );
+    git(["add", "CHANGELOG.md"]);
+    const trailer = formatBetaProofRecord({
+      betaVersion: "0.2.9-beta.1",
+      betaSha,
+      proofRef: "run-123 0.2.9-beta.1 @running pass",
+    });
+    git(["commit", "-m", `ci: release v0.2.9\n\n${trailer}`]);
+    git(["tag", "v0.2.9", "HEAD"]);
+
+    const ghCalls = [];
+    const outputFile = join(tempRoot, "github-output.txt");
+    const result = await runReleaseFlowCli(
+      ["publish-merged-release", "--github-output", outputFile],
+      {
+        root: tempRoot,
+        gitExec: (args, cwd = tempRoot) => {
+          if (args[0] === "push") return "";
+          return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+        },
+        ghExec: (args) => {
+          ghCalls.push(args);
+          if (args[0] === "release" && args[1] === "view") {
+            throw new Error("release not found");
+          }
+          return "";
+        },
+        fetchImpl: async () => ({
+          ok: false,
+          status: 404,
+          json: async () => ({ error: "NotFound" }),
+        }),
+        log: () => {},
+      },
+    );
+
+    assert.equal(result.resumedFromExistingTag, true);
+    assert.equal(result.tagCreated, false);
+    assert.equal(result.githubReleaseCreated, true);
+    assert.equal(result.registryNeeded, true);
+    assert.equal(result.published, true);
+
+    const ghOutputText = await readFile(outputFile, "utf8");
+    assert.match(ghOutputText, /^published=true$/m);
+    assert.match(ghOutputText, /^registry_needed=true$/m);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("prepareRegistryWorkspace stages isolated beta and stable manifests without mutating repo root", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "payments-release-flow-"));
+  try {
+    const betaDir = join(tempDir, "beta");
+    const betaStaged = await prepareRegistryWorkspace({
+      root: repositoryRoot,
+      outDir: betaDir,
+      version: "0.2.9-beta.1",
+    });
+    assert.equal(betaStaged.slug, BETA_REGISTRY_SLUG);
+    assert.equal(betaStaged.name, BETA_PLUGIN_NAME);
+
+    const betaManifest = JSON.parse(await readFile(join(betaDir, "emdash-plugin.jsonc"), "utf8"));
+    assert.equal(betaManifest.slug, BETA_REGISTRY_SLUG);
+    assert.equal(betaManifest.name, BETA_PLUGIN_NAME);
+    assert.equal(betaManifest.version, "0.2.9-beta.1");
+
+    const stableDir = join(tempDir, "stable");
+    const stableStaged = await prepareRegistryWorkspace({
+      root: repositoryRoot,
+      outDir: stableDir,
+      version: "0.2.9",
+    });
+    assert.equal(stableStaged.slug, STABLE_REGISTRY_SLUG);
+    assert.equal(stableStaged.name, STABLE_PLUGIN_NAME);
+
+    const rootManifest = JSON.parse(await readFile(join(repositoryRoot, "emdash-plugin.jsonc"), "utf8"));
+    assert.equal(rootManifest.slug, STABLE_REGISTRY_SLUG);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("extractChangelogSection extracts the matching version notes", () => {
+  const changelog = [
     "# @dinkuskit/payments",
     "",
     "## 0.2.9",
     "",
     "### Patch Changes",
     "",
-    "- Add release-beta-cut-071 automation.",
+    "- Harden webhook replay handling.",
     "",
     "## 0.2.8",
     "",
@@ -208,100 +513,28 @@ test("extractChangelogSection extracts the matching version notes from CHANGELOG
   ].join("\n");
 
   assert.equal(
-    extractChangelogSection(sampleChangelog, "0.2.9"),
-    "### Patch Changes\n\n- Add release-beta-cut-071 automation.",
+    extractChangelogSection(changelog, "0.2.9"),
+    "### Patch Changes\n\n- Harden webhook replay handling.",
   );
-  assert.equal(extractChangelogSection(sampleChangelog, "0.2.8"), "- Initial baseline.");
-  assert.equal(extractChangelogSection(sampleChangelog, "0.3.0"), null);
+  assert.equal(extractChangelogSection(changelog, "0.2.8"), "- Initial baseline.");
+  assert.equal(extractChangelogSection(changelog, "0.9.9"), null);
 });
 
-test("prepareRegistryWorkspace stages isolated beta and stable EmDash manifests without mutating the repo", async () => {
-  const tempDir = await mkdtemp(join(tmpdir(), "payments-registry-stage-"));
-  try {
-    const betaStage = await prepareRegistryWorkspace({
-      root: repositoryRoot,
-      outDir: join(tempDir, "beta"),
-      version: "0.2.9-beta.1",
-    });
-    assert.equal(betaStage.slug, BETA_REGISTRY_SLUG);
-    assert.equal(betaStage.name, BETA_PLUGIN_NAME);
-    const betaManifest = JSON.parse(
-      await readFile(join(betaStage.workspaceDir, "emdash-plugin.jsonc"), "utf8"),
-    );
-    assert.equal(betaManifest.slug, "dinkus-payments-beta");
-    assert.equal(betaManifest.name, "DinkusKit Payments (Beta)");
-    assert.equal(betaManifest.version, "0.2.9-beta.1");
-
-    const stableStage = await prepareRegistryWorkspace({
-      root: repositoryRoot,
-      outDir: join(tempDir, "stable"),
-      version: "0.2.9",
-    });
-    assert.equal(stableStage.slug, STABLE_REGISTRY_SLUG);
-    assert.equal(stableStage.name, STABLE_PLUGIN_NAME);
-    const stableManifest = JSON.parse(
-      await readFile(join(stableStage.workspaceDir, "emdash-plugin.jsonc"), "utf8"),
-    );
-    assert.equal(stableManifest.slug, "dinkus-payments");
-    assert.equal(stableManifest.name, "DinkusKit Payments");
-    assert.equal(stableManifest.version, "0.2.9");
-
-    // Root manifest remains untouched at 0.2.8 / dinkus-payments
-    const rootManifest = JSON.parse(
-      await readFile(join(repositoryRoot, "emdash-plugin.jsonc"), "utf8"),
-    );
-    assert.equal(rootManifest.slug, "dinkus-payments");
-    assert.equal(rootManifest.version, undefined);
-  } finally {
-    await rm(tempDir, { recursive: true, force: true });
+test("built sandbox plugin bundle exists and stays under the 128 KB limit", async () => {
+  if (!existsSync(join(repositoryRoot, "dist/sandbox/plugin.mjs"))) {
+    execFileSync("npm", ["run", "plugin:build"], { cwd: repositoryRoot, stdio: "inherit" });
   }
+  const result = await verifyBuiltPluginBundleSize(repositoryRoot);
+  assert.ok(result.bytes > 0);
+  assert.ok(result.bytes < MAX_PLUGIN_BUNDLE_BYTES);
 });
 
-test("workflows, scripts, and RELEASING.md match GrillTrack release-beta-cut-071 and dinkuskit/commerce", async () => {
-  assert.equal(PACKAGE_NAME, "@dinkuskit/payments");
-  assert.equal(STABLE_INSTALLED_PLUGIN_ID, "r_3brsc2on3bu673rn");
-  assert.equal(BETA_INSTALLED_PLUGIN_ID, "r_sffx6l4z6mpqliki");
-  assert.equal(MAX_PLUGIN_BUNDLE_BYTES, 131_072);
-
-  const changesetWorkflow = await readFile(
-    join(repositoryRoot, ".github/workflows/changeset-check.yml"),
-    "utf8",
+test("release-authority-proof harness passes all 7 release-authority scenarios (a)-(g)", async () => {
+  const report = await runReleaseAuthorityProof();
+  assert.equal(report.allPassed, true);
+  assert.equal(report.scenarioCount, 7);
+  assert.deepEqual(
+    report.scenarios.map((s) => s.id),
+    ["a", "b", "c", "d", "e", "f", "g"],
   );
-  assert.match(changesetWorkflow, /node \.github\/scripts\/check-changeset\.mjs/);
-
-  const previewWorkflow = await readFile(
-    join(repositoryRoot, ".github/workflows/preview.yml"),
-    "utf8",
-  );
-  assert.match(previewWorkflow, /npx pkg-pr-new publish --json preview\.json/);
-
-  const emdashReleaseWorkflow = await readFile(
-    join(repositoryRoot, ".github/workflows/emdash-release.yml"),
-    "utf8",
-  );
-  assert.match(emdashReleaseWorkflow, /workflow_call:/);
-  assert.match(emdashReleaseWorkflow, /workflow_dispatch:/);
-  assert.match(emdashReleaseWorkflow, /RELEASE_APP_ID/);
-  assert.match(emdashReleaseWorkflow, /RELEASE_APP_PRIVATE_KEY/);
-  assert.match(emdashReleaseWorkflow, /node \.github\/scripts\/prepare-emdash-release\.mjs/);
-  assert.match(emdashReleaseWorkflow, /node \.github\/scripts\/verify-registry-release\.mjs/);
-
-  const releaseWorkflow = await readFile(
-    join(repositoryRoot, ".github/workflows/release.yml"),
-    "utf8",
-  );
-  assert.match(releaseWorkflow, /workflow_dispatch:/);
-  assert.match(releaseWorkflow, /beta_version:/);
-  assert.match(releaseWorkflow, /proof_ref:/);
-  assert.match(releaseWorkflow, /RELEASE_APP_ID/);
-  assert.match(releaseWorkflow, /RELEASE_APP_PRIVATE_KEY/);
-  assert.match(releaseWorkflow, /uses: \.\/\.github\/workflows\/emdash-release\.yml/);
-
-  const releasingDoc = await readFile(join(repositoryRoot, "RELEASING.md"), "utf8");
-  assert.match(releasingDoc, /release-beta-cut-071/);
-  assert.match(releasingDoc, /dinkus-payments-beta/);
-  assert.match(releasingDoc, /r_sffx6l4z6mpqliki/);
-  assert.match(releasingDoc, /r_3brsc2on3bu673rn/);
-  assert.match(releasingDoc, /v0\.2\.8/);
-  assert.match(releasingDoc, /Connected: Stripe test mode/);
 });

@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 export const repositoryRoot = join(here, "..");
 
+export const WORKFLOW_SHA_PIN_PATTERN = /^[^\s@#]+\/[^\s@#]+@[0-9a-f]{40}$/;
+
 const requiredFiles = [
   ".changeset/README.md",
   ".changeset/config.json",
@@ -38,6 +40,7 @@ const requiredFiles = [
   "docs/README.md",
   "package-lock.json",
   "package.json",
+  "scripts/release-authority-proof.mjs",
   "scripts/release-flow.mjs",
 ];
 
@@ -72,6 +75,26 @@ async function walk(root, directory = root) {
   return paths;
 }
 
+export function auditWorkflowActionPins(workflowContent, relPath = ".github/workflows/unknown.yml") {
+  const findings = [];
+  const lines = String(workflowContent).replace(/\r\n/g, "\n").split("\n");
+  for (let idx = 0; idx < lines.length; idx += 1) {
+    const line = lines[idx];
+    const match = /^\s*(?:-\s*)?uses:\s*([^\s#]+)/.exec(line);
+    if (!match) continue;
+    const usesTarget = match[1].trim().replace(/^["']|["']$/g, "");
+    if (usesTarget.startsWith("./")) {
+      continue;
+    }
+    if (!WORKFLOW_SHA_PIN_PATTERN.test(usesTarget)) {
+      findings.push(
+        `workflow action not pinned to 40-char commit SHA in ${relPath}:${idx + 1} (${usesTarget})`,
+      );
+    }
+  }
+  return findings;
+}
+
 export async function auditRepository(root = repositoryRoot) {
   const findings = [];
   const files = await walk(root);
@@ -91,6 +114,13 @@ export async function auditRepository(root = repositoryRoot) {
     const extension = path.includes(".") ? `.${path.split(".").at(-1)}` : "";
     if (forbiddenExtensions.has(extension)) {
       findings.push(`forbidden sensitive-data path: ${path}`);
+    }
+    if (
+      path.startsWith(".github/workflows/") &&
+      (path.endsWith(".yml") || path.endsWith(".yaml"))
+    ) {
+      const workflowContent = await readFile(join(root, path), "utf8");
+      findings.push(...auditWorkflowActionPins(workflowContent, path));
     }
   }
 

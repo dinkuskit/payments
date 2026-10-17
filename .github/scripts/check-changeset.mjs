@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseChangesetFrontmatter } from "../../scripts/release-flow.mjs";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const baseRef = process.env.CHANGESET_BASE_REF?.trim() || "origin/main";
@@ -45,6 +46,13 @@ function listChangedChangesets(base) {
   }
 }
 
+function validateChangesetFiles(files) {
+  for (const relPath of files) {
+    const content = readFileSync(resolve(rootDir, relPath), "utf8");
+    parseChangesetFrontmatter(content, relPath);
+  }
+}
+
 const headSubject = readHeadSubject();
 if (RELEASE_SUBJECT_PATTERN.test(prTitle) || RELEASE_SUBJECT_PATTERN.test(headSubject)) {
   console.log("Skipping changeset requirement for automated release PR/commit.");
@@ -58,12 +66,14 @@ if (ALLOWED_BOT_AUTHORS.has(prUser)) {
 
 const changedChangesets = listChangedChangesets(baseRef);
 if (changedChangesets.length > 0) {
+  validateChangesetFiles(changedChangesets);
   console.log(`Found changeset(s) in diff against ${baseRef}: ${changedChangesets.join(", ")}`);
   process.exit(0);
 }
 
 const pendingChangesets = listPendingChangesets();
 if (pendingChangesets.length > 0 && !process.env.GITHUB_BASE_REF) {
+  validateChangesetFiles(pendingChangesets);
   console.log(`Found pending changeset(s) in worktree: ${pendingChangesets.join(", ")}`);
   process.exit(0);
 }
