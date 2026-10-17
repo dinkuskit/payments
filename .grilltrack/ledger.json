@@ -2543,6 +2543,35 @@
       "superseded_by": null,
       "updated_at": "2026-10-12T18:35:45+00:00",
       "verification_ref": null
+    },
+    {
+      "baseline_ref": "git:922e0de9d86ca935bdca852f44552c6c34c50203",
+      "candidate_refs": [],
+      "choice": "Wording and status mapping only. A Stripe connection Payments verified in TEST mode shows the banner 'Connected: Stripe test mode' (no alert) and the Connect payments step 'Connected: Stripe test mode', saying test card payments work and real payments need a live Stripe connection. When the page's own sign-in cannot read status (expired, another admin or store, or refused by Payments), the banner reads 'Payment status not checked' (no alert), both steps read 'Not checked', the step says checkout doesn't use this sign-in, and the Connect button reads 'Sign in again' and runs the same Connect flow with the same site binding. 'Not ready to sell' (alert) remains for every other case, including nothing connected. 'Set up or resume Stripe' still appears only after a successful status read without verified Stripe evidence. Ready to sell still needs a verified live connection and a saved TEST order (029). Replaces 034's sentence that the overall result stays Not ready to sell in TEST mode. No change to connection evidence, verification, checkout, transport or routes.",
+      "context_ref": "github:dinkuskit/payments",
+      "created_at": "2026-10-17T18:26:04+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-one-screen-setup-029",
+        "payments-test-order-check-034"
+      ],
+      "domain": "Payment setup TEST-order check",
+      "history": [],
+      "id": "payments-setup-status-wording-037",
+      "implementation_ref": null,
+      "question": "What does the Payments setup page say when Stripe is verified only in TEST mode, or when the page's own DinkusKit sign-in can no longer read status?",
+      "rationale": "Ronald, 17 Oct 2026: the page said Not ready to sell and needs attention on a store whose TEST checkout paid fine, because the page's status sign-in had lapsed; he asked for 'Connected: Stripe test mode' instead.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "proposed",
+      "superseded_by": null,
+      "updated_at": "2026-10-17T18:26:04+00:00",
+      "verification_ref": null
     }
   ],
   "last_activation": {
@@ -2565,5 +2594,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-12T18:35:45+00:00"
+  "updated_at": "2026-10-17T18:26:04+00:00"
 }

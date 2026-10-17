@@ -101,9 +101,9 @@ test("setup projection asks for a test order until Commerce confirms one", () =>
       },
     },
   });
-  assert.equal(verifiedTest.overall, "Not ready to sell");
-  assert.equal(verifiedTest.steps[0].status, "incomplete");
-  assert.match(verifiedTest.steps[0].description, /TEST payments only/);
+  assert.equal(verifiedTest.overall, "Connected: Stripe test mode");
+  assert.equal(verifiedTest.steps[0].status, "test_mode");
+  assert.equal(verifiedTest.steps[0].description, "Test card payments work at checkout. Real customer payments need a live Stripe connection, which isn't set up yet.");
   assert.equal(verifiedTest.steps[1].status, "incomplete");
   assert.equal(
     verifiedTest.steps[1].description,
@@ -275,8 +275,8 @@ test("TEST-order step completes only once Commerce saved the provider-paid order
     saved.steps[1].description,
     "Stripe confirmed a paid TEST order of $12.00 on Oct 11, 2026 at 2:31 PM UTC, and Commerce saved it. You'll find it in Orders, marked TEST.",
   );
-  assert.equal(saved.steps[0].status, "incomplete");
-  assert.equal(saved.overall, "Not ready to sell");
+  assert.equal(saved.steps[0].status, "test_mode");
+  assert.equal(saved.overall, "Connected: Stripe test mode");
 
   const saving = screen("awaiting_commerce");
   assert.equal(saving.steps[1].status, "incomplete");
@@ -308,7 +308,22 @@ test("TEST-order step completes only once Commerce saved the provider-paid order
     status: { availability: "available", status: withTestOrder(recorded), message: "Payments status checked." },
   }));
   assert.match(rendered, /Place a test order: Complete\. Stripe confirmed a paid TEST order of \$12\.00/);
-  assert.match(rendered, /Not ready to sell/);
+  assert.match(rendered, /Connect payments: Connected: Stripe test mode\. Test card payments work at checkout/);
+  assert.match(rendered, /"title":"Connected: Stripe test mode","description":"Shoppers can pay with Stripe test cards\. Real customer payments need a live Stripe connection\.","variant":"default"/);
+  assert.doesNotMatch(rendered, /Not ready to sell|Set up or resume Stripe/);
+});
+
+test("a lapsed setup-page sign-in reads as unchecked, not as a broken connection", () => {
+  const screen = projectSetupScreen({ state: "action_required" });
+  assert.equal(screen.overall, "Payment status not checked");
+  assert.deepEqual(screen.steps.map(step => step.status), ["unchecked", "unchecked"]);
+  assert.match(screen.steps[0].description, /DinkusKit sign-in has expired or no longer matches this admin and store\. Select Sign in again to refresh it\. Checkout doesn't use this sign-in\./);
+  const rendered = JSON.stringify(renderSetupScreen({ state: "action_required" }));
+  assert.match(rendered, /Connect payments: Not checked\./);
+  assert.match(rendered, /Place a test order: Not checked\./);
+  assert.match(rendered, /"label":"Sign in again","action_id":"connect"/);
+  assert.doesNotMatch(rendered, /Not ready to sell|needs attention|Set up or resume Stripe|"variant":"alert"/);
+  assert.match(JSON.stringify(renderSetupScreen({ state: "disconnected" })), /"title":"Not ready to sell".*"label":"Connect","action_id":"connect"/);
 });
 
 test("TEST-order step says what comes first when there is no paid TEST order", () => {
