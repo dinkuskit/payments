@@ -7,7 +7,7 @@ import { decodeDiagnostics } from '../src/connection-diagnostics.ts';
 import { createHostedHandler } from '../src/hosted/http.ts';
 const owner = { accountId: 'synthetic-owner', siteId: 'synthetic-site' };
 const now = 1_800_000_000_000;
-function fixture() {
+function fixture(providerOverrides = {}) {
   let saved = null, writes = 0, failure = new Error('synthetic-private-material'), time = now;
   const calls = [];
   const store = { transaction: fn => fn({ read: () => structuredClone(saved), write: value => { writes++; saved = structuredClone(value); } }) };
@@ -15,6 +15,7 @@ function fixture() {
     async createAccount(key) { calls.push(key); if (failure) throw failure; return 'acct_synthetic'; },
     async accountStatus(id) { return { id, ready: true, actionRequired: false }; },
     async createLink() { throw Error('unexpected'); },
+    ...providerOverrides,
   };
   const service = createConnectionService({ store, provider, mode: 'test', now: () => time, newId: () => 'fixed' });
   return { service, calls, saved: () => saved, writes: () => writes, seed: x => { saved = x; }, succeed: () => { failure = null; }, advance: ms => { time += ms; } };
@@ -44,6 +45,34 @@ test('failure keeps binding and retry window; diagnostics reads never call provi
   assert.equal(f.saved().startedAt, record.startedAt); assert.equal(f.saved().bindingRef, record.bindingRef);
   f.advance(23 * 60 * 60 * 1000); await f.service.connect(owner);
   assert.equal(f.calls.length, 2); assert.equal(f.service.diagnostics(owner).state, 'recovery_required');
+});
+test('recent consumed country repair has matching read-only recovery diagnostics', async () => {
+  const providerCalls = [];
+  const unexpectedCall = method => async () => { providerCalls.push(method); throw Error('unexpected provider call'); };
+  const f = fixture({
+    creationProtocol: 'accounts_v2',
+    creationScope: unexpectedCall('creationScope'),
+    createAccount: unexpectedCall('createAccount'),
+    accountStatus: unexpectedCall('accountStatus'),
+    createLink: unexpectedCall('createLink'),
+  });
+  const lastFailure = { category: 'unknown', status: 409, at: now - 100 };
+  f.seed({
+    bindingRef: 'stripe_fixed', owner, mode: 'test', providerId: 'stripe',
+    startedAt: now - 1000, stripeAccountId: null, authorizeNetMerchantId: null,
+    creationProtocol: 'accounts_v2', creationScope: 'acct_synthetic_platform', creationCountry: 'US',
+    creationCountryRepair: { code: 'identity_country_required', failureAt: now - 500 },
+    creationFailure: lastFailure,
+  });
+  const before = JSON.stringify(f.saved()), writes = f.writes();
+  assert.equal((await f.service.status(owner)).state, 'recovery_required');
+  assert.deepEqual(f.service.diagnostics(owner), {
+    state: 'recovery_required', mode: 'test', processorAccountPresent: false,
+    evidence: 'observed', lastFailure,
+  });
+  assert.equal(JSON.stringify(f.saved()), before);
+  assert.equal(f.writes(), writes);
+  assert.deepEqual(providerCalls, []);
 });
 test('success clears failure and legacy reads remain unobserved without normalization', async () => {
   const f = fixture(); await f.service.connect(owner); f.succeed(); await f.service.connect(owner);
