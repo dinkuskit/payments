@@ -334,6 +334,20 @@ test("release inventory follows the manifest publisher and all PDS pages, includ
   }), []);
 });
 
+test("release inventory reads JSONC publisher identity and rejects malformed syntax", async () => {
+  const root = await mkdtemp(join(tmpdir(), "payments-jsonc-publisher-"));
+  try {
+    const manifestPath = join(root, "emdash-plugin.jsonc");
+    const fetchImpl = mockPdsFetch(jsonResponse({ records: [] }));
+    await writeFile(manifestPath, `{ // publisher identity\n "publisher": "${TEST_PUBLISHER}",\n}`);
+    assert.deepEqual(await fetchRegistryVersions(BETA_REGISTRY_SLUG, { root, fetchImpl }), []);
+    await writeFile(manifestPath, `{"publisher": "${TEST_PUBLISHER}", broken}`);
+    await assert.rejects(() => fetchRegistryVersions(BETA_REGISTRY_SLUG, { root, fetchImpl }), /JSONC/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("release inventory failures abort beta tagging and release checks", async () => {
   const malformedCases = [
     { name: "network failure", response: () => { throw new Error("fetch failed"); }, pattern: /fetch failed/ },

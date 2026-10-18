@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { appendFile, cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse as parseJsonc } from "jsonc-parser";
 import { resolvePdsEndpoint } from "../.github/scripts/verify-registry-release.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -792,7 +793,13 @@ export async function fetchRegistryVersions(
   if (typeof fetchImpl !== "function") {
     throw new Error(`Registry lookup failed for ${slug}: fetch implementation is unavailable.`);
   }
-  const manifest = JSON.parse(await readFile(join(root, "emdash-plugin.jsonc"), "utf8"));
+  const parseErrors = [];
+  const manifest = parseJsonc(await readFile(join(root, "emdash-plugin.jsonc"), "utf8"), parseErrors, {
+    allowTrailingComma: true,
+  });
+  if (parseErrors.length || !manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    throw new Error("Invalid JSONC in emdash-plugin.jsonc.");
+  }
   const publisherDid = manifest.publisher;
   if (typeof publisherDid !== "string" || !/^did:(?:plc|web):[^\s/?#]+$/.test(publisherDid)) {
     throw new Error("Release inventory requires a publisher DID in emdash-plugin.jsonc.");

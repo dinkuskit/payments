@@ -33,9 +33,9 @@ removed. Release dispatch and promotion gates remain in place.
 Node: 22.23.2, matching `.nvmrc`.
 
 - New regression tests failed against the old API implementation (2 failures).
-- `node --test tests/release-flow.test.mjs`: 17 passed, 0 failed,
+- `node --test tests/release-flow.test.mjs`: 18 passed, 0 failed,
   including all 12 release-authority scenarios.
-- `npm test` from a clean tracked-source snapshot: 248 passed, 0 failed.
+- `npm test` from a clean tracked-source snapshot: 249 passed, 0 failed.
 - `npm run typecheck`: exit 0.
 - `npm run audit:repo` from that snapshot: `public_repository_contract=clean`.
 - `git diff --check`: exit 0.
@@ -55,3 +55,15 @@ local proof without changing the audit.
 This proof covers source behavior and read-only live inventory, not a successful
 publication. No tag, release or publishing approval was created by validation.
 A main-branch retry requires the reviewed source to be merged by the owner.
+
+## Review repair 1
+
+OpenClaw reviewed `d4a4455700f06a32190045912e10231171ca2cec` comprehensively
+through P3 and identified one P2: strict JSON parsing rejects valid comments and
+trailing commas in `emdash-plugin.jsonc`. Accepted as `required_fix`.
+
+The inventory now uses pinned `jsonc-parser@3.3.1`, rejects syntax errors, and
+has a regression test for comments, trailing commas and malformed JSONC. The
+new test failed before repair; the final clean-source suite passed all 249
+tests. Typecheck, public repository audit and live read-only beta planning pass.
+The package-lock change only declares the already locked parser directly.
