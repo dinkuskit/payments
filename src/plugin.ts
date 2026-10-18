@@ -18,6 +18,11 @@ function buildConnection(ctx: {
   return createRegistryConnection({ ...ctx, config });
 }
 
+// A saved sign-in whose status could not be read in the same request.
+function authorizedOr(result: Awaited<ReturnType<ReturnType<typeof createRegistryConnection>["exchange"]>>) {
+  return result.state === "ready" && result.status === undefined ? { state: "authorized" } : result;
+}
+
 export function createPaymentsPlugin(config: PaymentsPluginConfig = DEFAULT_CONFIG): SandboxedPlugin {
   return {
   routes: {
@@ -29,6 +34,7 @@ export function createPaymentsPlugin(config: PaymentsPluginConfig = DEFAULT_CONF
         if (!routeCtx.user) return renderSetupScreen({ state: "failed", message: "connection_unavailable" });
         const connection = buildConnection(ctx, config);
         const input = routeCtx.input && typeof routeCtx.input === "object" ? routeCtx.input as Record<string, unknown> : {};
+        const user = routeCtx.user;
         const type = input.type;
         const actionId = input.action_id;
         try {
@@ -36,16 +42,11 @@ export function createPaymentsPlugin(config: PaymentsPluginConfig = DEFAULT_CONF
             if (actionId === "check_provider_identity") return renderSetupScreen(await connection.providerIdentity(routeCtx.user));
             if (actionId === "setup_processor") return renderSetupScreen(await connection.setupProcessor(routeCtx.user));
             if (actionId === "connect") return renderSetupScreen(await connection.start(routeCtx.user));
-            if (actionId === "continue") {
-              const result = await connection.exchange(routeCtx.user);
-              return renderSetupScreen(result.state === "ready" && result.status === undefined ? { state: "authorized" } : result);
-            }
-            if (actionId === "check") {
-              const result = await connection.exchange(routeCtx.user);
-              return renderSetupScreen(result.state === "ready" && result.status === undefined ? { state: "authorized" } : result);
-            }
+            if (actionId === "continue" || actionId === "check") return renderSetupScreen(authorizedOr(await connection.exchange(user)));
           }
-          return renderSetupScreen(await connection.status(routeCtx.user));
+          // DinkusKit's Approve sends the owner back to this page, so a pending
+          // sign-in is checked on load; anything else is the usual status read.
+          return renderSetupScreen(authorizedOr(await connection.exchange(user, { wait: false })));
         } catch {
           return renderSetupScreen({ state: "failed", message: "connection_unavailable" });
         }

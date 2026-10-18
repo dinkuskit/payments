@@ -21,6 +21,7 @@ export type HttpAccess = { fetch(url: string, init?: RequestInit): Promise<Respo
 export type Versioned<T> = { value: T; revision: string };
 export type KVAccess = {
   get<T>(key: string): Promise<T | null>;
+  set(key: string, value: unknown): Promise<void>;
   getVersioned<T>(key: string): Promise<Versioned<T> | null>;
   compareAndSet(key: string, expectedRevision: string | null, value: unknown): Promise<{ applied: boolean }>;
   compareAndDelete(key: string, expectedRevision: string): Promise<{ applied: boolean }>;
@@ -50,6 +51,10 @@ const CONTROL_KEY = "state:registry-v2-control";
 const SITE_ID_RE = /^[A-Za-z0-9_-]{1,200}$/;
 const MAX_TRANSACTION_MS = 600_000;
 const MAX_TOKEN_MS = 300_000;
+// Continue waits out a short DinkusKit poll interval instead of showing the
+// same pending screen, which reads as a failed approval.
+const MAX_POLL_WAIT_MS = 10_000;
+const LAST_STATUS_KEY = "state:last-status";
 
 export type RegistryConfig = Readonly<{
   endpoint: Readonly<{ status: string }> | null;
@@ -66,6 +71,11 @@ export type ProofReceipt = Readonly<{
 type Binding = { siteId: string; origin: string; issuer: string; subject: string };
 type FlowSecret = { kind: "flow"; flowId: string; verifier: string };
 type SessionSecret = { kind: "session"; flowId: string; token: string };
+type LastStatus = { siteId: string; origin: string; adminId: string; checkedAt: number; status: unknown };
+// Closed vocabulary of /v1/connect refusals that are known to create nothing.
+// Never carry any other response text to the page.
+export const SETUP_REFUSALS = ["merchant_country_required", "payments_service_unconfigured"] as const;
+export type SetupRefusal = typeof SETUP_REFUSALS[number];
 type Control = {
   phase: "starting" | "pending" | "exchanging" | "complete" | "failed";
   flowId: string; adminId: string; origin: string; expiresAt: number;
@@ -74,11 +84,13 @@ type Control = {
 };
 export type RegistryFlowResult =
   | { state: "provider_identity"; providerIdentity: ProviderIdentityDiagnostic }
-  | { state: "unconfigured" | "disconnected" | "connecting" | "ready" | "checking" | "action_required" | "recovery_required"; receipt?: ProofReceipt; status?: unknown; diagnostics?: ConnectionDiagnostics }
+  | { state: "unconfigured" | "disconnected" | "connecting" | "ready" | "checking" | "recovery_required"; receipt?: ProofReceipt; status?: unknown; diagnostics?: ConnectionDiagnostics }
+  | { state: "action_required"; lastChecked?: { at: number; status: unknown } }
+  | { state: "setup_refused"; refusal: SetupRefusal }
   | { state: "check_failed"; checkFailure: StatusCheckFailure }
   | { state: "setup_unconfirmed"; checkFailure?: StatusCheckFailure }
   | { state: "processor_setup"; onboardingUrl: string; expiresAt: number; status?: unknown; diagnostics?: ConnectionDiagnostics }
-  | { state: "pending"; verificationUri: string; interval: number; expiresAt: number }
+  | { state: "pending"; verificationUri: string; interval: number; expiresAt: number; checked?: true }
   | { state: "failed"; message: "restart_required" | "connection_unavailable" };
 
 export function canonicalOrigin(value: string, testOrigin?: string): string | null {
@@ -111,9 +123,10 @@ function validTestOrigin(value: string): boolean {
 
 export function createRegistryConnection(options: {
   kv: KVAccess; settings: SettingsAccess; http?: HttpAccess; site: SiteInfo; config: RegistryConfig;
-  plugin?: PluginInfo; now?: () => number; id?: () => string;
+  plugin?: PluginInfo; now?: () => number; id?: () => string; sleep?: (ms: number) => Promise<void>;
 }) {
   const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)));
   const test = options.config.testOnly;
   const installation = resolveRegistryInstallationIdentity(options.config.installedPluginId ?? options.plugin?.id);
   const callbackPath = installation ? registryCallbackPath(installation.installedPluginId) : REGISTRY_CALLBACK_PATH;
@@ -129,8 +142,26 @@ export function createRegistryConnection(options: {
   const checkFailure = (stage: StatusCheckStage, httpStatus?: number): RegistryFlowResult => ({
     state: "check_failed", checkFailure: { stage, ...(httpStatus === undefined ? {} : { httpStatus }) },
   });
-  function pending(c: Control): RegistryFlowResult {
-    return { state: "pending", verificationUri: c.verificationUri!, interval: c.interval!, expiresAt: c.expiresAt };
+  function pending(c: Control, checked = false): RegistryFlowResult {
+    return { state: "pending", verificationUri: c.verificationUri!, interval: c.interval!, expiresAt: c.expiresAt, ...(checked ? { checked: true as const } : {}) };
+  }
+  // Last status this admin read for this store, shown only while the page's
+  // own sign-in has lapsed. Never a token, never used for checkout.
+  async function signInLapsed(c: Control, user?: UserInfo): Promise<RegistryFlowResult> {
+    try {
+      const last = await options.kv.get<LastStatus>(LAST_STATUS_KEY);
+      if (last && c.binding && user?.id && last.adminId === user.id && c.adminId === user.id &&
+          last.siteId === c.binding.siteId && last.origin === origin && Number.isSafeInteger(last.checkedAt)) {
+        return { state: "action_required", lastChecked: { at: last.checkedAt, status: last.status } };
+      }
+    } catch { /* Without a readable last status the page still asks to sign in again. */ }
+    return { state: "action_required" };
+  }
+  // One bridge call: the sandbox allows ten per request.
+  async function rememberStatus(c: Control, binding: Binding, status: unknown) {
+    try {
+      await options.kv.set(LAST_STATUS_KEY, { siteId: binding.siteId, origin: c.origin, adminId: c.adminId, checkedAt: now(), status } satisfies LastStatus);
+    } catch { /* The live result is still shown; only the lapsed view loses it. */ }
   }
   async function fail(c: Versioned<Control>) {
     await options.kv.compareAndSet(CONTROL_KEY, c.revision, { ...c.value, phase: "failed", secretHash: undefined });
@@ -211,15 +242,22 @@ export function createRegistryConnection(options: {
       payload.site_id !== siteId || payload.scope !== REGISTRY_SCOPE) throw new Error("invalid_token");
     return { token, subject: payload.sub, expiresAt: expiresAt * 1000 };
   }
-  async function exchange(user: UserInfo): Promise<RegistryFlowResult> {
+  async function exchange(user: UserInfo, opts: { wait?: boolean } = {}): Promise<RegistryFlowResult> {
     let prior: Versioned<Control> | null;
     try { prior = await current(); } catch { return checkFailure("read_control"); }
     const c = prior?.value;
-    if (!prior || !c || !origin || c.adminId !== user?.id || c.origin !== origin || c.expiresAt <= now() || !options.http) return failure();
-    if (c.phase === "complete") return status(user);
+    if (!prior || !c || !origin || !options.http) return status(user);
+    // A finished, lapsed or other admin's sign-in is reported the way the page
+    // load reports it, never as a broken connection.
+    if (c.phase === "complete" || c.phase === "failed" || c.adminId !== user?.id || c.origin !== origin || c.expiresAt <= now()) return status(user);
     if (c.phase === "exchanging") return { state: "connecting" };
     if (c.phase !== "pending") return failure();
-    if (now() < c.nextPollAt!) return pending(c);
+    if (now() < c.nextPollAt!) {
+      const wait = c.nextPollAt! - now();
+      if (opts.wait === false || wait > MAX_POLL_WAIT_MS) return pending(c);
+      await sleep(wait + 50);
+      return exchange(user, { wait: false });
+    }
     if (!(await options.kv.compareAndSet(CONTROL_KEY, prior.revision, { ...c, phase: "exchanging" })).applied) return { state: "connecting" };
     const reserved = await current();
     if (!reserved || reserved.value.flowId !== c.flowId || reserved.value.phase !== "exchanging") return failure();
@@ -232,7 +270,7 @@ export function createRegistryConnection(options: {
       if (!response.ok) {
         if (body.error !== "authorization_pending" || c.expiresAt <= now()) return fail(reserved);
         const next = { ...c, nextPollAt: now() + c.interval! * 1000 };
-        return (await options.kv.compareAndSet(CONTROL_KEY, reserved.revision, next)).applied ? pending(next) : failure();
+        return (await options.kv.compareAndSet(CONTROL_KEY, reserved.revision, next)).applied ? pending(next, true) : failure();
       }
       if (!safeString(body.access_token, 4096) || body.token_type !== "Bearer" || body.site_id !== c.receipt!.site_id ||
           typeof body.expires_in !== "number" || !Number.isInteger(body.expires_in) || body.expires_in < 1 || body.expires_in > 300) return fail(reserved);
@@ -244,8 +282,20 @@ export function createRegistryConnection(options: {
       if (!(await options.settings.compareAndSet(STATE_SETTING, stored.revision, value)).applied) return fail(reserved);
       const next: Control = { ...c, phase: "complete", binding, secretHash: await sha256(value), expiresAt: verified.expiresAt,
         receipt: undefined, verificationUri: undefined };
-      return (await options.kv.compareAndSet(CONTROL_KEY, reserved.revision, next)).applied ? { state: "ready" } : failure();
+      if (!(await options.kv.compareAndSet(CONTROL_KEY, reserved.revision, next)).applied) return failure();
+      // The token was verified a moment ago, so read status with it now and
+      // show the real connection. This keeps the new-grant path at ten bridge
+      // calls: one status fetch, no diagnostics (Check connection adds those).
+      const url = statusUrl();
+      return url ? readStatus(next, binding, verified.token, url, { diagnostics: false }) : { state: "ready" };
     } catch { return fail(reserved); }
+  }
+  function statusUrl(): URL | null {
+    if (!configured) return null;
+    try {
+      const url = new URL(configured);
+      return url.protocol !== "https:" || url.username || url.password || url.search || url.hash || url.pathname !== "/v1/status" ? null : url;
+    } catch { return null; }
   }
   async function status(user?: UserInfo): Promise<RegistryFlowResult> {
     let stage: StatusCheckStage = "read_control";
@@ -254,7 +304,7 @@ export function createRegistryConnection(options: {
       if (!origin || !options.http) return { state: "unconfigured" };
       if (!c) return { state: configured ? "disconnected" : "unconfigured" };
       if (c.origin !== origin || c.adminId !== user?.id) return { state: "action_required" };
-      if (c.expiresAt <= now() || c.phase === "failed") return { state: "action_required" };
+      if (c.expiresAt <= now() || c.phase === "failed") return signInLapsed(c, user);
       if (c.phase === "pending") return pending(c);
       if (c.phase !== "complete") return { state: "connecting" };
       if (!configured) return { state: "unconfigured" };
@@ -266,13 +316,13 @@ export function createRegistryConnection(options: {
       if (verified.subject !== c.binding.subject || c.binding.issuer !== REGISTRY_ISSUER) return { state: "action_required" };
       const url = new URL(configured);
       if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || url.pathname !== "/v1/status") return { state: "unconfigured" };
-      return readStatus(c, c.binding, verified.token, url);
+      return readStatus(c, c.binding, verified.token, url, { remember: true });
     } catch { return checkFailure(stage); }
   }
   // Both callers have already verified this exact token and owner binding.
   // Setup reuses that proof within the same invocation; all control rechecks
   // remain in place before and after the provider request and returned status.
-  async function readStatus(c: Control, binding: Binding, token: string, url: URL): Promise<RegistryFlowResult> {
+  async function readStatus(c: Control, binding: Binding, token: string, url: URL, opts: { diagnostics?: boolean; remember?: boolean } = {}): Promise<RegistryFlowResult> {
     let stage: StatusCheckStage = "fetch_status";
     try {
       const result = await options.http!.fetch(url.href, noRedirect({ headers: { Authorization: `Bearer ${token}`, "X-Dinkus-Site": binding.siteId } }));
@@ -281,7 +331,7 @@ export function createRegistryConnection(options: {
       stage = "decode_status";
       const decoded = decodeStatus(await result.json());
       let diagnostics: ConnectionDiagnostics | undefined;
-      if (decoded.state === "connecting" || decoded.state === "recovery_required") {
+      if (opts.diagnostics !== false && (decoded.state === "connecting" || decoded.state === "recovery_required")) {
         try {
           const response = await options.http!.fetch(`${url.origin}/v1/connect/diagnostics`, noRedirect({ headers: { Authorization: `Bearer ${token}`, "X-Dinkus-Site": binding.siteId } }));
           if (response.ok) {
@@ -292,6 +342,7 @@ export function createRegistryConnection(options: {
         stage = "recheck_control";
         if ((await current())?.value.flowId !== c.flowId || c.expiresAt <= now()) return { state: "action_required" };
       }
+      if (opts.remember) await rememberStatus(c, binding, decoded);
       return { state: "ready", status: { availability: "available", status: decoded, message: "Payments status checked." }, ...(diagnostics ? { diagnostics } : {}) };
     } catch { return checkFailure(stage); }
   }
@@ -312,7 +363,10 @@ export function createRegistryConnection(options: {
       requested = true;
       const response = await options.http.fetch(`${endpoint.origin}/v1/connect`, noRedirect({ method: "POST", headers: { Authorization: `Bearer ${verified.token}`, "X-Dinkus-Site": c.binding.siteId } }));
       if (response.status === 401 || response.status === 403) return { state: "action_required" };
-      if (!response.ok) return { state: "setup_unconfirmed" };
+      if (!response.ok) {
+        const refusal = await response.json().then(value => (value as { error?: unknown })?.error, () => undefined);
+        return SETUP_REFUSALS.includes(refusal as SetupRefusal) ? { state: "setup_refused", refusal: refusal as SetupRefusal } : { state: "setup_unconfirmed" };
+      }
       const body = await response.json() as Record<string, unknown>;
       if ((await current())?.revision !== prior!.revision || c.expiresAt <= now()) return { state: "action_required" };
       if (!body || Array.isArray(body) || Object.keys(body).some(key => !["state", "mode", "bindingRef", "url", "expiresAt"].includes(key)) || !["disconnected", "connecting", "setup_required", "action_required", "ready", "checking", "recovery_required"].includes(body.state as string) || !["test", "live"].includes(body.mode as string)) return { state: "setup_unconfirmed" };

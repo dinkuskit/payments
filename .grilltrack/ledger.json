@@ -2601,6 +2601,34 @@
       "superseded_by": null,
       "updated_at": "2026-10-17T18:30:08+00:00",
       "verification_ref": null
+    },
+    {
+      "baseline_ref": null,
+      "candidate_refs": [],
+      "choice": "Returning to the status page after DinkusKit's Approve finishes the sign-in on page load and reads payment status in the same request, so the banner shows the real connection (for example 'Connected: Stripe test mode') with no extra press. Continue pressed before DinkusKit's poll interval waits it out (at most 10 seconds) and then checks, and a check DinkusKit has not approved yet says the approval is not recorded. When the page's own 5-minute DinkusKit sign-in has lapsed for the same admin and store, the page shows the last status that admin read, labelled 'Last checked <time>', with Sign in again; other admins still see 'Payment status not checked' (037). When Payments refuses Stripe setup with merchant_country_required or payments_service_unconfigured (both create nothing), the page names that reason and says no Stripe account was created; any other refusal stays 'not confirmed'. No change to the pass lifetime, the store key, hosted routes, connection evidence, checkout or the ten-bridge-call budget.",
+      "context_ref": "github:dinkuskit/payments",
+      "created_at": "2026-10-18T17:42:14+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-setup-status-wording-037"
+      ],
+      "domain": "Payment setup TEST-order check",
+      "history": [],
+      "id": "payments-setup-return-check-038",
+      "implementation_ref": null,
+      "question": "How should the Payments setup page behave after the owner approves at DinkusKit, presses Continue early, returns after the 5-minute page sign-in, or hits a refused Stripe setup?",
+      "rationale": "Ronald found the setup page glitchy on 18 Oct 2026: after Approve the banner never changed, Continue looked like a failed approval, a lapsed page sign-in read as not connected, and a refused setup hid its fixable cause.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "proposed",
+      "superseded_by": null,
+      "updated_at": "2026-10-18T17:42:14+00:00",
+      "verification_ref": null
     }
   ],
   "last_activation": {
@@ -2623,5 +2651,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-17T18:30:08+00:00"
+  "updated_at": "2026-10-18T17:42:14+00:00"
 }

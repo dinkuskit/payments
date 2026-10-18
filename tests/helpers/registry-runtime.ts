@@ -83,8 +83,13 @@ export async function fixture(options: { installedId?: string } = {}) {
     await host.http.respond(`${CONNECT}/token`, Response.json({
       access_token: token, token_type: "Bearer", site_id: "synthetic-site", expires_in: 300,
     }));
-    // Continue validates and saves the exchange token. Status is a separate action.
+    // Continue validates and saves the exchange token, then reads status once
+    // with it in the same request.
     await host.http.respond(JWKS, Response.json({ keys: [jwk] }));
+    await host.http.respond(STATUS, Response.json({
+      state: "ready", mode: "test", bindingRef: "synthetic-binding",
+      connectionEvidence: { provider: "stripe", mode: "test", result: "verified", accountRef: "acct_synthetic" },
+    }));
     return token;
   }
   async function prepareStatus(disconnected: boolean | "setup" = false) {
