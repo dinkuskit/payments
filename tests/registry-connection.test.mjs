@@ -11,6 +11,7 @@ function memory() {
   const access = prefix => ({
     async get(key) { return values.get(prefix + key)?.value ?? null; },
     async getVersioned(key) { return values.get(prefix + key) ?? null; },
+    async set(key, value) { values.set(prefix + key, { value: structuredClone(value), revision: String(++revision) }); },
     async compareAndSet(key, expected, value) {
       if ((values.get(prefix + key)?.revision ?? null) !== expected) return { applied: false };
       values.set(prefix + key, { value: structuredClone(value), revision: String(++revision) }); return { applied: true };
@@ -29,13 +30,14 @@ async function fixture({ testOnly, installedPluginId, pluginId, endpoint = { sta
   const expectedPluginId = installedPluginId === 'dinkus-payments-beta' || pluginId === 'dinkus-payments-beta'
     ? 'r_sffx6l4z6mpqliki'
     : (installedPluginId ?? (pluginId === 'dinkus-payments' ? 'r_3brsc2on3bu673rn' : pluginId) ?? 'r_3brsc2on3bu673rn');
-  const f = { now: 1_800_000_000_000, starts: 0, exchanges: 0, statuses: 0, approved: false, siteId: 'site', subject: 'org', error: null, calls: [], gate: null, claims: {}, setupReply: { state: 'setup_required', mode: 'test', bindingRef: 'synthetic-binding', url: 'https://connect.stripe.com/setup/synthetic', expiresAt: 1_800_000_300_000 }, setupStatus: 200 };
+  const f = { now: 1_800_000_000_000, starts: 0, exchanges: 0, statuses: 0, approved: false, siteId: 'site', subject: 'org', error: null, calls: [], gate: null, claims: {}, setupReply: { state: 'setup_required', mode: 'test', bindingRef: 'synthetic-binding', url: 'https://connect.stripe.com/setup/synthetic', expiresAt: 1_800_000_300_000 }, setupStatus: 200, slept: [], statusReply: { state: 'disconnected', mode: 'test', bindingRef: 'synthetic-binding' } };
   const connection = createRegistryConnection({
     ...store,
     config: { endpoint, testOnly, ...(installedPluginId ? { installedPluginId } : {}) },
     ...(pluginId ? { plugin: { id: pluginId } } : {}),
     site: { url: testOnly?.storeOrigin ?? 'https://shop.example' },
     now: () => f.now,
+    sleep: async ms => { f.slept.push(ms); f.now += ms; },
     http: { async fetch(url, init) {
       assert.equal(init.redirect, 'manual'); f.calls.push({ url, init });
       if (url === REGISTRY_CONNECT_URL) {
@@ -55,13 +57,13 @@ async function fixture({ testOnly, installedPluginId, pluginId, endpoint = { sta
         if (!f.approved) return json({ error: 'authorization_pending' }, 400);
         const token = await new SignJWT({ site_id: f.siteId, scope: REGISTRY_SCOPE, ...f.claims })
           .setProtectedHeader({ alg: 'ES256', kid: 'test-key' }).setIssuer(REGISTRY_ISSUER).setAudience('dinkus-payments')
-          .setSubject(f.subject).setIssuedAt(f.now / 1000).setExpirationTime(f.now / 1000 + 300).sign(privateKey);
+          .setSubject(f.subject).setIssuedAt(Math.floor(f.now / 1000)).setExpirationTime(Math.floor(f.now / 1000) + 300).sign(privateKey);
         return json({ access_token: token, token_type: 'Bearer', site_id: f.siteId, expires_in: 300 });
       }
       if (url.endsWith('/jwks.json')) return json({ keys: [jwk] });
       if (url.endsWith('/v1/connect')) return json(f.setupReply, f.setupStatus);
       f.statuses++; assert.equal(init.headers['X-Dinkus-Site'], f.siteId); assert.match(init.headers.Authorization, /^Bearer /);
-      return json({ state: 'disconnected', mode: 'test', bindingRef: 'synthetic-binding' });
+      return json(f.statusReply);
     } },
   });
   f.connect = async () => { assert.equal((await connection.start({ id: 'admin' })).state, 'pending'); f.now += 5000; f.approved = true; return connection.exchange({ id: 'admin' }); };
@@ -88,7 +90,8 @@ test('ES256 consent, status and reconnect use fresh tokens with stable canonical
   assert.equal((await connection.status({ id: 'admin' })).state, 'action_required');
   assert.equal((await f.connect()).state, 'ready');
   assert.equal((await connection.status({ id: 'admin' })).state, 'ready');
-  assert.equal(f.statuses, 2);
+  // Each new grant also reads status once with its freshly verified token.
+  assert.equal(f.statuses, 4);
 });
 
 test('connection accepts both stable (r_3brsc2on3bu673rn) and beta (r_sffx6l4z6mpqliki) Registry plugin IDs and rejects unknown IDs', async () => {
@@ -136,7 +139,7 @@ test('concurrent starts and overlapping slow polls perform one request', async (
 test('only pending can retry; unknown and lost responses require explicit fresh Connect', async () => {
   for (const error of [null, 'already_redeemed', 'unknown', 'lost']) {
     const { f, connection } = await fixture(); await connection.start({ id: 'admin' });
-    assert.equal((await connection.exchange({ id: 'admin' })).state, 'pending'); assert.equal(f.exchanges, 0);
+    assert.equal((await connection.exchange({ id: 'admin' }, { wait: false })).state, 'pending'); assert.equal(f.exchanges, 0);
     f.now += 5000; f.error = error;
     assert.equal((await connection.exchange({ id: 'admin' })).state, error ? 'failed' : 'pending');
     f.now += 5000;
@@ -146,7 +149,7 @@ test('only pending can retry; unknown and lost responses require explicit fresh 
 });
 
 test('manual secret injection and another administrator do not acquire authority', async () => {
-  const { f, connection, store } = await fixture(); await f.connect();
+  const { f, connection, store } = await fixture(); await f.connect(); f.statuses = 0;
   assert.equal((await connection.status({ id: 'other' })).state, 'action_required');
   const entry = await store.settings.getVersioned('registry_session');
   await store.settings.compareAndSet('registry_session', entry.revision, JSON.stringify({ kind: 'session', token: 'injected', flowId: 'manual' }));
@@ -219,4 +222,65 @@ test('processor setup rejects unsafe links, malformed expiry, mismatched mode an
     const { f, connection } = await fixture(); await f.connect(); f.setupStatus = code;
     assert.equal((await connection.setupProcessor({ id: 'admin' })).state, code === 500 ? 'setup_unconfirmed' : 'action_required');
   }
+});
+
+test('Continue before the poll interval waits it out and polls instead of repeating the pending screen', async () => {
+  const { f, connection } = await fixture(); await connection.start({ id: 'admin' }); f.approved = true;
+  const result = await connection.exchange({ id: 'admin' });
+  assert.equal(result.state, 'ready'); assert.equal(f.exchanges, 1); assert.deepEqual(f.slept, [5050]);
+  assert.equal(result.status.status.state, 'disconnected');
+});
+
+test('a poll DinkusKit has not approved yet says so, and page load never waits', async () => {
+  const { f, connection } = await fixture(); await connection.start({ id: 'admin' });
+  assert.equal('checked' in await connection.exchange({ id: 'admin' }, { wait: false }), false);
+  assert.equal(f.exchanges, 0); assert.deepEqual(f.slept, []);
+  f.now += 5000;
+  const result = await connection.exchange({ id: 'admin' }, { wait: false });
+  assert.equal(result.state, 'pending'); assert.equal(result.checked, true); assert.equal(f.exchanges, 1);
+});
+
+test('a new grant reads status with its verified token, without diagnostics or a second JWKS fetch', async () => {
+  const { f } = await fixture();
+  f.statusReply = { state: 'ready', mode: 'test', bindingRef: 'synthetic-binding', connectionEvidence: { provider: 'stripe', mode: 'test', result: 'verified', accountRef: 'acct_one' } };
+  const result = await f.connect();
+  assert.equal(result.state, 'ready'); assert.equal(result.status.status.connectionEvidence.result, 'verified');
+  assert.equal(f.calls.filter(c => c.url.endsWith('/jwks.json')).length, 1);
+  assert.equal(f.calls.some(c => c.url.endsWith('/diagnostics')), false);
+});
+
+test('a lapsed page sign-in reports the last status this admin read, never another admin', async () => {
+  const { f, connection } = await fixture();
+  f.statusReply = { state: 'ready', mode: 'test', bindingRef: 'synthetic-binding', connectionEvidence: { provider: 'stripe', mode: 'test', result: 'verified', accountRef: 'acct_one' } };
+  // Approve, then nothing else: the status shown right after approval is kept.
+  await f.connect(); const checkedAt = f.now;
+  f.now += 301000;
+  for (const result of [await connection.status({ id: 'admin' }), await connection.exchange({ id: 'admin' })]) {
+    assert.equal(result.state, 'action_required');
+    assert.deepEqual(result.lastChecked, { at: checkedAt, status: f.statusReply });
+  }
+  assert.deepEqual(await connection.status({ id: 'other' }), { state: 'action_required' });
+});
+
+test('a refused setup carries only a known reason; any other refusal stays unconfirmed', async () => {
+  for (const [error, expected] of [['merchant_country_required', 'setup_refused'], ['payments_service_unconfigured', 'setup_refused'], ['raw-provider-detail', 'setup_unconfirmed']]) {
+    const { f, connection } = await fixture(); await f.connect(); f.setupStatus = 503; f.setupReply = { error };
+    const result = await connection.setupProcessor({ id: 'admin' });
+    assert.equal(result.state, expected);
+    assert.equal(JSON.stringify(result).includes('raw-provider'), false);
+    if (expected === 'setup_refused') assert.equal(result.refusal, error);
+  }
+});
+
+test('the newest of the approval-time status and a later Check is shown after the sign-in lapses', async () => {
+  const { f, connection } = await fixture();
+  await f.connect();
+  f.now += 60000; f.statusReply = { state: 'ready', mode: 'test', bindingRef: 'synthetic-binding', connectionEvidence: { provider: 'stripe', mode: 'test', result: 'verified', accountRef: 'acct_one' } };
+  assert.equal((await connection.status({ id: 'admin' })).state, 'ready'); const checkedAt = f.now;
+  f.now += 301000;
+  assert.deepEqual((await connection.status({ id: 'admin' })).lastChecked, { at: checkedAt, status: f.statusReply });
+  // A fresh approval is newer than the earlier Check.
+  f.statusReply = { state: 'disconnected', mode: 'test', bindingRef: 'synthetic-binding' };
+  await f.connect(); const approvedAt = f.now; f.now += 301000;
+  assert.deepEqual((await connection.status({ id: 'admin' })).lastChecked, { at: approvedAt, status: f.statusReply });
 });

@@ -366,3 +366,43 @@ test("setup support reference preserves exact closed failure fields only",()=>{
   const out=JSON.stringify(render(d,s,state));assert.doesNotMatch(out,/Setup support reference|PRIVATE_CANARY/);
  }
 });
+
+test("pending screen tells the owner the page checks on its own, and says so plainly when approval is missing", () => {
+  const fresh = JSON.stringify(renderSetupScreen({ state: "pending", verificationUri: "https://dinkuskit.com/account/connect?connection_id=c1", interval: 5, expiresAt: 1 }));
+  assert.match(fresh, /this page checks your approval on its own/);
+  assert.match(fresh, /Authorize Payments at DinkusKit/);
+  const checked = JSON.stringify(renderSetupScreen({ state: "pending", checked: true, verificationUri: "https://dinkuskit.com/account/connect?connection_id=c1", interval: 5, expiresAt: 1 }));
+  assert.match(checked, /DinkusKit hasn't recorded your approval yet/);
+  assert.doesNotMatch(checked, /checks your approval on its own/);
+});
+
+test("a refused Stripe setup names its reason and that nothing was created", () => {
+  const page = JSON.stringify(renderSetupScreen({ state: "setup_refused", refusal: "merchant_country_required" }));
+  assert.match(page, /no business country on file for this store\. No Stripe account was created/);
+  assert.doesNotMatch(page, /final result is not confirmed/);
+  assert.match(page, /"action_id":"check"/);
+  const unknown = JSON.stringify(renderSetupScreen({ state: "setup_refused", refusal: "anything-else" }));
+  assert.match(unknown, /Payments refused Stripe setup\. No Stripe account was created/);
+  assert.doesNotMatch(unknown, /anything-else/);
+});
+
+test("a lapsed page sign-in shows the last checked connection with its time and Sign in again", () => {
+  const status = { state: "ready", mode: "test", bindingRef: "b", connectionEvidence: { provider: "stripe", mode: "test", result: "verified", accountRef: "acct_one" } };
+  const page = renderSetupScreen({ state: "action_required", lastChecked: { at: Date.UTC(2026, 9, 18, 17, 10), status } });
+  const banner = page.blocks.find(block => block.type === "banner");
+  assert.equal(banner.title, "Connected: Stripe test mode");
+  assert.match(banner.description, /^Last checked Oct 18, 2026 at 5:10 PM UTC\. This page's DinkusKit sign-in lasts 5 minutes/);
+  const text = JSON.stringify(page);
+  assert.match(text, /"label":"Sign in again","action_id":"connect"/);
+  assert.doesNotMatch(text, /setup_processor/);
+  for (const lastChecked of [undefined, { at: 1, status: { state: "bogus" } }, { at: "soon", status }]) {
+    assert.equal(renderSetupScreen({ state: "action_required", lastChecked }).blocks[1].title, "Payment status not checked");
+  }
+});
+
+test("Stripe needing more information points the owner at Stripe's setup and offers the resume button", () => {
+  const status = { state: "action_required", mode: "test", bindingRef: "b", connectionEvidence: { provider: "stripe", mode: "test", result: "action_required", accountRef: "acct_one" } };
+  const page = JSON.stringify(renderSetupScreen({ state: "ready", status: { availability: "available", status } }));
+  assert.match(page, /Select Set up or resume Stripe to open Stripe's setup, which lists what's missing/);
+  assert.match(page, /"label":"Set up or resume Stripe","action_id":"setup_processor"/);
+});

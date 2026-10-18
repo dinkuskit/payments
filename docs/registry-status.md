@@ -213,3 +213,29 @@ uses it: Commerce trades its own store key. So the page separates three cases.
 never offers **Set up or resume Stripe**, which still appears only after a
 successful status read without verified Stripe evidence. Nothing here changes
 what a connection is or how it is verified (037).
+
+## Setup page after DinkusKit's Approve (0.2.9 preparation)
+
+DinkusKit's Approve sends the owner back to the status page, so a page load with
+a pending sign-in now polls the token endpoint (when DinkusKit's poll interval
+has passed) instead of waiting for Continue. Continue pressed inside that
+interval waits it out, up to 10 seconds, then polls; a poll DinkusKit has not
+approved yet says so plainly.
+
+A new grant now reads status in the same request with the token it just
+verified: one extra status fetch, no second JWKS fetch and no diagnostics, so
+the new-grant path is exactly ten bridge calls. Check connection adds
+diagnostics when the status is connecting or recovery required.
+
+The status read with a new grant is saved on the grant itself (no extra bridge
+call), and each Check connection or page-load status read stores its status in
+one KV write; neither holds a token. Continue inside the poll interval reuses
+its first control read, so it also stays at ten bridge calls. When the page's own 5-minute sign-in has
+lapsed for that same admin and store, the page shows that status with
+"Last checked <time>" and Sign in again. Another admin still sees
+"Payment status not checked".
+
+When `POST /v1/connect` refuses with `merchant_country_required` or
+`payments_service_unconfigured`, both of which create nothing, the page names
+that reason. Any other refusal still reads as unconfirmed, and no other
+response text reaches the page.

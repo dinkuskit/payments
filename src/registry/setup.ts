@@ -1,5 +1,6 @@
 import { decodeDiagnostics, type ConnectionDiagnostics } from "../connection-diagnostics.js";
 import { describeStatusCheckFailure } from "./check-failure.js";
+import type { SetupRefusal } from "./connection.js";
 import {
   decodeStatus,
   type PaymentsStatus,
@@ -95,7 +96,18 @@ function testOrderStep(status: PaymentsStatus | null, connectionState?: string):
   return { title, status: "incomplete", description: `${unconfirmedCommerceOrder} Connect payments first, then place a test order.` };
 }
 
-function connectionStep(status: PaymentsStatus | null, connectionState?: string, diagnostics?: ConnectionDiagnostics, checkFailure?: unknown): SetupStep {
+const SETUP_REFUSAL_TEXT: Record<SetupRefusal, string> = {
+  merchant_country_required: "Payments couldn't start Stripe setup because DinkusKit Payments has no business country on file for this store. No Stripe account was created. Ask DinkusKit support to add the store's country, then select Check connection and Set up or resume Stripe.",
+  payments_service_unconfigured: "Payments couldn't start Stripe setup because the DinkusKit Payments service isn't set up to create payment accounts right now. No Stripe account was created. Contact DinkusKit support.",
+};
+
+function describeSetupRefusal(refusal: unknown): string {
+  return typeof refusal === "string" && Object.hasOwn(SETUP_REFUSAL_TEXT, refusal)
+    ? SETUP_REFUSAL_TEXT[refusal as SetupRefusal]
+    : "Payments refused Stripe setup. No Stripe account was created. Select Check connection to try again.";
+}
+
+function connectionStep(status: PaymentsStatus | null, connectionState?: string, diagnostics?: ConnectionDiagnostics, checkFailure?: unknown, pendingChecked = false, refusal?: unknown): SetupStep {
   if (connectionState === "provider_identity") {
     return { title: "Connect payments", status: "incomplete", description: "The identity diagnostic does not refresh payment readiness. Use Check connection to check setup status." };
   }
@@ -128,12 +140,20 @@ function connectionStep(status: PaymentsStatus | null, connectionState?: string,
       description: "Connect your DinkusKit account to check payment setup. No Payments service endpoint is configured.",
     };
   }
-  if (connectionState === "pending" || connectionState === "connecting") {
+  if (connectionState === "pending") {
     return {
       title: "Connect payments",
       status: "incomplete",
-      description: "Continue sign in at your DinkusKit account to authorize Payments. Processor setup is not yet confirmed.",
+      description: pendingChecked
+        ? "DinkusKit hasn't recorded your approval yet. Select Authorize Payments at DinkusKit, select Approve there, and DinkusKit brings you back here."
+        : "Select Authorize Payments at DinkusKit and select Approve there. DinkusKit brings you back here, and this page checks your approval on its own.",
     };
+  }
+  if (connectionState === "connecting") {
+    return { title: "Connect payments", status: "incomplete", description: "Your DinkusKit sign-in is still finishing. Select Continue to check it again." };
+  }
+  if (connectionState === "setup_refused") {
+    return { title: "Connect payments", status: "incomplete", description: describeSetupRefusal(refusal) };
   }
   if (connectionState === "action_required") {
     return { title: "Connect payments", status: "unchecked", description: signInLapsed };
@@ -190,7 +210,7 @@ function connectionStep(status: PaymentsStatus | null, connectionState?: string,
       title: "Connect payments",
       status: "incomplete",
       description:
-        "Stripe needs attention before its connection can be verified. Review the payment account connection and try again.",
+        "Stripe needs more information before it can take payments. Select Set up or resume Stripe to open Stripe's setup, which lists what's missing. For a TEST account, use Stripe's test values. Then select Check connection.",
     };
   }
 
@@ -206,11 +226,15 @@ export function projectSetupScreen(input: unknown, diagnostics?: ConnectionDiagn
   let status: PaymentsStatus | null = null;
   let connectionState: string | undefined;
   let checkFailure: unknown;
+  let pendingChecked = false;
+  let refusal: unknown;
   if (typeof input === "object" && input !== null && !Array.isArray(input)) {
     const projection = input as Partial<StatusProjection>;
     if (typeof (input as { state?: unknown }).state === "string") {
       connectionState = (input as { state: string }).state;
       checkFailure = (input as { checkFailure?: unknown }).checkFailure;
+      pendingChecked = (input as { checked?: unknown }).checked === true;
+      refusal = (input as { refusal?: unknown }).refusal;
     }
     if (projection.availability === "available") {
       try {
@@ -222,7 +246,7 @@ export function projectSetupScreen(input: unknown, diagnostics?: ConnectionDiagn
   }
 
   const steps: [SetupStep, SetupStep] = [
-    connectionStep(status, connectionState, diagnostics, checkFailure),
+    connectionStep(status, connectionState, diagnostics, checkFailure, pendingChecked, refusal),
     testOrderStep(status, connectionState),
   ];
   // Ready to sell needs a verified live connection and a saved TEST order, which
@@ -279,12 +303,28 @@ function setupSupportReference(status: unknown, diagnostics: unknown): string | 
   } catch { return; }
 }
 
+// While the page's own sign-in has lapsed, show the last status this admin
+// read, labelled with when it was read, instead of an unknown connection.
+function lastCheckedProjection(input: unknown): { projection: SetupScreenProjection; at: number } | undefined {
+  if (!input || typeof input !== "object" || (input as { state?: unknown }).state !== "action_required") return;
+  const last = (input as { lastChecked?: unknown }).lastChecked;
+  if (!last || typeof last !== "object") return;
+  const { at, status } = last as { at?: unknown; status?: unknown };
+  if (typeof at !== "number" || !Number.isSafeInteger(at) || at <= 0) return;
+  try { decodeStatus(status); } catch { return; }
+  return { projection: projectSetupScreen({ availability: "available", status }), at };
+}
+
 export function renderSetupScreen(input: unknown) {
   const nested = input && typeof input === "object" && "state" in input && "status" in input ? input.status : input;
-  const projection = projectSetupScreen(nested, input && typeof input === "object" && "diagnostics" in input ? input.diagnostics as ConnectionDiagnostics : undefined);
+  const lastChecked = lastCheckedProjection(input);
+  const projection = lastChecked?.projection ?? projectSetupScreen(nested, input && typeof input === "object" && "diagnostics" in input ? input.diagnostics as ConnectionDiagnostics : undefined);
+  const banner = lastChecked
+    ? { ...BANNERS[projection.overall], description: `Last checked ${utcTime(lastChecked.at)}. This page's DinkusKit sign-in lasts 5 minutes, so select Sign in again to check it now. Checkout doesn't use this sign-in.` }
+    : BANNERS[projection.overall];
   const state = typeof input === "object" && input !== null && !Array.isArray(input) &&
     typeof (input as { state?: unknown }).state === "string" ? (input as { state: string }).state : "disconnected";
-  const action = state === "pending" || state === "connecting" ? "continue" : state === "provider_identity" || state === "authorized" || state === "checking" || state === "check_failed" || state === "setup_unconfirmed" || state === "ready" || state === "processor_setup" ? "check" : "connect";
+  const action = state === "pending" || state === "connecting" ? "continue" : state === "provider_identity" || state === "authorized" || state === "checking" || state === "check_failed" || state === "setup_unconfirmed" || state === "setup_refused" || state === "ready" || state === "processor_setup" ? "check" : "connect";
   const statusValue = nested && typeof nested === "object" && "status" in nested ? nested.status : null;
   const processorPending = statusValue && typeof statusValue === "object" && "state" in statusValue && ["connecting", "recovery_required"].includes(statusValue.state as string);
   const needsRecovery = statusValue && typeof statusValue === "object" && "state" in statusValue && statusValue.state === "recovery_required";
@@ -311,7 +351,7 @@ export function renderSetupScreen(input: unknown) {
   return {
     blocks: [
       { type: "header", text: projection.title },
-      { type: "banner", title: projection.overall, ...BANNERS[projection.overall] },
+      { type: "banner", title: projection.overall, ...banner },
       ...projection.steps.map((step) => ({
         type: "section",
         text: `${step.title}: ${STEP_LABELS[step.status]}. ${step.description}`,

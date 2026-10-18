@@ -86,7 +86,7 @@ test("compiled installed instance preserves encrypted session identity through r
     for (let cycle = 0; cycle < 2; cycle++) {
       await f.prepareStart(`installed-renewal-${cycle}`); await f.action("connect"); await f.pollDue();
       await f.prepareExchange();
-      assert.match(JSON.stringify(await f.action("continue")), /Your DinkusKit authorization was saved/);
+      assert.match(JSON.stringify(await f.action("continue")), /Connected: Stripe test mode\. Test card payments work at checkout/);
       const c = await control(host);
       const stored = await session(host);
       assert.equal(stored.kind, "session");
@@ -105,7 +105,7 @@ test("compiled installed instance preserves encrypted session identity through r
   } finally { await host.dispose(); }
 });
 
-test("compiled Continue saves authorization within ten bridge calls and checks status in a fresh request", async () => {
+test("compiled Continue saves authorization and reads status within ten bridge calls", async () => {
   const f = await fixture({ installedId: "r_3brsc2on3bu673rn" }); const { host } = f;
   const calls: string[] = [];
   const count = (name: string) => {
@@ -115,23 +115,27 @@ test("compiled Continue saves authorization within ten bridge calls and checks s
   try {
     await f.prepareStart("budgeted-renewal"); await f.action("connect"); await f.pollDue();
     await f.prepareExchange();
-    for (const name of ["kvGetVersioned", "kvCompareAndSet", "settingsGetVersioned", "settingsCompareAndSet", "httpFetch"] as const) {
+    // Every plugin KV key counts here; settings calls reach kv* internally and
+    // are counted once, as settings*.
+    for (const name of ["kvGet", "kvSet", "kvGetVersioned", "kvCompareAndSet", "settingsGetVersioned", "settingsCompareAndSet", "httpFetch"] as const) {
       const original = PluginBridge.prototype[name];
       vi.spyOn(PluginBridge.prototype, name).mockImplementation(async function(...args: unknown[]) {
-        if (!name.startsWith("kv") || args[0] === CONTROL) count(name);
+        if (!name.startsWith("kv") || !String(args[0]).startsWith("settings:")) count(name);
         return (original as (...args: unknown[]) => Promise<unknown>).apply(this, args);
       } as never);
     }
     const page = JSON.stringify(await f.action("continue"));
-    assert.match(page, /Your DinkusKit authorization was saved/);
+    assert.match(page, /Connected: Stripe test mode\. Test card payments work at checkout/);
     assert.doesNotMatch(page, /status_read_session|check failed|"action_id":"setup_processor"/);
-    assert.deepEqual(calls, ["kvGetVersioned", "kvCompareAndSet", "kvGetVersioned", "settingsGetVersioned", "httpFetch", "httpFetch", "kvGetVersioned", "settingsCompareAndSet", "kvCompareAndSet"]);
-    assert.equal(host.http.requests().some(r => r.url === STATUS || r.url.endsWith("/v1/connect")), false);
+    assert.deepEqual(calls, ["kvGetVersioned", "kvCompareAndSet", "kvGetVersioned", "settingsGetVersioned", "httpFetch", "httpFetch", "httpFetch", "kvGetVersioned", "settingsCompareAndSet", "kvCompareAndSet"]);
+    assert.deepEqual(host.http.requests().filter(r => r.url === STATUS || r.url === JWKS).map(r => r.url), [JWKS, STATUS]);
+    assert.equal(host.http.requests().some(r => r.url.endsWith("/v1/connect") || r.url.endsWith("/diagnostics")), false);
     const saved = await snapshot(host);
     assert.equal(saved.control.phase, "complete");
     calls.length = 0; host.http.clear(); await f.prepareStatus();
     assert.match(JSON.stringify(await f.action("check")), /Connected: Stripe test mode\. Test card payments work at checkout/);
-    assert.equal(calls.length, 5);
+    // Check: control read twice, session, JWKS, status, then the remembered status.
+    assert.equal(calls.length, 6);
     assert.deepEqual(await snapshot(host), saved);
   } finally { vi.restoreAllMocks(); await host.dispose(); }
 });
@@ -243,7 +247,7 @@ test("compiled Connect, signed exchange and status persist through real settings
   try {
     await f.prepareStart("connection-one");
     const pending = await f.action("connect");
-    assert.match(JSON.stringify(pending), /Continue sign in/);
+    assert.match(JSON.stringify(pending), /this page checks your approval on its own/);
     assert.match(JSON.stringify(pending), /"action_id":"continue"/);
     assert.match(JSON.stringify(pending), /https:\/\/dinkuskit.com\/account\/connect\?connection_id=connection-one/);
     const c = await control(host);
@@ -290,9 +294,9 @@ test("compiled Connect, signed exchange and status persist through real settings
     await f.pollDue();
     const token = await f.prepareExchange();
     const ready = await f.action("continue");
-    assert.match(JSON.stringify(ready), /Your DinkusKit authorization was saved/);
+    assert.match(JSON.stringify(ready), /Connected: Stripe test mode\. Test card payments work at checkout/);
     assert.match(JSON.stringify(ready), /"action_id":"check"/);
-    assert.match(JSON.stringify(ready), /Not ready to sell/);
+    assert.doesNotMatch(JSON.stringify(ready), /Not ready to sell/);
     assert.doesNotMatch(JSON.stringify(ready), /"action_id":"setup_processor"/);
     assert.equal(JSON.stringify(ready).includes(token), false);
     const complete = await control(host);
@@ -306,19 +310,20 @@ test("compiled Connect, signed exchange and status persist through real settings
     assert.ok(storedSession.token === token, "signed synthetic token persisted");
     assert.equal(JSON.stringify(await host.inspect.kv.list()).includes(token), false);
     assert.deepEqual(host.http.requests().map(r => [r.method, r.url]), [
-      ["POST", CONNECT], ["POST", `${CONNECT}/token`], ["GET", JWKS],
+      ["POST", CONNECT], ["POST", `${CONNECT}/token`], ["GET", JWKS], ["GET", STATUS],
     ]);
     await f.prepareStatus();
     assert.match(JSON.stringify(await f.action("check")), /Connected: Stripe test mode\. Test card payments work at checkout/);
     assert.deepEqual(host.http.requests().map(r => [r.method, r.url]), [
-      ["POST", CONNECT], ["POST", `${CONNECT}/token`], ["GET", JWKS], ["GET", JWKS], ["GET", STATUS],
+      ["POST", CONNECT], ["POST", `${CONNECT}/token`], ["GET", JWKS], ["GET", STATUS], ["GET", JWKS], ["GET", STATUS],
     ]);
     const exchange = host.http.requests()[1];
     assert.deepEqual(Object.keys(body(exchange)).sort(), ["client_id", "code_verifier", "connection_id"]);
     assert.equal(body(exchange).client_id, "dinkus-payments-emdash");
     assert.equal(body(exchange).connection_id, "connection-one");
     assert.ok(body(exchange).code_verifier === secret.verifier, "exchange uses the persisted PKCE verifier");
-    const status = host.http.requests()[4];
+    assert.ok(host.http.requests()[3].headers.authorization === `Bearer ${token}`, "Continue's status read uses the verified session token");
+    const status = host.http.requests()[5];
     assert.ok(status.headers.authorization === `Bearer ${token}`, "status uses the verified session token");
     assert.equal(status.headers["x-dinkus-site"], "synthetic-site");
     assert.equal(status.body.length, 0);
@@ -350,7 +355,8 @@ test("compiled expiry requires explicit reconnect and stale receipts preserve th
     await host.fixtures.plugin.kv(CONTROL, { ...old, expiresAt: Date.now() - 1 });
     const expired = await snapshot(host);
     host.http.clear();
-    assert.match(JSON.stringify(await f.page()), /Select Sign in again to refresh it/);
+    // The status read at approval is shown, labelled, with Sign in again.
+    assert.match(JSON.stringify(await f.page()), /Last checked .* UTC\. This page's DinkusKit sign-in lasts 5 minutes.*"label":"Sign in again","action_id":"connect"/);
     assert.match(JSON.stringify(await f.action("continue")), /"action_id":"connect"/);
     assert.deepEqual(await snapshot(host), expired);
     assert.deepEqual(host.http.requests(), []);
@@ -367,7 +373,7 @@ test("compiled expiry requires explicit reconnect and stale receipts preserve th
     assert.deepEqual(host.http.requests().map(r => r.url), [CONNECT]);
     await f.pollDue();
     const newToken = await f.prepareExchange();
-    assert.match(JSON.stringify(await f.action("continue")), /Your DinkusKit authorization was saved/);
+    assert.match(JSON.stringify(await f.action("continue")), /Connected: Stripe test mode\. Test card payments work at checkout/);
     assert.equal((await control(host)).flowId, fresh.control.flowId);
     assert.deepEqual((await control(host)).binding, old.binding);
     assert.ok((await session(host)).token === newToken, "reconnect persisted fresh signed token");
@@ -405,7 +411,7 @@ test("real host allowed-host denial blocks status before synthetic transport and
     await f.action("connect");
     await f.pollDue();
     await f.prepareExchange();
-    assert.match(JSON.stringify(await f.action("continue")), /Your DinkusKit authorization was saved/);
+    assert.match(JSON.stringify(await f.action("continue")), /Connected: Stripe test mode\. Test card payments work at checkout/);
     const persisted = await snapshot(host);
     // Runtime-host entries share the parsed manifest arrays. Narrow this test
     // host's policy and restart its production runner; the built code and
@@ -645,11 +651,90 @@ test("compiled beta Registry installation identity (r_sffx6l4z6mpqliki) uses bet
       assert.equal(receipt.callback_uri, `${SITE}/_emdash/admin/plugins/${installedId}/status`);
       await f.pollDue();
       await f.prepareExchange(`conn-${installedId}`);
-      assert.match(JSON.stringify(await f.action("continue")), /Your DinkusKit authorization was saved/);
+      assert.match(JSON.stringify(await f.action("continue")), /Connected: Stripe test mode\. Test card payments work at checkout/);
       await f.prepareStatus();
       assert.match(JSON.stringify(await f.action("check")), /Connected: Stripe test mode\. Test card payments work at checkout/);
     } finally {
       await host.dispose();
     }
   }
+});
+
+test("compiled page load after DinkusKit's Approve finishes sign-in and shows the connection", async () => {
+  const f = await fixture(); const { host } = f;
+  try {
+    await f.prepareStart("approved-on-return"); await f.action("connect"); await f.pollDue();
+    await f.prepareExchange();
+    const page = JSON.stringify(await f.page());
+    assert.match(page, /Connected: Stripe test mode\. Test card payments work at checkout/);
+    assert.equal((await control(host)).phase, "complete");
+  } finally { await host.dispose(); }
+});
+
+test("compiled Continue pressed inside the poll interval waits it out within ten bridge calls", async () => {
+  const f = await fixture(); const { host } = f;
+  const calls: string[] = [];
+  try {
+    // prepareStart answers interval 1, so the poll is about a second away.
+    await f.prepareStart("continue-early"); await f.action("connect");
+    await f.prepareExchange();
+    for (const name of ["kvGet", "kvSet", "kvGetVersioned", "kvCompareAndSet", "settingsGetVersioned", "settingsCompareAndSet", "httpFetch"] as const) {
+      const original = PluginBridge.prototype[name];
+      vi.spyOn(PluginBridge.prototype, name).mockImplementation(async function(...args: unknown[]) {
+        if (!name.startsWith("kv") || !String(args[0]).startsWith("settings:")) {
+          calls.push(name);
+          if (calls.length > 10) throw new Error("synthetic_subrequest_limit");
+        }
+        return (original as (...args: unknown[]) => Promise<unknown>).apply(this, args);
+      } as never);
+    }
+    const page = JSON.stringify(await f.action("continue"));
+    assert.match(page, /Connected: Stripe test mode\. Test card payments work at checkout/);
+    assert.equal(calls.length, 10);
+    assert.equal(host.http.requests().filter(r => r.url.endsWith("/token")).length, 1);
+  } finally { vi.restoreAllMocks(); await host.dispose(); }
+});
+
+test("compiled Approve then a lapsed sign-in shows the status read at approval, to that admin only", async () => {
+  const f = await fixture(); const { host } = f;
+  try {
+    await f.prepareStart("approve-then-lapse"); await f.action("connect"); await f.pollDue();
+    await f.prepareExchange(); await f.action("continue");
+    await host.fixtures.plugin.kv(CONTROL, { ...await control(host), expiresAt: Date.now() - 1 });
+    host.http.clear();
+    const page = await f.page();
+    assert.equal(page.blocks[1].title, "Connected: Stripe test mode");
+    assert.match(String(page.blocks[1].description), /^Last checked .* UTC\. This page's DinkusKit sign-in lasts 5 minutes/);
+    assert.match(JSON.stringify(page), /"label":"Sign in again","action_id":"connect"/);
+    assert.deepEqual(host.http.requests(), []);
+    const other = await host.fixtures.user({ email: "other-admin@example.invalid", role: "admin" });
+    const otherPage = await host.admin.loadPage("/status", { user: other });
+    assert.equal(otherPage.blocks[1].title, "Payment status not checked");
+  } finally { await host.dispose(); }
+});
+
+test("compiled sessions saved by the previous release keep working with no remembered status", async () => {
+  const f = await fixture(); const { host } = f;
+  try {
+    await f.prepareStart("previous-release"); await f.action("connect"); await f.pollDue();
+    await f.prepareExchange(); await f.action("continue");
+    // Exactly what 0.2.8 persisted: no lastStatus on control, no state:last-status.
+    const { lastStatus: _dropped, ...previous } = await control(host) as Record<string, unknown>;
+    await host.fixtures.plugin.kv(CONTROL, previous);
+    assert.equal(await host.inspect.kv.get("state:last-status"), null);
+    const saved = await snapshot(host);
+    // A lapsed previous-release sign-in reads exactly as before.
+    await host.fixtures.plugin.kv(CONTROL, { ...previous, expiresAt: Date.now() - 1 });
+    host.http.clear();
+    const lapsed = await f.page();
+    assert.equal(lapsed.blocks[1].title, "Payment status not checked");
+    assert.match(JSON.stringify(lapsed), /Select Sign in again to refresh it/);
+    assert.deepEqual(host.http.requests(), []);
+    // An active previous-release sign-in keeps its saved authorization.
+    await host.fixtures.plugin.kv(CONTROL, previous);
+    await f.prepareStatus();
+    assert.match(JSON.stringify(await f.page()), /Connected: Stripe test mode\. Test card payments work at checkout/);
+    assert.deepEqual((await snapshot(host)).setting, saved.setting);
+    assert.equal((await control(host)).flowId, saved.control.flowId);
+  } finally { await host.dispose(); }
 });
