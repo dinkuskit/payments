@@ -13,6 +13,7 @@ on:
         required: true
         type: string
       publish:
+      queue_mode: ${{ vars.CLAWSWEEPER_DO_QUEUE_MODE }}
         description: Publish the native review and state
         required: true
         type: boolean
@@ -111,7 +112,7 @@ jobs:
       group: ${{ github.repository }}-clawsweeper-dispatch-${{ needs.bind.outputs.pr_number }}
       cancel-in-progress: true
     permissions: {}
-    uses: dinkuskit/clawsweeper/.github/workflows/dinkuskit-native-canary.yml@d01c55c5faf57b09d08de55fe55581cdfa3f8352
+    uses: dinkuskit/clawsweeper/.github/workflows/dinkuskit-native-canary.yml@bad9d7e3204a6a93ad4da0bde97c49f4e64b6ad6
     with:
       target_repository: payments
       target_repository_id: '1351728314'
@@ -121,3 +122,4 @@ jobs:
       publish: ${{ needs.bind.outputs.publish == 'true' }}
     secrets:
       CLAWSWEEPER_DISPATCH_TOKEN: ${{ secrets.CLAWSWEEPER_DISPATCH_TOKEN }}
+      CLAWSWEEPER_DO_QUEUE_SECRET: ${{ secrets.CLAWSWEEPER_DO_QUEUE_SECRET }}
