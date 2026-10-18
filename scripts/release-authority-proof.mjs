@@ -52,10 +52,42 @@ export async function verifyShippedEmDashWorkflowGateBinding() {
 
   const gateIdx = emdashWorkflowText.indexOf("node .github/scripts/emdash-dispatch-gate.mjs");
   const mintIdx = emdashWorkflowText.indexOf("actions/create-github-app-token@");
-  const pdsIdx = emdashWorkflowText.indexOf("emdash-plugin publish");
-  if (gateIdx === -1 || mintIdx === -1 || pdsIdx === -1 || !(gateIdx < mintIdx && gateIdx < pdsIdx)) {
+  const prepareIdx = emdashWorkflowText.indexOf("node .github/scripts/prepare-emdash-release.mjs");
+  const attestIdx = emdashWorkflowText.indexOf("actions/attest-build-provenance@");
+  const releaseActionIdx = emdashWorkflowText.indexOf("emdash-cms/emdash/apps/release-action@");
+  const verifyIdx = emdashWorkflowText.indexOf("node .github/scripts/verify-registry-release.mjs");
+  if (
+    gateIdx === -1 ||
+    mintIdx === -1 ||
+    prepareIdx === -1 ||
+    attestIdx === -1 ||
+    releaseActionIdx === -1 ||
+    verifyIdx === -1 ||
+    !(gateIdx < mintIdx && gateIdx < prepareIdx && prepareIdx < attestIdx && attestIdx < releaseActionIdx && releaseActionIdx < verifyIdx)
+  ) {
     throw new Error(
-      "emdash-release.yml must run .github/scripts/emdash-dispatch-gate.mjs before token minting or PDS Registry publish",
+      "emdash-release.yml must run .github/scripts/emdash-dispatch-gate.mjs before token minting, bundle preparation, build provenance attestation, delegated release-action publish, and PDS verification",
+    );
+  }
+
+  if (
+    emdashWorkflowText.includes("EMDASH_PDS_") ||
+    releaseWorkflowText.includes("EMDASH_PDS_") ||
+    releaseWorkflowText.includes("secrets: inherit")
+  ) {
+    throw new Error(
+      "Release workflows must not reference legacy EMDASH_PDS_* secrets or secrets: inherit",
+    );
+  }
+
+  if (
+    !emdashWorkflowText.includes("id-token: write") ||
+    !emdashWorkflowText.includes("attestations: write") ||
+    !releaseWorkflowText.includes("id-token: write") ||
+    !releaseWorkflowText.includes("attestations: write")
+  ) {
+    throw new Error(
+      "Both release.yml and emdash-release.yml must grant id-token: write and attestations: write for OIDC delegated publishing",
     );
   }
 
@@ -70,6 +102,7 @@ export async function verifyShippedEmDashWorkflowGateBinding() {
     jobIfMatches: true,
     gateScriptInvokedBeforeCredentials: true,
     callerPassesStableReleaseMode: true,
+    delegatedOidcReleaseConfigured: true,
   };
 }
 
@@ -400,7 +433,7 @@ export async function runReleaseAuthorityProof() {
             { root, gitExec, ghExec: env.ghExec, fetchImpl: env.fetchImpl, log: (l) => logs.push(l) },
           );
           if (!check.alreadyPublished) {
-            events.push(`credential:pds-auth:[REDACTED]`);
+            events.push(`credential:oidc-attest-provenance`);
             events.push(`registry:publish:${slug}@${cutResult.version}`);
             env.state.betaVersions.push(cutResult.version);
           }
@@ -454,7 +487,7 @@ export async function runReleaseAuthorityProof() {
               { root, gitExec, ghExec: env.ghExec, fetchImpl: env.fetchImpl, log: (l) => logs.push(l) },
             );
             if (!check.alreadyPublished) {
-              events.push(`credential:pds-auth:[REDACTED]`);
+              events.push(`credential:oidc-attest-provenance`);
               events.push(`registry:publish:${slug}@${version}`);
               env.state.stableVersions.push(version);
             }
@@ -692,7 +725,7 @@ export async function runReleaseAuthorityProof() {
             { root, gitExec, ghExec: env.ghExec, fetchImpl: env.fetchImpl, log: () => {} },
           );
           if (!check.alreadyPublished) {
-            events.push(`credential:pds-auth:[REDACTED]`);
+            events.push(`credential:oidc-attest-provenance`);
             events.push(`registry:publish:${slug}@${version}`);
             env.state.stableVersions.push(version);
           }
@@ -872,7 +905,7 @@ export async function runReleaseAuthorityProof() {
             { root, gitExec, ghExec: env.ghExec, fetchImpl: env.fetchImpl, log: () => {} },
           );
           if (!check.alreadyPublished) {
-            events.push(`credential:pds-auth:[REDACTED]`);
+            events.push(`credential:oidc-attest-provenance`);
             events.push(`registry:publish:${slug}@${version}`);
             env.state.stableVersions.push(version);
           }

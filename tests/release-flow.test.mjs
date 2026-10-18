@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -9,6 +9,12 @@ import {
   classifyPkgPrNewOutput,
   runPkgPrNewPreview,
 } from "../.github/scripts/publish-pkg-pr-new.mjs";
+import {
+  computePackageChecksum,
+  parseSelector,
+  recordMatches,
+  resolvePdsEndpoint,
+} from "../.github/scripts/verify-registry-release.mjs";
 import {
   runExtractedGateScriptProcess,
   runReleaseAuthorityProof,
@@ -20,7 +26,7 @@ import {
   BETA_INSTALLED_PLUGIN_ID,
   BETA_PLUGIN_NAME,
   BETA_REGISTRY_SLUG,
-   MAX_PLUGIN_BUNDLE_BYTES,
+  MAX_PLUGIN_BUNDLE_BYTES,
   PACKAGE_NAME,
   RELEASE_PR_BRANCH,
   RELEASE_PR_TITLE_PREFIX,
@@ -193,6 +199,7 @@ test("validateEmDashDispatchGate and .github/scripts/emdash-dispatch-gate.mjs ag
   assert.equal(binding.jobIfMatches, true);
   assert.equal(binding.gateScriptInvokedBeforeCredentials, true);
   assert.equal(binding.callerPassesStableReleaseMode, true);
+  assert.equal(binding.delegatedOidcReleaseConfigured, true);
 
   const testCases = [
     {
@@ -778,6 +785,90 @@ test("prepareRegistryWorkspace stages isolated beta and stable manifests without
 
     const rootManifest = JSON.parse(await readFile(join(repositoryRoot, "emdash-plugin.jsonc"), "utf8"));
     assert.equal(rootManifest.slug, STABLE_REGISTRY_SLUG);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("prepare-emdash-release.mjs builds official emdash-plugin release prepare tarballs and verify-registry-release.mjs validates PDS multihash records", async () => {
+  if (!existsSync(join(repositoryRoot, "dist/sandbox/plugin.mjs"))) {
+    execFileSync("npm", ["run", "plugin:build"], { cwd: repositoryRoot, stdio: "inherit" });
+  }
+
+  const tempDir = await mkdtemp(join(tmpdir(), "payments-oidc-prepare-"));
+  try {
+    const betaDir = join(tempDir, "beta");
+    const betaOut = join(tempDir, "beta-output.txt");
+    execFileSync(
+      process.execPath,
+      [
+        join(repositoryRoot, ".github/scripts/prepare-emdash-release.mjs"),
+        "--version",
+        "0.2.9-beta.1",
+        "--out-dir",
+        betaDir,
+        "--github-output",
+        betaOut,
+      ],
+      { cwd: repositoryRoot, stdio: "pipe" },
+    );
+
+    const betaTarballPath = join(betaDir, "dinkus-payments-beta-0.2.9-beta.1.tar.gz");
+    const betaTarStat = await stat(betaTarballPath);
+    assert.ok(betaTarStat.isFile() && betaTarStat.size > 0);
+
+    const betaOutputText = await readFile(betaOut, "utf8");
+    assert.match(betaOutputText, /^package-slug=dinkus-payments-beta$/m);
+    assert.match(betaOutputText, /^version=0\.2\.9-beta\.1$/m);
+    assert.match(betaOutputText, /^publisher-did=did:plc:ekk4pjmkh3k3ql2kfoex3qt4$/m);
+    assert.match(betaOutputText, /^selector=dinkus-payments-beta@0\.2\.9-beta\.1$/m);
+
+    const tarballBytes = await readFile(betaTarballPath);
+    const checksum = computePackageChecksum(tarballBytes);
+    assert.match(checksum, /^b[a-z2-7]+$/);
+    assert.deepEqual(parseSelector("dinkus-payments-beta@0.2.9-beta.1"), {
+      slug: "dinkus-payments-beta",
+      version: "0.2.9-beta.1",
+    });
+
+    const matchRes = recordMatches(
+      {
+        $type: "com.emdashcms.experimental.package.release",
+        package: "dinkus-payments-beta",
+        version: "0.2.9-beta.1",
+        artifacts: {
+          package: {
+            checksum,
+            blob: { size: tarballBytes.byteLength, mimeType: "application/gzip" },
+          },
+        },
+      },
+      {
+        slug: "dinkus-payments-beta",
+        version: "0.2.9-beta.1",
+        checksum,
+        size: tarballBytes.byteLength,
+      },
+    );
+    assert.deepEqual(matchRes, { ok: true, reasons: [] });
+
+    const pdsEndpoint = await resolvePdsEndpoint(
+      "did:plc:ekk4pjmkh3k3ql2kfoex3qt4",
+      async () =>
+        new Response(
+          JSON.stringify({
+            service: [
+              {
+                id: "#atproto_pds",
+                type: "AtprotoPersonalDataServer",
+                serviceEndpoint: "https://porcini.us-east.host.bsky.network",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    assert.equal(pdsEndpoint, "https://porcini.us-east.host.bsky.network");
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

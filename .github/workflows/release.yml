@@ -18,6 +18,8 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
+  id-token: write
+  attestations: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -108,4 +110,3 @@ jobs:
     with:
       version: ${{ needs.release.outputs.version }}
       release_mode: stable
-    secrets: inherit

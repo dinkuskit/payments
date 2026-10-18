@@ -21,6 +21,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 concurrency:
   group: emdash-registry-${{ github.ref }}
@@ -32,6 +34,12 @@ jobs:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && inputs.release_mode == 'stable' && inputs.version != ''))
     runs-on: ubuntu-latest
     steps:
+      - name: Check repository visibility
+        if: ${{ github.event.repository.visibility != 'public' }}
+        run: |
+          echo "::error title=Public repository required::EmDash releases currently require a public GitHub repository because private and internal repository attestations cannot yet be verified."
+          exit 1
+
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -123,55 +131,68 @@ jobs:
             --version "$RELEASE_VERSION" \
             --github-output "$GITHUB_OUTPUT"
 
-      - name: Prepare EmDash Registry release directory
+      - name: Prepare EmDash Registry release bundle
+        id: prepare
         env:
+          EMDASH_PLUGIN_SLUG: ${{ steps.meta.outputs.slug }}
           RELEASE_VERSION: ${{ steps.meta.outputs.version }}
-        run: node .github/scripts/prepare-emdash-release.mjs --version "$RELEASE_VERSION" --out-dir dist/emdash-release
-
-      - name: Validate staged plugin manifest
-        working-directory: dist/emdash-release
-        run: npx --no-install emdash-plugin validate
-
-      - name: Bundle staged plugin archive
-        working-directory: dist/emdash-release
-        run: npx --no-install emdash-plugin bundle --out-dir dist
+        run: |
+          set -euo pipefail
+          node .github/scripts/prepare-emdash-release.mjs \
+            --slug "$EMDASH_PLUGIN_SLUG" \
+            --version "$RELEASE_VERSION" \
+            --out-dir .emdash-release \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Upload bundled EmDash release artifacts
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: emdash-plugin-${{ steps.meta.outputs.slug }}-${{ steps.meta.outputs.version }}
           path: |
-            dist/emdash-release/dist/bundle.tar.gz
-            dist/emdash-release/dist/bundle.manifest.json
-            dist/emdash-release/emdash-plugin.jsonc
+            ${{ steps.prepare.outputs.bundle-file }}
+            .emdash-release/emdash-plugin.jsonc
           if-no-files-found: error
 
-      - name: Publish plugin to EmDash Registry
+      - name: Create build provenance
+        id: attest
         if: steps.registry-check.outputs.already_published != 'true'
-        working-directory: dist/emdash-release
-        env:
-          EMDASH_PDS_HANDLE: ${{ secrets.EMDASH_PDS_HANDLE }}
-          EMDASH_PDS_PASSWORD: ${{ secrets.EMDASH_PDS_PASSWORD }}
-          EMDASH_PDS_SERVICE: ${{ secrets.EMDASH_PDS_SERVICE }}
-          EMDASH_REGISTRY_URL: ${{ vars.EMDASH_REGISTRY_URL || 'https://emdash-registry.pages.dev' }}
-        run: |
-          if [ -z "$EMDASH_PDS_HANDLE" ] || [ -z "$EMDASH_PDS_PASSWORD" ]; then
-            echo "::error::Missing EMDASH_PDS_HANDLE or EMDASH_PDS_PASSWORD secret required for EmDash Registry publish."
-            exit 1
-          fi
-          SERVICE_ARGS=()
-          if [ -n "$EMDASH_PDS_SERVICE" ]; then
-            SERVICE_ARGS=(--service "$EMDASH_PDS_SERVICE")
-          fi
-          npx --no-install emdash-plugin publish \
-            --handle "$EMDASH_PDS_HANDLE" \
-            --password "$EMDASH_PDS_PASSWORD" \
-            --registry-url "$EMDASH_REGISTRY_URL" \
-            "${SERVICE_ARGS[@]}"
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: ${{ steps.prepare.outputs.bundle-file }}
+
+      # The release service currently ends successful publishes in
+      # RELEASE_CONFLICT (emdash-cms/emdash#4159), so this step's
+      # outcome is not the gate. The verify step below is: the job
+      # only passes when the publisher PDS record for this version
+      # carries exactly the bundle bytes prepared above.
+      - name: Publish plugin to EmDash Registry
+        id: publish
+        if: steps.registry-check.outputs.already_published != 'true'
+        continue-on-error: true
+        uses: emdash-cms/emdash/apps/release-action@06f911b54f387a1284c767187042d7e11f6044fc # emdash main at generation time; bump deliberately
+        with:
+          service-url: https://releases.emdashcms.com
+          publisher-did: ${{ steps.prepare.outputs.publisher-did }}
+          bundle-file: ${{ steps.prepare.outputs.bundle-file }}
+          provenance-file: ${{ steps.attest.outputs.bundle-path }}
 
       - name: Verify release is indexed in EmDash Registry
+        id: verify
         env:
-          EMDASH_REGISTRY_URL: ${{ vars.EMDASH_REGISTRY_URL || 'https://emdash-registry.pages.dev' }}
-          EMDASH_PLUGIN_SLUG: ${{ steps.meta.outputs.slug }}
-          RELEASE_VERSION: ${{ steps.meta.outputs.version }}
-        run: node .github/scripts/verify-registry-release.mjs --slug "$EMDASH_PLUGIN_SLUG" --version "$RELEASE_VERSION"
+          PUBLISHER_DID: ${{ steps.prepare.outputs.publisher-did }}
+          EMDASH_RELEASE_SELECTOR: ${{ steps.prepare.outputs.selector }}
+          BUNDLE_FILE: ${{ steps.prepare.outputs.bundle-file }}
+        run: |
+          set -euo pipefail
+          node .github/scripts/verify-registry-release.mjs \
+            "$PUBLISHER_DID" "$EMDASH_RELEASE_SELECTOR" "$BUNDLE_FILE"
+
+      - name: Note intent outcome
+        if: ${{ always() && steps.publish.outcome == 'failure' && steps.verify.outcome == 'success' }}
+        run: |
+          echo "::warning title=Release intent reported failure::The delegated release intent failed (see Publish plugin to EmDash Registry step) but the Registry record was verified against the prepared bundle. Known upstream issue: emdash-cms/emdash#4159."
+          {
+            echo "## Registry publish verified despite intent failure"
+            echo
+            echo "The release intent reported failure, but the publisher PDS record for this version carries exactly the prepared bundle bytes. See emdash-cms/emdash#4159."
+          } >> "$GITHUB_STEP_SUMMARY"

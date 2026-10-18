@@ -13,6 +13,31 @@
 - Historical git tags before `v0.2.8` are never backfilled; the stable tag baseline is `v0.2.8`.
 - Every GitHub Actions `uses:` reference in `.github/workflows/*.yml` is pinned to a full 40-character commit SHA (enforced by `npm run audit:repo`).
 
+## Delegated Registry Publishing (No Stored PDS Credentials)
+
+Registry publishing uses GitHub OIDC, Sigstore build provenance (`actions/attest-build-provenance`), and the EmDash delegated release service (`emdash-cms/emdash/apps/release-action` targeting `https://releases.emdashcms.com`), so no Atmosphere/PDS handle or app-password secret is stored in this repository.
+
+1. `.github/scripts/prepare-emdash-release.mjs` copies the audited Cloudflare sandbox prebundle (`dist/sandbox/plugin.mjs`) into an isolated temporary directory and invokes the official `emdash-plugin release prepare <slug@version>` command there, producing `.emdash-release/<slug>-<version>.tar.gz` plus the `publisher-did`, `bundle-file`, and `selector` outputs.
+2. `actions/attest-build-provenance` signs build provenance over the prepared bundle tarball (`id-token: write`, `attestations: write`).
+3. `emdash-cms/emdash/apps/release-action` submits the bundle and provenance to `https://releases.emdashcms.com` for `publisher-did` (`did:plc:ekk4pjmkh3k3ql2kfoex3qt4`).
+4. Because the delegated release service can currently end successful publishes in `RELEASE_CONFLICT` ([`emdash-cms/emdash#4159`](https://github.com/emdash-cms/emdash/issues/4159)), the publish step uses `continue-on-error: true` and `.github/scripts/verify-registry-release.mjs` acts as the fail-closed gate by resolving the publisher PDS endpoint directly and verifying that the `com.emdashcms.experimental.package.release` record for `<slug>:<version>` carries the exact multihash checksum and byte size of the prepared tarball.
+
+### One-Time Publisher Profile Setup (`dinkus-payments-beta`)
+
+Before the first beta release can publish through the delegated release service, the repository owner must create and authorize the `dinkus-payments-beta` package profile under `@smokyco.bsky.social` (`did:plc:ekk4pjmkh3k3ql2kfoex3qt4`):
+
+1. Stage a beta manifest directory from a built checkout:
+   ```bash
+   npm ci
+   npm run build
+   node .github/scripts/prepare-emdash-release.mjs --slug dinkus-payments-beta --version 0.2.9-beta.1 --out-dir /tmp/payments-beta-profile
+   ```
+2. Using the publisher's interactive `emdash-plugin` login session, create the package profile record:
+   ```bash
+   ./node_modules/.bin/emdash-plugin profile setup --dir /tmp/payments-beta-profile --yes
+   ```
+3. In the [EmDash release-service publisher dashboard](https://releases.emdashcms.com/publisher), choose **Authorize publishing** for `dinkus-payments-beta` (and `dinkus-payments` if not already authorized), then approve the `dinkuskit/payments` `.github/workflows/emdash-release.yml` workflow connection on its first run.
+
 ## Step 1: Every PR Includes a Changeset
 
 Every pull request targeting `main` (except automated `ci: release` PRs on `changeset-release/main`) must add at least one `.changeset/*.md` file:
@@ -36,8 +61,8 @@ When `main` has pending version-bumping `.changeset/*.md` files and you are read
 2. The workflow:
    - Computes the target `X.Y.Z` from pending changesets on `main` and determines the next `X.Y.Z-beta.N` across existing git tags and `dinkus-payments-beta` Registry versions (failing closed on Registry lookup or schema errors so duplicate beta numbers cannot be computed).
    - Tags the `main` commit `vX.Y.Z-beta.N` using the release GitHub App token (`RELEASE_APP_ID` / `RELEASE_APP_PRIVATE_KEY`).
-   - Stages an isolated EmDash release workspace (`dist/emdash-release`) with `slug: "dinkus-payments-beta"`, `name: "DinkusKit Payments (Beta)"`, and `version: "X.Y.Z-beta.N"`, while keeping the repository root `emdash-plugin.jsonc` at `dinkus-payments`.
-   - Validates, bundles, and publishes `dinkus-payments-beta@X.Y.Z-beta.N` to the EmDash Registry, then verifies Registry indexing.
+   - Prepares `.emdash-release/dinkus-payments-beta-X.Y.Z-beta.N.tar.gz` via `emdash-plugin release prepare` with `slug: "dinkus-payments-beta"`, `name: "DinkusKit Payments (Beta)"`, and `version: "X.Y.Z-beta.N"`, while keeping the repository root `emdash-plugin.jsonc` at `dinkus-payments`.
+   - Signs build provenance with `actions/attest-build-provenance`, submits the release to `https://releases.emdashcms.com` via `emdash-cms/emdash/apps/release-action`, and verifies the publisher PDS release record (`verify-registry-release.mjs`).
 
 ## Step 3: Run Beta Store `@running` Journeys
 
@@ -63,4 +88,4 @@ Once `dinkus-payments-beta@X.Y.Z-beta.N` has passed the beta-store `@running` jo
    - Verifies the `Release-Beta-Proof:` record, enforces that `git diff --name-only v<betaVersion> HEAD` contains only `package.json`, `package-lock.json`, `CHANGELOG.md`, and `.changeset/*.md`, and semantically verifies that `package.json` and `package-lock.json` only updated the package's own `version` field (`X.Y.Z`). Any source, workflow, dependency, script, or lockfile resolution modification since the approved beta tag aborts before tagging or publishing.
    - Creates and pushes git tag `vX.Y.Z` (or resumes cleanly if `vX.Y.Z` already exists on `HEAD` from a prior partial run).
    - Creates the GitHub Release for `vX.Y.Z` from the matching `CHANGELOG.md` section if not yet created.
-   - Checks whether `dinkus-payments@X.Y.Z` is already indexed in the EmDash Registry, and if not yet indexed, delegates to `.github/workflows/emdash-release.yml` via `workflow_call` (which retains caller `github.event_name == 'push'` on `refs/heads/main` and passes `release_mode: stable` plus `version`) to bundle, publish, and verify `dinkus-payments@X.Y.Z` (`r_3brsc2on3bu673rn`).
+   - Checks whether `dinkus-payments@X.Y.Z` is already indexed in the EmDash Registry, and if not yet indexed, delegates to `.github/workflows/emdash-release.yml` via `workflow_call` (which retains caller `github.event_name == 'push'` on `refs/heads/main` and passes `release_mode: stable` plus `version`) to prepare, attest, publish via the EmDash delegated release service, and verify `dinkus-payments@X.Y.Z` (`r_3brsc2on3bu673rn`).

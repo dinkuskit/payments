@@ -1,5 +1,7 @@
-import { copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { appendFile, copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const MAX_PLUGIN_BYTES = 131_072;
@@ -11,10 +13,12 @@ const BETA_NAME = "DinkusKit Payments (Beta)";
 
 function parseArgs(argv) {
   const options = {
-    outDir: "dist/emdash-release",
+    outDir: ".emdash-release",
     version: undefined,
     slug: undefined,
     name: undefined,
+    selector: undefined,
+    githubOutput: process.env.GITHUB_OUTPUT,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -39,16 +43,38 @@ function parseArgs(argv) {
       index += 1;
     } else if (arg.startsWith("--name=")) {
       options.name = arg.slice("--name=".length);
+    } else if (arg === "--github-output") {
+      options.githubOutput = argv[index + 1];
+      index += 1;
+    } else if (arg.startsWith("--github-output=")) {
+      options.githubOutput = arg.slice("--github-output=".length);
+    } else if (!arg.startsWith("-") && !options.selector) {
+      options.selector = arg;
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }
+  }
+
+  if (options.selector) {
+    const separator = options.selector.lastIndexOf("@");
+    if (separator <= 0 || separator === options.selector.length - 1) {
+      throw new Error(`Invalid release selector "${options.selector}". Expected <slug>@<version>.`);
+    }
+    options.slug = options.slug ?? options.selector.slice(0, separator);
+    options.version = options.version ?? options.selector.slice(separator + 1);
   }
 
   return options;
 }
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const { outDir, version: requestedVersion, slug: requestedSlug, name: requestedName } = parseArgs(process.argv.slice(2));
+const {
+  outDir,
+  version: requestedVersion,
+  slug: requestedSlug,
+  name: requestedName,
+  githubOutput,
+} = parseArgs(process.argv.slice(2));
 const releaseDir = resolve(rootDir, outDir);
 
 const rootPackage = JSON.parse(await readFile(resolve(rootDir, "package.json"), "utf8"));
@@ -81,21 +107,15 @@ if (builtManifest.version !== rootPackage.version) {
 }
 
 const isBeta = releaseVersion.includes("-beta.");
-const releaseSlug = requestedSlug?.trim() || (isBeta ? BETA_SLUG : STABLE_SLUG);
-const releaseName = requestedName?.trim() || (isBeta ? BETA_NAME : STABLE_NAME);
-
-await rm(releaseDir, { recursive: true, force: true });
-await mkdir(resolve(releaseDir, "src"), { recursive: true });
-
-await copyFile(builtPluginPath, resolve(releaseDir, "src/plugin.ts"));
-
-for (const filename of ["README.md", "LICENSE"]) {
-  const sourcePath = resolve(rootDir, filename);
-  const stats = await stat(sourcePath).catch(() => null);
-  if (stats?.isFile()) {
-    await copyFile(sourcePath, resolve(releaseDir, filename));
-  }
+const expectedSlug = isBeta ? BETA_SLUG : STABLE_SLUG;
+const releaseSlug = requestedSlug?.trim() || expectedSlug;
+if (releaseSlug !== expectedSlug) {
+  throw new Error(
+    `Release slug "${releaseSlug}" does not match version "${releaseVersion}" (expected "${expectedSlug}").`,
+  );
 }
+const releaseName = requestedName?.trim() || (isBeta ? BETA_NAME : STABLE_NAME);
+const selector = `${releaseSlug}@${releaseVersion}`;
 
 const stagedPluginConfig = {
   ...pluginConfig,
@@ -103,12 +123,6 @@ const stagedPluginConfig = {
   name: releaseName,
   version: releaseVersion,
 };
-
-await writeFile(
-  resolve(releaseDir, "emdash-plugin.jsonc"),
-  `${JSON.stringify(stagedPluginConfig, null, 2)}\n`,
-  "utf8",
-);
 
 const stagedPackageJson = {
   name: rootPackage.name,
@@ -119,12 +133,97 @@ const stagedPackageJson = {
   repository: rootPackage.repository,
 };
 
-await writeFile(
-  resolve(releaseDir, "package.json"),
-  `${JSON.stringify(stagedPackageJson, null, 2)}\n`,
-  "utf8",
-);
+const tempDir = await mkdtemp(join(tmpdir(), "payments-release-"));
+try {
+  await mkdir(join(tempDir, "src"), { recursive: true });
+  await copyFile(builtPluginPath, join(tempDir, "src/plugin.ts"));
 
-console.log(
-  `Prepared EmDash Registry release dir at ${releaseDir} for ${stagedPluginConfig.slug}@${releaseVersion} (bundle: ${pluginStats.size} bytes).`,
-);
+  for (const filename of ["README.md", "LICENSE"]) {
+    const sourcePath = resolve(rootDir, filename);
+    const stats = await stat(sourcePath).catch(() => null);
+    if (stats?.isFile()) {
+      await copyFile(sourcePath, join(tempDir, filename));
+    }
+  }
+
+  await writeFile(
+    join(tempDir, "emdash-plugin.jsonc"),
+    `${JSON.stringify(stagedPluginConfig, null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(
+    join(tempDir, "package.json"),
+    `${JSON.stringify(stagedPackageJson, null, 2)}\n`,
+    "utf8",
+  );
+
+  const receiptPath = join(tempDir, "github-output");
+  const cliPath = resolve(rootDir, "node_modules/@emdash-cms/plugin-cli/dist/index.mjs");
+  execFileSync(
+    process.execPath,
+    [cliPath, "release", "prepare", selector, "--dir", tempDir, "--out-dir", ".emdash-release"],
+    {
+      cwd: tempDir,
+      env: { ...process.env, GITHUB_OUTPUT: receiptPath },
+      stdio: "inherit",
+    },
+  );
+
+  const receiptLines = (await readFile(receiptPath, "utf8")).trim().split("\n").filter(Boolean);
+  const fields = Object.fromEntries(
+    receiptLines.map((line) => {
+      const separator = line.indexOf("=");
+      return [line.slice(0, separator), line.slice(separator + 1)];
+    }),
+  );
+
+  const expectedBundle = `.emdash-release/${releaseSlug}-${releaseVersion}.tar.gz`;
+  if (
+    fields["package-slug"] !== releaseSlug ||
+    fields.version !== releaseVersion ||
+    fields["publisher-did"] !== pluginConfig.publisher ||
+    fields["plugin-directory"] !== "." ||
+    fields["bundle-file"] !== expectedBundle
+  ) {
+    throw new Error("Official release preparation returned unexpected metadata.");
+  }
+
+  await rm(releaseDir, { recursive: true, force: true });
+  await mkdir(releaseDir, { recursive: true });
+
+  const bundleFilename = basename(expectedBundle);
+  const outputBundlePath = resolve(releaseDir, bundleFilename);
+  await copyFile(join(tempDir, expectedBundle), outputBundlePath);
+  await writeFile(
+    resolve(releaseDir, "emdash-plugin.jsonc"),
+    `${JSON.stringify(stagedPluginConfig, null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(
+    resolve(releaseDir, "package.json"),
+    `${JSON.stringify(stagedPackageJson, null, 2)}\n`,
+    "utf8",
+  );
+
+  fields["bundle-file"] = outputBundlePath;
+  fields.selector = selector;
+  if (Object.values(fields).some((value) => /[\r\n]/.test(String(value)))) {
+    throw new Error("Invalid release output metadata.");
+  }
+
+  if (githubOutput) {
+    await appendFile(
+      githubOutput,
+      Object.entries(fields)
+        .map(([key, value]) => `${key}=${value}\n`)
+        .join(""),
+      "utf8",
+    );
+  }
+
+  console.log(
+    `Prepared EmDash Registry release bundle at ${outputBundlePath} for ${selector} (sandbox prebundle: ${pluginStats.size} bytes).`,
+  );
+} finally {
+  await rm(tempDir, { recursive: true, force: true });
+}
