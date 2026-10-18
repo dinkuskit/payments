@@ -289,7 +289,7 @@ export function createConnectionService(options: {
     if (record && (record.providerId ?? "stripe") !== providerId) throw new ConnectionError("binding_provider_mismatch");
     const present = Boolean(record && (providerId === "stripe" ? record.stripeAccountId : record.authorizeNetMerchantId));
     const result: ConnectionDiagnostics = {
-      state: !record ? "disconnected" : present ? "account_present" : legacyCreation(record) || now() - record.startedAt >= CREATION_RETRY_WINDOW_MS ? "recovery_required" : "connecting",
+      state: !record ? "disconnected" : present ? "account_present" : legacyCreation(record) || !!record.creationCountryRepair || now() - record.startedAt >= CREATION_RETRY_WINDOW_MS ? "recovery_required" : "connecting",
       mode, processorAccountPresent: present, evidence: record?.creationFailure ? "observed" : "unobserved",
       ...(record?.creationFailure ? { lastFailure: record.creationFailure } : {}),
     };
