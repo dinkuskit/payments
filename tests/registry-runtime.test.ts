@@ -127,7 +127,7 @@ test("compiled Continue saves authorization and reads status within ten bridge c
     const page = JSON.stringify(await f.action("continue"));
     assert.match(page, /Connected: Stripe test mode\. Test card payments work at checkout/);
     assert.doesNotMatch(page, /status_read_session|check failed|"action_id":"setup_processor"/);
-    assert.deepEqual(calls, ["kvGetVersioned", "kvCompareAndSet", "kvGetVersioned", "settingsGetVersioned", "httpFetch", "httpFetch", "kvGetVersioned", "settingsCompareAndSet", "kvCompareAndSet", "httpFetch"]);
+    assert.deepEqual(calls, ["kvGetVersioned", "kvCompareAndSet", "kvGetVersioned", "settingsGetVersioned", "httpFetch", "httpFetch", "httpFetch", "kvGetVersioned", "settingsCompareAndSet", "kvCompareAndSet"]);
     assert.deepEqual(host.http.requests().filter(r => r.url === STATUS || r.url === JWKS).map(r => r.url), [JWKS, STATUS]);
     assert.equal(host.http.requests().some(r => r.url.endsWith("/v1/connect") || r.url.endsWith("/diagnostics")), false);
     const saved = await snapshot(host);
@@ -355,7 +355,8 @@ test("compiled expiry requires explicit reconnect and stale receipts preserve th
     await host.fixtures.plugin.kv(CONTROL, { ...old, expiresAt: Date.now() - 1 });
     const expired = await snapshot(host);
     host.http.clear();
-    assert.match(JSON.stringify(await f.page()), /Select Sign in again to refresh it/);
+    // The status read at approval is shown, labelled, with Sign in again.
+    assert.match(JSON.stringify(await f.page()), /Last checked .* UTC\. This page's DinkusKit sign-in lasts 5 minutes.*"label":"Sign in again","action_id":"connect"/);
     assert.match(JSON.stringify(await f.action("continue")), /"action_id":"connect"/);
     assert.deepEqual(await snapshot(host), expired);
     assert.deepEqual(host.http.requests(), []);
@@ -670,14 +671,70 @@ test("compiled page load after DinkusKit's Approve finishes sign-in and shows th
   } finally { await host.dispose(); }
 });
 
-test("compiled Continue pressed inside the poll interval waits it out instead of repeating the pending screen", async () => {
+test("compiled Continue pressed inside the poll interval waits it out within ten bridge calls", async () => {
   const f = await fixture(); const { host } = f;
+  const calls: string[] = [];
   try {
     // prepareStart answers interval 1, so the poll is about a second away.
     await f.prepareStart("continue-early"); await f.action("connect");
     await f.prepareExchange();
+    for (const name of ["kvGet", "kvSet", "kvGetVersioned", "kvCompareAndSet", "settingsGetVersioned", "settingsCompareAndSet", "httpFetch"] as const) {
+      const original = PluginBridge.prototype[name];
+      vi.spyOn(PluginBridge.prototype, name).mockImplementation(async function(...args: unknown[]) {
+        if (!name.startsWith("kv") || !String(args[0]).startsWith("settings:")) {
+          calls.push(name);
+          if (calls.length > 10) throw new Error("synthetic_subrequest_limit");
+        }
+        return (original as (...args: unknown[]) => Promise<unknown>).apply(this, args);
+      } as never);
+    }
     const page = JSON.stringify(await f.action("continue"));
     assert.match(page, /Connected: Stripe test mode\. Test card payments work at checkout/);
+    assert.equal(calls.length, 10);
     assert.equal(host.http.requests().filter(r => r.url.endsWith("/token")).length, 1);
+  } finally { vi.restoreAllMocks(); await host.dispose(); }
+});
+
+test("compiled Approve then a lapsed sign-in shows the status read at approval, to that admin only", async () => {
+  const f = await fixture(); const { host } = f;
+  try {
+    await f.prepareStart("approve-then-lapse"); await f.action("connect"); await f.pollDue();
+    await f.prepareExchange(); await f.action("continue");
+    await host.fixtures.plugin.kv(CONTROL, { ...await control(host), expiresAt: Date.now() - 1 });
+    host.http.clear();
+    const page = await f.page();
+    assert.equal(page.blocks[1].title, "Connected: Stripe test mode");
+    assert.match(String(page.blocks[1].description), /^Last checked .* UTC\. This page's DinkusKit sign-in lasts 5 minutes/);
+    assert.match(JSON.stringify(page), /"label":"Sign in again","action_id":"connect"/);
+    assert.deepEqual(host.http.requests(), []);
+    const other = await host.fixtures.user({ email: "other-admin@example.invalid", role: "admin" });
+    const otherPage = await host.admin.loadPage("/status", { user: other });
+    assert.equal(otherPage.blocks[1].title, "Payment status not checked");
+  } finally { await host.dispose(); }
+});
+
+test("compiled sessions saved by the previous release keep working with no remembered status", async () => {
+  const f = await fixture(); const { host } = f;
+  try {
+    await f.prepareStart("previous-release"); await f.action("connect"); await f.pollDue();
+    await f.prepareExchange(); await f.action("continue");
+    // Exactly what 0.2.8 persisted: no lastStatus on control, no state:last-status.
+    const { lastStatus: _dropped, ...previous } = await control(host) as Record<string, unknown>;
+    await host.fixtures.plugin.kv(CONTROL, previous);
+    assert.equal(await host.inspect.kv.get("state:last-status"), null);
+    const saved = await snapshot(host);
+    // A lapsed previous-release sign-in reads exactly as before.
+    await host.fixtures.plugin.kv(CONTROL, { ...previous, expiresAt: Date.now() - 1 });
+    host.http.clear();
+    const lapsed = await f.page();
+    assert.equal(lapsed.blocks[1].title, "Payment status not checked");
+    assert.match(JSON.stringify(lapsed), /Select Sign in again to refresh it/);
+    assert.deepEqual(host.http.requests(), []);
+    // An active previous-release sign-in keeps its saved authorization.
+    await host.fixtures.plugin.kv(CONTROL, previous);
+    await f.prepareStatus();
+    assert.match(JSON.stringify(await f.page()), /Connected: Stripe test mode\. Test card payments work at checkout/);
+    assert.deepEqual((await snapshot(host)).setting, saved.setting);
+    assert.equal((await control(host)).flowId, saved.control.flowId);
   } finally { await host.dispose(); }
 });

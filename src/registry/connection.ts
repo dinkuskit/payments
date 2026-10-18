@@ -81,6 +81,8 @@ type Control = {
   flowId: string; adminId: string; origin: string; expiresAt: number;
   binding?: Binding; receipt?: ProofReceipt; verificationUri?: string;
   interval?: number; nextPollAt?: number; secretHash?: string;
+  // Status read with the new grant's token, saved with the grant itself.
+  lastStatus?: { checkedAt: number; status: unknown };
 };
 export type RegistryFlowResult =
   | { state: "provider_identity"; providerIdentity: ProviderIdentityDiagnostic }
@@ -148,14 +150,15 @@ export function createRegistryConnection(options: {
   // Last status this admin read for this store, shown only while the page's
   // own sign-in has lapsed. Never a token, never used for checkout.
   async function signInLapsed(c: Control, user?: UserInfo): Promise<RegistryFlowResult> {
+    if (!c.binding || !user?.id || c.adminId !== user.id) return { state: "action_required" };
+    // The newer of the status saved with the grant and the last Check.
+    let latest = c.lastStatus && Number.isSafeInteger(c.lastStatus.checkedAt) ? c.lastStatus : undefined;
     try {
       const last = await options.kv.get<LastStatus>(LAST_STATUS_KEY);
-      if (last && c.binding && user?.id && last.adminId === user.id && c.adminId === user.id &&
-          last.siteId === c.binding.siteId && last.origin === origin && Number.isSafeInteger(last.checkedAt)) {
-        return { state: "action_required", lastChecked: { at: last.checkedAt, status: last.status } };
-      }
-    } catch { /* Without a readable last status the page still asks to sign in again. */ }
-    return { state: "action_required" };
+      if (last && last.adminId === user.id && last.siteId === c.binding.siteId && last.origin === origin &&
+          Number.isSafeInteger(last.checkedAt) && (!latest || last.checkedAt > latest.checkedAt)) latest = last;
+    } catch { /* The status saved with the grant, if any, still applies. */ }
+    return latest ? { state: "action_required", lastChecked: { at: latest.checkedAt, status: latest.status } } : { state: "action_required" };
   }
   // One bridge call: the sandbox allows ten per request.
   async function rememberStatus(c: Control, binding: Binding, status: unknown) {
@@ -255,8 +258,9 @@ export function createRegistryConnection(options: {
     if (now() < c.nextPollAt!) {
       const wait = c.nextPollAt! - now();
       if (opts.wait === false || wait > MAX_POLL_WAIT_MS) return pending(c);
+      // Reuse this read: the reservation below fails if control changed while
+      // waiting, and a second read would push a new grant past ten bridge calls.
       await sleep(wait + 50);
-      return exchange(user, { wait: false });
     }
     if (!(await options.kv.compareAndSet(CONTROL_KEY, prior.revision, { ...c, phase: "exchanging" })).applied) return { state: "connecting" };
     const reserved = await current();
@@ -277,17 +281,18 @@ export function createRegistryConnection(options: {
       const verified = await verifySessionToken(body.access_token, c.receipt!.site_id);
       const binding: Binding = { siteId: c.receipt!.site_id, origin, issuer: REGISTRY_ISSUER, subject: verified.subject };
       if (c.binding && (c.binding.siteId !== binding.siteId || c.binding.origin !== origin || c.binding.issuer !== binding.issuer || c.binding.subject !== binding.subject)) return fail(reserved);
+      // The token was just verified, so read status with it now and show the
+      // real connection. The result is saved with the grant, so this path stays
+      // at ten bridge calls: one status fetch, no diagnostics, no extra write.
+      const url = statusUrl();
+      const checked: RegistryFlowResult = url ? await readStatus({ ...c, binding }, binding, verified.token, url, { diagnostics: false }) : { state: "ready" };
+      const shown = checked.state === "ready" && "status" in checked ? (checked.status as { status?: unknown } | undefined)?.status : undefined;
       if (c.expiresAt <= now() || (await current())?.revision !== reserved.revision) return failure();
       const value = JSON.stringify({ kind: "session", flowId: c.flowId, token: verified.token } satisfies SessionSecret);
       if (!(await options.settings.compareAndSet(STATE_SETTING, stored.revision, value)).applied) return fail(reserved);
       const next: Control = { ...c, phase: "complete", binding, secretHash: await sha256(value), expiresAt: verified.expiresAt,
-        receipt: undefined, verificationUri: undefined };
-      if (!(await options.kv.compareAndSet(CONTROL_KEY, reserved.revision, next)).applied) return failure();
-      // The token was verified a moment ago, so read status with it now and
-      // show the real connection. This keeps the new-grant path at ten bridge
-      // calls: one status fetch, no diagnostics (Check connection adds those).
-      const url = statusUrl();
-      return url ? readStatus(next, binding, verified.token, url, { diagnostics: false }) : { state: "ready" };
+        receipt: undefined, verificationUri: undefined, ...(shown ? { lastStatus: { checkedAt: now(), status: shown } } : {}) };
+      return (await options.kv.compareAndSet(CONTROL_KEY, reserved.revision, next)).applied ? checked : failure();
     } catch { return fail(reserved); }
   }
   function statusUrl(): URL | null {

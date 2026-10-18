@@ -252,8 +252,8 @@ test('a new grant reads status with its verified token, without diagnostics or a
 test('a lapsed page sign-in reports the last status this admin read, never another admin', async () => {
   const { f, connection } = await fixture();
   f.statusReply = { state: 'ready', mode: 'test', bindingRef: 'synthetic-binding', connectionEvidence: { provider: 'stripe', mode: 'test', result: 'verified', accountRef: 'acct_one' } };
+  // Approve, then nothing else: the status shown right after approval is kept.
   await f.connect(); const checkedAt = f.now;
-  assert.equal((await connection.status({ id: 'admin' })).state, 'ready');
   f.now += 301000;
   for (const result of [await connection.status({ id: 'admin' }), await connection.exchange({ id: 'admin' })]) {
     assert.equal(result.state, 'action_required');
@@ -270,4 +270,17 @@ test('a refused setup carries only a known reason; any other refusal stays uncon
     assert.equal(JSON.stringify(result).includes('raw-provider'), false);
     if (expected === 'setup_refused') assert.equal(result.refusal, error);
   }
+});
+
+test('the newest of the approval-time status and a later Check is shown after the sign-in lapses', async () => {
+  const { f, connection } = await fixture();
+  await f.connect();
+  f.now += 60000; f.statusReply = { state: 'ready', mode: 'test', bindingRef: 'synthetic-binding', connectionEvidence: { provider: 'stripe', mode: 'test', result: 'verified', accountRef: 'acct_one' } };
+  assert.equal((await connection.status({ id: 'admin' })).state, 'ready'); const checkedAt = f.now;
+  f.now += 301000;
+  assert.deepEqual((await connection.status({ id: 'admin' })).lastChecked, { at: checkedAt, status: f.statusReply });
+  // A fresh approval is newer than the earlier Check.
+  f.statusReply = { state: 'disconnected', mode: 'test', bindingRef: 'synthetic-binding' };
+  await f.connect(); const approvedAt = f.now; f.now += 301000;
+  assert.deepEqual((await connection.status({ id: 'admin' })).lastChecked, { at: approvedAt, status: f.statusReply });
 });

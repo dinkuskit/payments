@@ -227,8 +227,10 @@ verified: one extra status fetch, no second JWKS fetch and no diagnostics, so
 the new-grant path is exactly ten bridge calls. Check connection adds
 diagnostics when the status is connecting or recovery required.
 
-Each Check connection or page-load status read stores that status (one KV write,
-no token) for the admin who read it. When the page's own 5-minute sign-in has
+The status read with a new grant is saved on the grant itself (no extra bridge
+call), and each Check connection or page-load status read stores its status in
+one KV write; neither holds a token. Continue inside the poll interval reuses
+its first control read, so it also stays at ten bridge calls. When the page's own 5-minute sign-in has
 lapsed for that same admin and store, the page shows that status with
 "Last checked <time>" and Sign in again. Another admin still sees
 "Payment status not checked".
