@@ -19,10 +19,7 @@ on:
         default: ""
         type: string
 
-permissions:
-  contents: write
-  id-token: write
-  attestations: write
+permissions: {}
 
 concurrency:
   group: emdash-registry-${{ github.ref }}
@@ -33,6 +30,10 @@ jobs:
     name: Bundle and publish plugin to EmDash Registry
     if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && inputs.release_mode == 'stable' && inputs.version != ''))
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Required for the audience-bound GitHub OIDC token.
+      attestations: write # Required to sign build provenance.
     steps:
       - name: Check repository visibility
         if: ${{ github.event.repository.visibility != 'public' }}

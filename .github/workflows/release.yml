@@ -18,8 +18,6 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
-  id-token: write
-  attestations: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -107,6 +105,10 @@ jobs:
     needs: release
     if: needs.release.outputs.published == 'true' || needs.release.outputs.registry_needed == 'true'
     uses: ./.github/workflows/emdash-release.yml
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     with:
       version: ${{ needs.release.outputs.version }}
       release_mode: stable
