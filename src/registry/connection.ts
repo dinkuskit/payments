@@ -2,12 +2,21 @@ import { validOnboardingUrl } from "../onboarding-url.js";
 import { decodeProviderIdentityDiagnostic, type ProviderIdentityDiagnostic } from "../provider-identity.js";
 import { decodeDiagnostics, type ConnectionDiagnostics } from "../connection-diagnostics.js";
 import { pluginResponse } from "emdash/plugin";
-import { registryInstallationIdentity } from "./identity.js";
+import {
+  betaRegistryInstallationIdentity,
+  registryCallbackPath,
+  registryInstallationIdentity,
+  registryProofPath,
+  resolveRegistryInstallationIdentity,
+  type InstalledRegistryPluginId,
+  type RegistryPluginSlug,
+} from "./identity.js";
 import { decodeStatus } from "./status.js";
 import type { StatusCheckFailure, StatusCheckStage } from "./check-failure.js";
 
 export type UserInfo = { id: string };
 export type SiteInfo = { url: string };
+export type PluginInfo = { id?: string; version?: string };
 export type HttpAccess = { fetch(url: string, init?: RequestInit): Promise<Response> };
 export type Versioned<T> = { value: T; revision: string };
 export type KVAccess = {
@@ -30,7 +39,9 @@ export const REGISTRY_CONNECT_URL = `${REGISTRY_ORIGIN}/api/store-connections`;
 export const REGISTRY_CLIENT_ID = "dinkus-payments-emdash";
 export const REGISTRY_SERVICE = "payments";
 export const REGISTRY_CALLBACK_PATH = `/_emdash/admin/plugins/${registryInstallationIdentity.installedPluginId}/status`;
+export const REGISTRY_BETA_CALLBACK_PATH = `/_emdash/admin/plugins/${betaRegistryInstallationIdentity.installedPluginId}/status`;
 export const REGISTRY_PROOF_PATH = `/_emdash/api/plugins/${registryInstallationIdentity.installedPluginId}/store-proof`;
+export const REGISTRY_BETA_PROOF_PATH = `/_emdash/api/plugins/${betaRegistryInstallationIdentity.installedPluginId}/store-proof`;
 export const REGISTRY_AUDIENCE = "dinkus-payments";
 export const REGISTRY_SCOPE = "payments:admin";
 
@@ -42,6 +53,8 @@ const MAX_TOKEN_MS = 300_000;
 
 export type RegistryConfig = Readonly<{
   endpoint: Readonly<{ status: string }> | null;
+  /** Optional override for installed plugin ID (`r_3brsc2on3bu673rn` or `r_sffx6l4z6mpqliki`). */
+  installedPluginId?: InstalledRegistryPluginId | RegistryPluginSlug | string;
   /** Build-time local proof only; never derived from settings or route input. */
   testOnly?: Readonly<{ storeOrigin: string; verificationOrigin: string }>;
 }>;
@@ -90,7 +103,6 @@ function decodeJsonSegment<T>(value: string): T {
 }
 async function sha256(value: string) { return base64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)))); }
 function safeString(value: unknown, max = 512): value is string { return typeof value === "string" && value.length > 0 && value.length <= max; }
-function exactCallback(origin: string) { return `${origin}${REGISTRY_CALLBACK_PATH}`; }
 function noRedirect(init: RequestInit = {}): RequestInit { return { ...init, redirect: "manual" }; }
 function validTestOrigin(value: string): boolean {
   try { const url = new URL(value); return url.origin === value && url.protocol === "http:" && url.hostname === "127.0.0.1" && !!url.port; }
@@ -99,11 +111,15 @@ function validTestOrigin(value: string): boolean {
 
 export function createRegistryConnection(options: {
   kv: KVAccess; settings: SettingsAccess; http?: HttpAccess; site: SiteInfo; config: RegistryConfig;
-  now?: () => number; id?: () => string;
+  plugin?: PluginInfo; now?: () => number; id?: () => string;
 }) {
   const now = options.now ?? Date.now;
   const test = options.config.testOnly;
-  const validConfig = !test || validTestOrigin(test.storeOrigin) && validTestOrigin(test.verificationOrigin);
+  const installation = resolveRegistryInstallationIdentity(options.config.installedPluginId ?? options.plugin?.id);
+  const callbackPath = installation ? registryCallbackPath(installation.installedPluginId) : REGISTRY_CALLBACK_PATH;
+  const proofPath = installation ? registryProofPath(installation.installedPluginId) : REGISTRY_PROOF_PATH;
+  const exactCallback = (siteOrigin: string) => `${siteOrigin}${callbackPath}`;
+  const validConfig = Boolean(installation) && (!test || validTestOrigin(test.storeOrigin) && validTestOrigin(test.verificationOrigin));
   const origin = validConfig ? canonicalOrigin(options.site.url, test?.storeOrigin) : null;
   const verificationOrigin = test?.verificationOrigin ?? REGISTRY_ORIGIN;
   const configured = options.config.endpoint?.status ?? null;
@@ -335,7 +351,17 @@ export function createRegistryConnection(options: {
       return { state: "provider_identity", providerIdentity: decodeProviderIdentityDiagnostic(await response.json(), now()) };
     } catch { return unavailable(); }
   }
-  return { start, receipt, exchange, status, setupProcessor, providerIdentity, proofPath: REGISTRY_PROOF_PATH };
+  return {
+    start,
+    receipt,
+    exchange,
+    status,
+    setupProcessor,
+    providerIdentity,
+    proofPath,
+    callbackPath,
+    installedPluginId: installation?.installedPluginId ?? null,
+  };
 }
 
 export function safeResponse(status: number, body: unknown) {

@@ -1,70 +1,147 @@
 import plugin from "../plugin.js";
+import {
+  ACCEPTED_INSTALLED_PLUGIN_IDS,
+  BETA_INSTALLED_PLUGIN_ID,
+  BETA_REGISTRY_SLUG,
+  STABLE_INSTALLED_PLUGIN_ID,
+  STABLE_REGISTRY_SLUG,
+  acceptedRegistryInstallationIdentities,
+  betaRegistryInstallationIdentity,
+  isAcceptedRegistryPluginId,
+  makeRegistryPluginId,
+  parsePaymentsCallbackUri,
+  registryCallbackPath,
+  registryInstallationIdentity,
+  registryProofPath,
+  resolveRegistryInstallationIdentity,
+  type InstalledRegistryPluginId,
+  type RegistryInstallationIdentity,
+  type RegistryPluginSlug,
+} from "./identity.js";
 
-import { registryInstallationIdentity } from "./identity.js";
-export { registryInstallationIdentity } from "./identity.js";
+export type {
+  InstalledRegistryPluginId,
+  RegistryInstallationIdentity,
+  RegistryPluginSlug,
+};
 
-type RouteDeclaration = {
-  public?: boolean;
+export {
+  ACCEPTED_INSTALLED_PLUGIN_IDS,
+  BETA_INSTALLED_PLUGIN_ID,
+  BETA_REGISTRY_SLUG,
+  STABLE_INSTALLED_PLUGIN_ID,
+  STABLE_REGISTRY_SLUG,
+  acceptedRegistryInstallationIdentities,
+  betaRegistryInstallationIdentity,
+  isAcceptedRegistryPluginId,
+  makeRegistryPluginId,
+  parsePaymentsCallbackUri,
+  registryCallbackPath,
+  registryInstallationIdentity,
+  registryProofPath,
+  resolveRegistryInstallationIdentity,
+};
+
+export * from "./setup-journey.js";
+
+export type RegistryRouteDeclaration = {
+  name: string;
+  path: `/_emdash/api/plugins/${string}/${string}`;
+  public: boolean;
   permission?: string;
+  methods: readonly string[];
+};
+
+type DeclaredRoute = {
+  public?: unknown;
+  permission?: unknown;
   methods?: readonly string[];
   handler?: unknown;
 };
 
 export function assertExplicitRegistryRouteAuth(
-  routes: Record<string, unknown>,
-): asserts routes is Record<string, RouteDeclaration> {
-  for (const [name, route] of Object.entries(routes)) {
-    if (typeof route !== "object" || route === null || typeof (route as RouteDeclaration).handler !== "function") {
-      throw new Error(`Registry route "${name}" must use an explicit route configuration`);
-    }
-    const declaration = route as RouteDeclaration;
-    if (typeof declaration.public !== "boolean") {
-      throw new Error(`Registry route "${name}" must declare an explicit public boolean`);
-    }
-    if (declaration.public && declaration.permission !== undefined) {
-      throw new Error(`Public Registry route "${name}" must not declare a permission`);
-    }
-    if (!declaration.public && !declaration.permission) {
-      throw new Error(`Private Registry route "${name}" must declare a permission`);
-    }
-    if (name === "admin" && declaration.public) {
-      throw new Error("admin route must be private");
-    }
+  routes: Record<string, unknown> | undefined = plugin.routes,
+  identity: RegistryInstallationIdentity = registryInstallationIdentity,
+): readonly RegistryRouteDeclaration[] {
+  if (!routes || typeof routes !== "object") {
+    throw new Error("Payments plugin must declare explicit routes");
   }
+  const entries = Object.entries(routes);
+  if (entries.length === 0) {
+    throw new Error("Payments plugin must declare at least one route");
+  }
+
+  return entries.map(([name, raw]) => {
+    if (!raw || typeof raw !== "object" || typeof raw === "function") {
+      throw new Error(`Payments route "${name}" must use explicit route configuration`);
+    }
+    const route = raw as DeclaredRoute;
+    if (typeof route.public !== "boolean") {
+      throw new Error(`Payments route "${name}" must declare an explicit public boolean`);
+    }
+    if (typeof route.handler !== "function") {
+      throw new Error(`Payments route "${name}" must declare a handler`);
+    }
+    if (!route.public && (typeof route.permission !== "string" || !route.permission)) {
+      throw new Error(`Private Payments route "${name}" must declare a permission`);
+    }
+    if (name === "admin" && route.public) {
+      throw new Error("Payments admin route must be private");
+    }
+    const methods = route.methods ?? ["GET", "POST", "PUT", "DELETE", "PATCH"];
+    return Object.freeze({
+      name,
+      path: `/_emdash/api/plugins/${identity.installedPluginId}/${name}` as const,
+      public: route.public,
+      ...(typeof route.permission === "string" ? { permission: route.permission } : {}),
+      methods: Object.freeze([...methods]),
+    });
+  });
 }
 
-const registryRoutes = plugin.routes ?? {};
-assertExplicitRegistryRouteAuth(registryRoutes);
+export function verifyRegistryInstallationIdentity(
+  actual: Partial<RegistryInstallationIdentity>,
+): boolean {
+  return acceptedRegistryInstallationIdentities.some(
+    (expected) =>
+      actual.publisherDid === expected.publisherDid &&
+      actual.slug === expected.slug &&
+      actual.installedPluginId === expected.installedPluginId,
+  );
+}
+
+export async function verifyAcceptedRegistryInstallationIdentities(
+  derivePluginId: (publisherDid: string, slug: string) => Promise<string> = makeRegistryPluginId,
+): Promise<boolean> {
+  for (const identity of acceptedRegistryInstallationIdentities) {
+    const derived = await derivePluginId(identity.publisherDid, identity.slug);
+    if (derived !== identity.installedPluginId) {
+      return false;
+    }
+  }
+  return true;
+}
+
+const declaredRoutes = Object.freeze(assertExplicitRegistryRouteAuth(plugin.routes, registryInstallationIdentity));
+const betaDeclaredRoutes = Object.freeze(assertExplicitRegistryRouteAuth(plugin.routes, betaRegistryInstallationIdentity));
 
 export const registryRouteManifest = Object.freeze({
-  installedPluginId: registryInstallationIdentity.installedPluginId,
-  nativeSlug: registryInstallationIdentity.slug,
-  routes: Object.freeze(
-    Object.entries(registryRoutes).map(([name, route]) => {
-      const declaration = route as RouteDeclaration;
-      return Object.freeze({
-        name,
-        path: `/_emdash/api/plugins/${registryInstallationIdentity.installedPluginId}/${name}`,
-        public: declaration.public as boolean,
-        ...(declaration.permission ? { permission: declaration.permission } : {}),
-        ...(declaration.methods ? { methods: [...declaration.methods] } : {}),
-      });
-    }),
-  ),
+  ...registryInstallationIdentity,
+  routes: declaredRoutes,
   publicRoutes: Object.freeze(
-    Object.entries(registryRoutes)
-      .filter(([, route]) => (route as RouteDeclaration).public === true)
-      .map(([name]) => `/_emdash/api/plugins/${registryInstallationIdentity.installedPluginId}/${name}`),
+    declaredRoutes.filter((route) => route.public).map((route) => route.path),
   ),
 });
 
-export function verifyRegistryInstallationIdentity(identity: {
-  publisherDid: string;
-  slug: string;
-  installedPluginId: string;
-}): boolean {
-  return identity.publisherDid === registryInstallationIdentity.publisherDid &&
-    identity.slug === registryInstallationIdentity.slug &&
-    identity.installedPluginId === registryInstallationIdentity.installedPluginId &&
-    identity.installedPluginId !== (identity.slug as string);
-}
+export const betaRegistryRouteManifest = Object.freeze({
+  ...betaRegistryInstallationIdentity,
+  routes: betaDeclaredRoutes,
+  publicRoutes: Object.freeze(
+    betaDeclaredRoutes.filter((route) => route.public).map((route) => route.path),
+  ),
+});
+
+export const acceptedRegistryRouteManifests = Object.freeze([
+  registryRouteManifest,
+  betaRegistryRouteManifest,
+] as const);

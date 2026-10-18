@@ -1,0 +1,199 @@
+name: Publish to EmDash Registry
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Release version (e.g. 0.2.9)"
+        required: true
+        type: string
+      release_mode:
+        description: "Delegated release mode from release.yml ('stable')"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional beta version override (leave blank to cut next x.y.z-beta.N from pending changesets on main; stable versions are forbidden)"
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: emdash-registry-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Bundle and publish plugin to EmDash Registry
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && inputs.release_mode == 'stable' && inputs.version != ''))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Required for the audience-bound GitHub OIDC token.
+      attestations: write # Required to sign build provenance.
+    steps:
+      - name: Check repository visibility
+        if: ${{ github.event.repository.visibility != 'public' }}
+        run: |
+          echo "::error title=Public repository required::EmDash releases currently require a public GitHub repository because private and internal repository attestations cannot yet be verified."
+          exit 1
+
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Enforce dispatch and caller gate before credential use or Registry I/O
+        id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TARGET_REF: ${{ github.ref }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_RELEASE_MODE: ${{ inputs.release_mode }}
+        run: node .github/scripts/emdash-dispatch-gate.mjs --github-output "$GITHUB_OUTPUT"
+
+      - name: Mint release GitHub App token
+        id: app-token
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Configure git push authentication for beta tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          git config --local "http.https://github.com/.extraheader" "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 | tr -d '\n')"
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Run typecheck
+        run: npm run typecheck
+
+      - name: Build plugin
+        run: npm run build
+
+      - name: Resolve release version (and cut beta tag when dispatched for beta)
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_RELEASE_MODE: ${{ inputs.release_mode }}
+          EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          EMDASH_REGISTRY_URL: ${{ vars.EMDASH_REGISTRY_URL || 'https://emdash-registry.pages.dev' }}
+        run: |
+          set -euo pipefail
+          node scripts/release-flow.mjs validate-emdash-dispatch \
+            --event-name "$EVENT_NAME" \
+            --ref "$GITHUB_REF" \
+            --version "$INPUT_VERSION" \
+            --release-mode "$INPUT_RELEASE_MODE"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ -z "$INPUT_VERSION" ]; then
+              node scripts/release-flow.mjs cut-beta --github-output "$GITHUB_OUTPUT"
+            else
+              node scripts/release-flow.mjs cut-beta --version "$INPUT_VERSION" --github-output "$GITHUB_OUTPUT"
+            fi
+          else
+            VERSION="$INPUT_VERSION"
+            SLUG="dinkus-payments"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check whether release version is already indexed in EmDash Registry
+        id: registry-check
+        env:
+          EMDASH_REGISTRY_URL: ${{ vars.EMDASH_REGISTRY_URL || 'https://emdash-registry.pages.dev' }}
+          EMDASH_PLUGIN_SLUG: ${{ steps.meta.outputs.slug }}
+          RELEASE_VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          node scripts/release-flow.mjs check-registry-version \
+            --slug "$EMDASH_PLUGIN_SLUG" \
+            --version "$RELEASE_VERSION" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Prepare EmDash Registry release bundle
+        id: prepare
+        env:
+          EMDASH_PLUGIN_SLUG: ${{ steps.meta.outputs.slug }}
+          RELEASE_VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          node .github/scripts/prepare-emdash-release.mjs \
+            --slug "$EMDASH_PLUGIN_SLUG" \
+            --version "$RELEASE_VERSION" \
+            --out-dir .emdash-release \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Upload bundled EmDash release artifacts
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: emdash-plugin-${{ steps.meta.outputs.slug }}-${{ steps.meta.outputs.version }}
+          path: |
+            ${{ steps.prepare.outputs.bundle-file }}
+            .emdash-release/emdash-plugin.jsonc
+          if-no-files-found: error
+
+      - name: Create build provenance
+        id: attest
+        if: steps.registry-check.outputs.already_published != 'true'
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: ${{ steps.prepare.outputs.bundle-file }}
+
+      # The release service currently ends successful publishes in
+      # RELEASE_CONFLICT (emdash-cms/emdash#4159), so this step's
+      # outcome is not the gate. The verify step below is: the job
+      # only passes when the publisher PDS record for this version
+      # carries exactly the bundle bytes prepared above.
+      - name: Publish plugin to EmDash Registry
+        id: publish
+        if: steps.registry-check.outputs.already_published != 'true'
+        continue-on-error: true
+        uses: emdash-cms/emdash/apps/release-action@06f911b54f387a1284c767187042d7e11f6044fc # emdash main at generation time; bump deliberately
+        with:
+          service-url: https://releases.emdashcms.com
+          publisher-did: ${{ steps.prepare.outputs.publisher-did }}
+          bundle-file: ${{ steps.prepare.outputs.bundle-file }}
+          provenance-file: ${{ steps.attest.outputs.bundle-path }}
+
+      - name: Verify release is indexed in EmDash Registry
+        id: verify
+        env:
+          PUBLISHER_DID: ${{ steps.prepare.outputs.publisher-did }}
+          EMDASH_RELEASE_SELECTOR: ${{ steps.prepare.outputs.selector }}
+          BUNDLE_FILE: ${{ steps.prepare.outputs.bundle-file }}
+        run: |
+          set -euo pipefail
+          node .github/scripts/verify-registry-release.mjs \
+            "$PUBLISHER_DID" "$EMDASH_RELEASE_SELECTOR" "$BUNDLE_FILE"
+
+      - name: Note intent outcome
+        if: ${{ always() && steps.publish.outcome == 'failure' && steps.verify.outcome == 'success' }}
+        run: |
+          echo "::warning title=Release intent reported failure::The delegated release intent failed (see Publish plugin to EmDash Registry step) but the Registry record was verified against the prepared bundle. Known upstream issue: emdash-cms/emdash#4159."
+          {
+            echo "## Registry publish verified despite intent failure"
+            echo
+            echo "The release intent reported failure, but the publisher PDS record for this version carries exactly the prepared bundle bytes. See emdash-cms/emdash#4159."
+          } >> "$GITHUB_STEP_SUMMARY"

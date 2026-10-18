@@ -13,6 +13,7 @@ function buildConnection(ctx: {
   settings: Parameters<typeof createRegistryConnection>[0]["settings"];
   http?: Parameters<typeof createRegistryConnection>[0]["http"];
   site: Parameters<typeof createRegistryConnection>[0]["site"];
+  plugin?: Parameters<typeof createRegistryConnection>[0]["plugin"];
 }, config: RegistryConfig) {
   return createRegistryConnection({ ...ctx, config });
 }

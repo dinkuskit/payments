@@ -1,0 +1,114 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      beta_version:
+        description: "Verified beta version to promote into a ci: release PR (e.g. 0.2.9-beta.1)"
+        required: true
+        type: string
+      proof_ref:
+        description: "Recorded beta-store @running journey pass proof naming beta_version (run URL, artifact path, or summary)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Promote verified beta PR or tag merged stable release
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.state.outputs.published }}
+      registry_needed: ${{ steps.state.outputs.registry_needed }}
+      version: ${{ steps.state.outputs.version }}
+    steps:
+      - name: Mint release GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Run typecheck
+        run: npm run typecheck
+
+      - name: Build plugin
+        run: npm run build
+
+      - name: Configure git identity for release bot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Promote verified beta to release PR (manual workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          BETA_VERSION: ${{ inputs.beta_version }}
+          PROOF_REF: ${{ inputs.proof_ref }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          EMDASH_REGISTRY_URL: ${{ vars.EMDASH_REGISTRY_URL || 'https://emdash-registry.pages.dev' }}
+        run: |
+          node scripts/release-flow.mjs promote \
+            --beta-version "$BETA_VERSION" \
+            --proof-ref "$PROOF_REF"
+
+      - name: "Tag and create GitHub Release on merged ci: release PR"
+        id: state
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          EMDASH_REGISTRY_URL: ${{ vars.EMDASH_REGISTRY_URL || 'https://emdash-registry.pages.dev' }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            {
+              echo "published=false"
+              echo "registry_needed=false"
+              echo "version="
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node scripts/release-flow.mjs publish-merged-release --github-output "$GITHUB_OUTPUT"
+
+  publish-emdash:
+    name: Publish stable release to EmDash Registry
+    needs: release
+    if: needs.release.outputs.published == 'true' || needs.release.outputs.registry_needed == 'true'
+    uses: ./.github/workflows/emdash-release.yml
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    with:
+      version: ${{ needs.release.outputs.version }}
+      release_mode: stable
