@@ -334,6 +334,22 @@ test("release inventory follows the manifest publisher and all PDS pages, includ
   }), []);
 });
 
+test("changeset parsing remains available before dependencies are installed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "payments-no-dependencies-"));
+  try {
+    await mkdir(join(root, "scripts"), { recursive: true });
+    await mkdir(join(root, ".github/scripts"), { recursive: true });
+    await writeFile(join(root, "scripts/release-flow.mjs"), await readFile(join(repositoryRoot, "scripts/release-flow.mjs")));
+    await writeFile(join(root, ".github/scripts/verify-registry-release.mjs"), await readFile(join(repositoryRoot, ".github/scripts/verify-registry-release.mjs")));
+    execFileSync(process.execPath, ["--input-type=module", "-e", `
+      import { parseChangesetFrontmatter } from ${JSON.stringify(`file://${join(root, "scripts/release-flow.mjs")}`)};
+      if (!parseChangesetFrontmatter('---\\n---\\n').empty) process.exit(1);
+    `]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("release inventory reads JSONC publisher identity and rejects malformed syntax", async () => {
   const root = await mkdtemp(join(tmpdir(), "payments-jsonc-publisher-"));
   try {

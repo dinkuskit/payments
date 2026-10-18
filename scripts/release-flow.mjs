@@ -3,7 +3,6 @@ import { existsSync } from "node:fs";
 import { appendFile, cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parse as parseJsonc } from "jsonc-parser";
 import { resolvePdsEndpoint } from "../.github/scripts/verify-registry-release.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -793,6 +792,9 @@ export async function fetchRegistryVersions(
   if (typeof fetchImpl !== "function") {
     throw new Error(`Registry lookup failed for ${slug}: fetch implementation is unavailable.`);
   }
+  // Changeset checks import this module before npm ci; load the parser only
+  // for release inventory calls, which run after dependency installation.
+  const { parse: parseJsonc } = await import("jsonc-parser");
   const parseErrors = [];
   const manifest = parseJsonc(await readFile(join(root, "emdash-plugin.jsonc"), "utf8"), parseErrors, {
     allowTrailingComma: true,

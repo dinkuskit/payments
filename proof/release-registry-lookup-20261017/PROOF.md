@@ -33,9 +33,9 @@ removed. Release dispatch and promotion gates remain in place.
 Node: 22.23.2, matching `.nvmrc`.
 
 - New regression tests failed against the old API implementation (2 failures).
-- `node --test tests/release-flow.test.mjs`: 18 passed, 0 failed,
+- `node --test tests/release-flow.test.mjs`: 19 passed, 0 failed,
   including all 12 release-authority scenarios.
-- `npm test` from a clean tracked-source snapshot: 249 passed, 0 failed.
+- `npm test` from a clean tracked-source snapshot: 250 passed, 0 failed.
 - `npm run typecheck`: exit 0.
 - `npm run audit:repo` from that snapshot: `public_repository_contract=clean`.
 - `git diff --check`: exit 0.
@@ -67,3 +67,12 @@ has a regression test for comments, trailing commas and malformed JSONC. The
 new test failed before repair; the final clean-source suite passed all 249
 tests. Typecheck, public repository audit and live read-only beta planning pass.
 The package-lock change only declares the already locked parser directly.
+
+## CI repair
+
+The changeset workflow deliberately runs before `npm ci`. Its parser-only
+import of `release-flow.mjs` failed after the JSONC parser became a top-level
+import. Load `jsonc-parser` only inside the asynchronous inventory lookup.
+A child-process regression imports the module from a dependency-free source
+directory and exercises changeset parsing. All 250 tests, typecheck and the
+public repository audit pass after this repair.
