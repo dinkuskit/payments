@@ -399,3 +399,10 @@ test("a lapsed page sign-in shows the last checked connection with its time and 
     assert.equal(renderSetupScreen({ state: "action_required", lastChecked }).blocks[1].title, "Payment status not checked");
   }
 });
+
+test("Stripe needing more information points the owner at Stripe's setup and offers the resume button", () => {
+  const status = { state: "action_required", mode: "test", bindingRef: "b", connectionEvidence: { provider: "stripe", mode: "test", result: "action_required", accountRef: "acct_one" } };
+  const page = JSON.stringify(renderSetupScreen({ state: "ready", status: { availability: "available", status } }));
+  assert.match(page, /Select Set up or resume Stripe to open Stripe's setup, which lists what's missing/);
+  assert.match(page, /"label":"Set up or resume Stripe","action_id":"setup_processor"/);
+});

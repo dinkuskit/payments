@@ -210,7 +210,7 @@ function connectionStep(status: PaymentsStatus | null, connectionState?: string,
       title: "Connect payments",
       status: "incomplete",
       description:
-        "Stripe needs attention before its connection can be verified. Review the payment account connection and try again.",
+        "Stripe needs more information before it can take payments. Select Set up or resume Stripe to open Stripe's setup, which lists what's missing. For a TEST account, use Stripe's test values. Then select Check connection.",
     };
   }
 
