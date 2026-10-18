@@ -291,151 +291,116 @@ test("validateEmDashDispatchGate and .github/scripts/emdash-dispatch-gate.mjs ag
   }
 });
 
-test("fetchRegistryVersions validates schema of 200 responses and every version entry, failing closed in cut-beta and check-registry-version", async () => {
-  const notFound = await fetchRegistryVersions(BETA_REGISTRY_SLUG, "https://registry.example", {
-    fetchImpl: async () => ({
-      ok: false,
-      status: 404,
-      json: async () => ({ error: "NotFound" }),
+const TEST_PUBLISHER = "did:plc:ekk4pjmkh3k3ql2kfoex3qt4";
+const TEST_PDS = "https://publisher.example";
+const RELEASE_COLLECTION = "com.emdashcms.experimental.package.release";
+const releaseRecord = (version, slug = BETA_REGISTRY_SLUG) => ({
+  uri: `at://${TEST_PUBLISHER}/${RELEASE_COLLECTION}/${slug}:${version}`,
+  value: { package: slug, version },
+});
+const mockPdsFetch = (response) => async (url) => {
+  if (String(url).startsWith("https://plc.directory/")) {
+    return { ok: true, json: async () => ({ service: [{ id: "#atproto_pds", serviceEndpoint: TEST_PDS }] }) };
+  }
+  return typeof response === "function" ? response(new URL(url)) : response;
+};
+const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body });
+
+async function writePublisherManifest(root) {
+  await writeFile(join(root, "emdash-plugin.jsonc"), JSON.stringify({ publisher: TEST_PUBLISHER }));
+}
+
+test("release inventory follows the manifest publisher and all PDS pages, including unlisted versions", async () => {
+  const calls = [];
+  const versions = await fetchRegistryVersions(BETA_REGISTRY_SLUG, {
+    root: repositoryRoot,
+    fetchImpl: mockPdsFetch((url) => {
+      calls.push(url);
+      assert.equal(url.origin, TEST_PDS);
+      assert.equal(url.pathname, "/xrpc/com.atproto.repo.listRecords");
+      assert.equal(url.searchParams.get("repo"), TEST_PUBLISHER);
+      assert.equal(url.searchParams.get("collection"), RELEASE_COLLECTION);
+      assert.equal(url.searchParams.get("limit"), "100");
+      return jsonResponse(url.searchParams.has("cursor")
+        ? { records: [releaseRecord("0.2.9-beta.8")] }
+        : { records: [releaseRecord("0.2.9-beta.2"), releaseRecord("0.2.8", STABLE_REGISTRY_SLUG)], cursor: "page2" });
     }),
   });
-  assert.deepEqual(notFound, []);
+  assert.deepEqual(versions, ["0.2.9-beta.2", "0.2.9-beta.8"]);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].searchParams.get("cursor"), "page2");
+  assert.deepEqual(await fetchRegistryVersions(BETA_REGISTRY_SLUG, {
+    root: repositoryRoot, fetchImpl: mockPdsFetch(jsonResponse({ records: [] })),
+  }), []);
+});
 
-  const pkgNotFound = await fetchRegistryVersions(BETA_REGISTRY_SLUG, "https://registry.example", {
-    fetchImpl: async () => ({
-      ok: false,
-      status: 400,
-      json: async () => ({ error: "PackageNotFound" }),
-    }),
-  });
-  assert.deepEqual(pkgNotFound, []);
+test("changeset parsing remains available before dependencies are installed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "payments-no-dependencies-"));
+  try {
+    await mkdir(join(root, "scripts"), { recursive: true });
+    await mkdir(join(root, ".github/scripts"), { recursive: true });
+    await writeFile(join(root, "scripts/release-flow.mjs"), await readFile(join(repositoryRoot, "scripts/release-flow.mjs")));
+    await writeFile(join(root, ".github/scripts/verify-registry-release.mjs"), await readFile(join(repositoryRoot, ".github/scripts/verify-registry-release.mjs")));
+    execFileSync(process.execPath, ["--input-type=module", "-e", `
+      import { parseChangesetFrontmatter } from ${JSON.stringify(`file://${join(root, "scripts/release-flow.mjs")}`)};
+      if (!parseChangesetFrontmatter('---\\n---\\n').empty) process.exit(1);
+    `]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
-  const validEmptyList = await fetchRegistryVersions(BETA_REGISTRY_SLUG, "https://registry.example", {
-    fetchImpl: async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ plugin: { slug: BETA_REGISTRY_SLUG }, versions: [] }),
-    }),
-  });
-  assert.deepEqual(validEmptyList, []);
+test("release inventory reads JSONC publisher identity and rejects malformed syntax", async () => {
+  const root = await mkdtemp(join(tmpdir(), "payments-jsonc-publisher-"));
+  try {
+    const manifestPath = join(root, "emdash-plugin.jsonc");
+    const fetchImpl = mockPdsFetch(jsonResponse({ records: [] }));
+    await writeFile(manifestPath, `{ // publisher identity\n "publisher": "${TEST_PUBLISHER}",\n}`);
+    assert.deepEqual(await fetchRegistryVersions(BETA_REGISTRY_SLUG, { root, fetchImpl }), []);
+    await writeFile(manifestPath, `{"publisher": "${TEST_PUBLISHER}", broken}`);
+    await assert.rejects(() => fetchRegistryVersions(BETA_REGISTRY_SLUG, { root, fetchImpl }), /JSONC/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
+test("release inventory failures abort beta tagging and release checks", async () => {
   const malformedCases = [
-    {
-      name: "HTTP 503 error",
-      response: { ok: false, status: 503, json: async () => ({ error: "ServiceUnavailable" }) },
-      pattern: /HTTP 503 \(ServiceUnavailable\)/,
-    },
-    {
-      name: "200 empty object {}",
-      response: { ok: true, status: 200, json: async () => ({}) },
-      pattern: /expected "versions" to be an array/,
-    },
-    {
-      name: "200 unrecognized error object",
-      response: { ok: true, status: 200, json: async () => ({ error: "UpstreamDatabaseOffline" }) },
-      pattern: /error payload \(UpstreamDatabaseOffline\)/,
-    },
-    {
-      name: "200 non-array versions field",
-      response: { ok: true, status: 200, json: async () => ({ versions: "not-an-array" }) },
-      pattern: /expected "versions" to be an array/,
-    },
-    {
-      name: "200 malformed version entry missing version string",
-      response: {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          plugin: { slug: BETA_REGISTRY_SLUG },
-          versions: [{ version: "0.2.9-beta.1" }, { badEntry: 123 }],
-        }),
-      },
-      pattern: /version entry at index 1 is missing a valid version string/,
-    },
-    {
-      name: "200 version entry with invalid semver",
-      response: {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          plugin: { slug: BETA_REGISTRY_SLUG },
-          versions: [{ version: "0.2.9-beta.1" }, { version: "not-a-semver" }],
-        }),
-      },
-      pattern: /invalid semver "not-a-semver" at index 1/,
-    },
-    {
-      name: "200 mismatched plugin.slug",
-      response: {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          plugin: { slug: "wrong-slug" },
-          versions: [{ version: "0.2.9-beta.1" }],
-        }),
-      },
-      pattern: /plugin\.slug "wrong-slug" does not match/,
-    },
+    { name: "network failure", response: () => { throw new Error("fetch failed"); }, pattern: /fetch failed/ },
+    { name: "HTTP 503", response: { ok: false, status: 503 }, pattern: /HTTP 503/ },
+    { name: "404 is not empty history", response: { ok: false, status: 404 }, pattern: /HTTP 404/ },
+    { name: "invalid JSON", response: { ok: true, json: async () => { throw new Error("invalid JSON"); } }, pattern: /invalid JSON/ },
+    { name: "missing records", response: jsonResponse({}), pattern: /records.*array/ },
+    { name: "old aggregator shape", response: jsonResponse({ versions: [] }), pattern: /records.*array/ },
+    { name: "invalid record", response: jsonResponse({ records: [{}] }), pattern: /record/ },
+    { name: "foreign publisher", response: jsonResponse({ records: [{ ...releaseRecord("0.2.9-beta.1"), uri: `at://did:plc:wrong/${RELEASE_COLLECTION}/${BETA_REGISTRY_SLUG}:0.2.9-beta.1` }] }), pattern: /URI/ },
+    { name: "URI version mismatch", response: jsonResponse({ records: [{ ...releaseRecord("0.2.9-beta.1"), value: { package: BETA_REGISTRY_SLUG, version: "0.2.9-beta.2" } }] }), pattern: /URI/ },
+    { name: "invalid version", response: jsonResponse({ records: [releaseRecord("invalid")] }), pattern: /semantic version/ },
+    { name: "invalid cursor", response: jsonResponse({ records: [], cursor: 42 }), pattern: /cursor/ },
+    { name: "looping cursor", response: jsonResponse({ records: [], cursor: "same" }), pattern: /cursor/ },
   ];
-
   const tempRoot = await mkdtemp(join(tmpdir(), "payments-registry-validation-"));
   try {
+    await writePublisherManifest(tempRoot);
     await mkdir(join(tempRoot, ".changeset"), { recursive: true });
-    await writeFile(
-      join(tempRoot, "package.json"),
-      `${JSON.stringify({ name: PACKAGE_NAME, version: "0.2.8", type: "module" }, null, 2)}\n`,
-      "utf8",
-    );
-    await writeFile(
-      join(tempRoot, ".changeset/bump.md"),
-      `---\n"${PACKAGE_NAME}": patch\n---\n\nFix.\n`,
-      "utf8",
-    );
-    const git = (args) =>
-      execFileSync("git", args, { cwd: tempRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-    git(["init", "-b", "main"]);
-    git(["config", "user.name", "Test"]);
-    git(["config", "user.email", "test@example.invalid"]);
-    git(["add", "-A"]);
-    git(["commit", "-m", "init"]);
-
+    await writeFile(join(tempRoot, "package.json"), JSON.stringify({ name: PACKAGE_NAME, version: "0.2.8" }));
+    await writeFile(join(tempRoot, ".changeset/bump.md"), `---\n"${PACKAGE_NAME}": patch\n---\n\nFix.\n`);
+    const gitCalls = [];
+    const deps = { root: tempRoot, gitExec: (args) => { gitCalls.push(args); return ""; }, log: () => {} };
     for (const tc of malformedCases) {
-      await assert.rejects(
-        () =>
-          fetchRegistryVersions(BETA_REGISTRY_SLUG, "https://registry.example", {
-            fetchImpl: async () => tc.response,
-          }),
-        tc.pattern,
-        `fetchRegistryVersions should reject ${tc.name}`,
-      );
-
-      await assert.rejects(
-        () =>
-          runReleaseFlowCli(["cut-beta"], {
-            root: tempRoot,
-            gitExec: git,
-            fetchImpl: async () => tc.response,
-            log: () => {},
-          }),
-        tc.pattern,
-        `cut-beta should reject ${tc.name}`,
-      );
-
-      await assert.rejects(
-        () =>
-          runReleaseFlowCli(
-            ["check-registry-version", "--slug", BETA_REGISTRY_SLUG, "--version", "0.2.9-beta.1"],
-            {
-              root: tempRoot,
-              gitExec: git,
-              fetchImpl: async () => tc.response,
-              log: () => {},
-            },
-          ),
-        tc.pattern,
-        `check-registry-version should reject ${tc.name}`,
-      );
+      const fetchImpl = mockPdsFetch(tc.response);
+      await assert.rejects(() => fetchRegistryVersions(BETA_REGISTRY_SLUG, { root: tempRoot, fetchImpl }), tc.pattern, tc.name);
+      await assert.rejects(() => runReleaseFlowCli(["cut-beta"], { ...deps, fetchImpl }), tc.pattern, tc.name);
+      await assert.rejects(() => runReleaseFlowCli(["check-registry-version", "--slug", BETA_REGISTRY_SLUG, "--version", "0.2.9-beta.1"], { ...deps, fetchImpl }), tc.pattern, tc.name);
     }
+    assert.equal(gitCalls.some(([command]) => command === "push"), false);
+    assert.equal(gitCalls.some(([command, option]) => command === "tag" && option !== "--list"), false);
+
+    const result = await runReleaseFlowCli(["plan-beta"], {
+      ...deps, fetchImpl: mockPdsFetch(jsonResponse({ records: [releaseRecord("0.2.9-beta.8")] })),
+    });
+    assert.equal(result.version, "0.2.9-beta.9");
+    assert.equal(result.betaTag, "v0.2.9-beta.9");
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -662,6 +627,7 @@ test("publish-pkg-pr-new helper skips with ::notice:: and exit 0 on 404 App-not-
 test("publish-merged-release resumes missing GitHub Release and triggers downstream Registry publish when tag already exists on HEAD", async () => {
   const tempRoot = await mkdtemp(join(tmpdir(), "payments-resume-test-"));
   try {
+    await writePublisherManifest(tempRoot);
     await mkdir(join(tempRoot, ".changeset"), { recursive: true });
     await mkdir(join(tempRoot, "src"), { recursive: true });
     await writeFile(
@@ -734,11 +700,7 @@ test("publish-merged-release resumes missing GitHub Release and triggers downstr
           }
           return "";
         },
-        fetchImpl: async () => ({
-          ok: false,
-          status: 404,
-          json: async () => ({ error: "NotFound" }),
-        }),
+        fetchImpl: mockPdsFetch(jsonResponse({ records: [] })),
         log: () => {},
       },
     );

@@ -188,6 +188,7 @@ async function createSeededRepo(prefix, events) {
     },
   };
 
+  await writeFile(join(root, "emdash-plugin.jsonc"), JSON.stringify({ publisher: "did:plc:release-proof" }));
   await writeFile(join(root, "package.json"), `${JSON.stringify(initialPkg, null, 2)}\n`, "utf8");
   await writeFile(join(root, "package-lock.json"), `${JSON.stringify(initialLock, null, 2)}\n`, "utf8");
   await writeFile(
@@ -244,36 +245,26 @@ function createStubEnvironment({
   };
 
   const fetchImpl = async (url) => {
-    const urlStr = String(url);
-    const slug = decodeURIComponent(urlStr.split("/").pop() || "");
-    events.push(`registry:get:${slug}`);
-    if (typeof customRegistryResponse === "function") {
-      return customRegistryResponse(slug);
+    if (String(url).startsWith("https://plc.directory/")) {
+      return { ok: true, json: async () => ({ service: [{ id: "#atproto_pds", serviceEndpoint: "https://proof-pds.example" }] }) };
     }
+    events.push("registry:get:release-inventory");
+    if (typeof customRegistryResponse === "function") return customRegistryResponse();
     if (registryError) {
-      if (registryError.type === "network") {
-        throw new Error(registryError.message || "socket hang up");
-      }
-      return {
-        ok: false,
-        status: registryError.status || 503,
-        json: async () => ({ error: registryError.code || "ServiceUnavailable" }),
-      };
-    }
-    const versions = slug === BETA_REGISTRY_SLUG ? state.betaVersions : state.stableVersions;
-    if (versions.length === 0) {
-      return {
-        ok: false,
-        status: 404,
-        json: async () => ({ error: "NotFound" }),
-      };
+      if (registryError.type === "network") throw new Error(registryError.message || "socket hang up");
+      return { ok: false, status: registryError.status || 503 };
     }
     return {
       ok: true,
       status: 200,
       json: async () => ({
-        plugin: { slug, latestVersion: versions.at(-1) },
-        versions: versions.map((version) => ({ version })),
+        records: [
+          ...state.betaVersions.map((version) => ({ version, package: BETA_REGISTRY_SLUG })),
+          ...state.stableVersions.map((version) => ({ version, package: STABLE_REGISTRY_SLUG })),
+        ].map((value) => ({
+          uri: `at://did:plc:release-proof/com.emdashcms.experimental.package.release/${value.package}:${value.version}`,
+          value,
+        })),
       }),
     };
   };
@@ -1167,7 +1158,7 @@ export async function runReleaseAuthorityProof() {
       const payloads = [
         { label: "empty_object", body: {} },
         { label: "error_shaped_200", body: { error: "RateLimited", message: "try later" } },
-        { label: "malformed_version_entry", body: { plugin: { slug: BETA_REGISTRY_SLUG }, versions: [{ version: "0.2.9-beta.1" }, { bad: true }] } },
+        { label: "malformed_version_entry", body: { records: [{ bad: true }] } },
       ];
       const errors = {};
 

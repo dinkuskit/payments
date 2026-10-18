@@ -98,7 +98,6 @@ jobs:
           GITHUB_REF: ${{ github.ref }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          EMDASH_REGISTRY_URL: ${{ vars.EMDASH_REGISTRY_URL || 'https://emdash-registry.pages.dev' }}
         run: |
           set -euo pipefail
           node scripts/release-flow.mjs validate-emdash-dispatch \
@@ -122,7 +121,6 @@ jobs:
       - name: Check whether release version is already indexed in EmDash Registry
         id: registry-check
         env:
-          EMDASH_REGISTRY_URL: ${{ vars.EMDASH_REGISTRY_URL || 'https://emdash-registry.pages.dev' }}
           EMDASH_PLUGIN_SLUG: ${{ steps.meta.outputs.slug }}
           RELEASE_VERSION: ${{ steps.meta.outputs.version }}
         run: |
