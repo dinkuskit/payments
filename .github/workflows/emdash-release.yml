@@ -4,7 +4,11 @@ on:
   workflow_call:
     inputs:
       version:
-        description: "Release version (e.g. 0.2.9 or 0.2.9-beta.1)"
+        description: "Release version (e.g. 0.2.9)"
+        required: true
+        type: string
+      release_mode:
+        description: "Delegated release mode from release.yml ('stable')"
         required: true
         type: string
   workflow_dispatch:
@@ -25,35 +29,29 @@ concurrency:
 jobs:
   publish:
     name: Bundle and publish plugin to EmDash Registry
-    if: github.event_name == 'workflow_call' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && inputs.release_mode == 'stable' && inputs.version != ''))
     runs-on: ubuntu-latest
     steps:
-      - name: Enforce manual workflow_dispatch gate before credential use or Registry I/O
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Enforce dispatch and caller gate before credential use or Registry I/O
         id: gate
         env:
           EVENT_NAME: ${{ github.event_name }}
           TARGET_REF: ${{ github.ref }}
           INPUT_VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            if [ "$TARGET_REF" != "refs/heads/main" ]; then
-              echo "::error::Manual workflow_dispatch for emdash-release.yml is only allowed on refs/heads/main (got '$TARGET_REF')."
-              exit 1
-            fi
-            if [ -n "$INPUT_VERSION" ] && [[ ! "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
-              echo "::error::Manual workflow_dispatch may only cut a -beta.N release on refs/heads/main (got '$INPUT_VERSION'). Stable releases must publish via a merged 'ci: release' PR."
-              exit 1
-            fi
-          elif [ "$EVENT_NAME" = "workflow_call" ]; then
-            if [ -z "$INPUT_VERSION" ] || [[ ! "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$ ]]; then
-              echo "::error::workflow_call requires a valid semantic version (got '$INPUT_VERSION')."
-              exit 1
-            fi
-          else
-            echo "::error::Unsupported event '$EVENT_NAME' for emdash-release.yml."
-            exit 1
-          fi
+          INPUT_RELEASE_MODE: ${{ inputs.release_mode }}
+        run: node .github/scripts/emdash-dispatch-gate.mjs --github-output "$GITHUB_OUTPUT"
 
       - name: Mint release GitHub App token
         id: app-token
@@ -63,17 +61,12 @@ jobs:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
-      - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token || github.token }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
+      - name: Configure git push authentication for beta tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          git config --local "http.https://github.com/.extraheader" "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 | tr -d '\n')"
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
@@ -91,6 +84,7 @@ jobs:
         id: meta
         env:
           INPUT_VERSION: ${{ inputs.version }}
+          INPUT_RELEASE_MODE: ${{ inputs.release_mode }}
           EVENT_NAME: ${{ github.event_name }}
           GITHUB_REF: ${{ github.ref }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -101,7 +95,8 @@ jobs:
           node scripts/release-flow.mjs validate-emdash-dispatch \
             --event-name "$EVENT_NAME" \
             --ref "$GITHUB_REF" \
-            --version "$INPUT_VERSION"
+            --version "$INPUT_VERSION" \
+            --release-mode "$INPUT_RELEASE_MODE"
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             if [ -z "$INPUT_VERSION" ]; then
               node scripts/release-flow.mjs cut-beta --github-output "$GITHUB_OUTPUT"
@@ -110,11 +105,7 @@ jobs:
             fi
           else
             VERSION="$INPUT_VERSION"
-            if [[ "$VERSION" == *-beta.* ]]; then
-              SLUG="dinkus-payments-beta"
-            else
-              SLUG="dinkus-payments"
-            fi
+            SLUG="dinkus-payments"
             echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
           fi

@@ -40,7 +40,7 @@ jobs:
         run: npm run build
 
       - name: Publish preview tarball with pkg.pr.new
-        run: npx pkg-pr-new publish --json preview.json
+        run: node .github/scripts/publish-pkg-pr-new.mjs --json preview.json
 
       - name: Upload preview metadata
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0

@@ -28,6 +28,9 @@ export const ALLOWED_RELEASE_TREE_PATHS = Object.freeze([
   "CHANGELOG.md",
 ]);
 
+export const EMDASH_PUBLISH_JOB_IF =
+  "github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && inputs.release_mode == 'stable' && inputs.version != ''))";
+
 const BUMP_RANK = Object.freeze({
   patch: 1,
   minor: 2,
@@ -48,13 +51,15 @@ export function parseSemver(version) {
 }
 
 export function validateEmDashDispatchGate({
-  eventName = process.env.GITHUB_EVENT_NAME || "",
-  ref = process.env.GITHUB_REF || "",
+  eventName = process.env.EVENT_NAME || process.env.GITHUB_EVENT_NAME || "",
+  ref = process.env.TARGET_REF || process.env.GITHUB_REF || "",
   inputVersion = process.env.INPUT_VERSION || "",
+  releaseMode = process.env.INPUT_RELEASE_MODE || process.env.RELEASE_MODE || "",
 } = {}) {
   const normalizedEvent = String(eventName).trim();
   const normalizedRef = String(ref).trim();
   const normalizedVersion = String(inputVersion).trim();
+  const normalizedMode = String(releaseMode).trim();
 
   if (normalizedEvent === "workflow_dispatch") {
     if (normalizedRef !== "refs/heads/main") {
@@ -62,6 +67,14 @@ export function validateEmDashDispatchGate({
         ok: false,
         code: "forbidden_dispatch_ref",
         message: `Manual workflow_dispatch for emdash-release.yml is only allowed on refs/heads/main (got "${normalizedRef || "(empty)"}").`,
+      };
+    }
+
+    if (normalizedMode !== "" && normalizedMode !== "beta") {
+      return {
+        ok: false,
+        code: "manual_stable_dispatch_forbidden",
+        message: `Manual workflow_dispatch cannot set release_mode="${normalizedMode}"; only beta cuts on refs/heads/main are allowed via workflow_dispatch.`,
       };
     }
 
@@ -93,14 +106,31 @@ export function validateEmDashDispatchGate({
     };
   }
 
-  if (normalizedEvent === "workflow_call") {
+  if (normalizedEvent === "push") {
+    if (normalizedRef !== "refs/heads/main") {
+      return {
+        ok: false,
+        code: "forbidden_caller_ref",
+        message: `Delegated push call to emdash-release.yml is only allowed on refs/heads/main (got "${normalizedRef || "(empty)"}").`,
+      };
+    }
+
+    if (normalizedMode !== "stable") {
+      return {
+        ok: false,
+        code: "missing_stable_caller_input",
+        message: `Push event on emdash-release.yml requires workflow_call input release_mode="stable" from release.yml (got "${normalizedMode || "(empty)"}").`,
+      };
+    }
+
     if (!normalizedVersion) {
       return {
         ok: false,
         code: "missing_workflow_call_version",
-        message: "workflow_call to emdash-release.yml requires a non-empty inputs.version.",
+        message: "Delegated stable workflow_call to emdash-release.yml requires a non-empty inputs.version.",
       };
     }
+
     let parsed;
     try {
       parsed = parseSemver(normalizedVersion);
@@ -108,14 +138,22 @@ export function validateEmDashDispatchGate({
       return {
         ok: false,
         code: "invalid_workflow_call_version",
-        message: `Invalid workflow_call version "${normalizedVersion}".`,
+        message: `Invalid delegated stable workflow_call version "${normalizedVersion}".`,
       };
     }
-    const isBeta = parsed.beta !== null;
+
+    if (parsed.beta !== null) {
+      return {
+        ok: false,
+        code: "invalid_stable_caller_version",
+        message: `Delegated stable workflow_call cannot publish beta version "${normalizedVersion}"; expected stable X.Y.Z.`,
+      };
+    }
+
     return {
       ok: true,
-      mode: isBeta ? "beta-call" : "stable-call",
-      slug: isBeta ? BETA_REGISTRY_SLUG : STABLE_REGISTRY_SLUG,
+      mode: "stable-call",
+      slug: STABLE_REGISTRY_SLUG,
       requestedVersion: normalizedVersion,
     };
   }
@@ -123,7 +161,7 @@ export function validateEmDashDispatchGate({
   return {
     ok: false,
     code: "unsupported_event",
-    message: `Unsupported event "${normalizedEvent}" for emdash-release.yml.`,
+    message: `Unsupported event "${normalizedEvent || "(empty)"}" for emdash-release.yml.`,
   };
 }
 
@@ -250,11 +288,157 @@ export function isAllowedReleaseTreePath(filePath) {
   return isChangesetMarkdownPath(normalized);
 }
 
+function canonicalizeJson(value) {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalizeJson(item)).join(",")}]`;
+  }
+  const keys = Object.keys(value).sort();
+  return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalizeJson(value[key])}`).join(",")}}`;
+}
+
+function parsePlainJsonObject(rawText, label) {
+  let parsed;
+  try {
+    parsed = JSON.parse(String(rawText));
+  } catch (error) {
+    return {
+      ok: false,
+      message: `${label} is not valid JSON (${error instanceof Error ? error.message : String(error)}).`,
+    };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      ok: false,
+      message: `${label} must be a JSON object.`,
+    };
+  }
+  return { ok: true, value: parsed };
+}
+
+function diffTopLevelObjectKeys(beforeObj, afterObj) {
+  const allKeys = [...new Set([...Object.keys(beforeObj), ...Object.keys(afterObj)])].sort();
+  return allKeys.filter((key) => canonicalizeJson(beforeObj[key]) !== canonicalizeJson(afterObj[key]));
+}
+
+export function verifyVersionOnlyPackageMetadata({
+  version,
+  betaPackageJsonText,
+  releasePackageJsonText,
+  betaPackageLockText,
+  releasePackageLockText,
+}) {
+  const betaPkgRes = parsePlainJsonObject(betaPackageJsonText, "beta package.json");
+  if (!betaPkgRes.ok) {
+    return {
+      ok: false,
+      code: "unapproved_package_metadata_change",
+      message: `Refusing to tag v${version}: ${betaPkgRes.message}`,
+    };
+  }
+  const releasePkgRes = parsePlainJsonObject(releasePackageJsonText, "release package.json");
+  if (!releasePkgRes.ok) {
+    return {
+      ok: false,
+      code: "unapproved_package_metadata_change",
+      message: `Refusing to tag v${version}: ${releasePkgRes.message}`,
+    };
+  }
+
+  const betaPkg = betaPkgRes.value;
+  const releasePkg = releasePkgRes.value;
+  if (releasePkg.version !== version) {
+    return {
+      ok: false,
+      code: "unapproved_package_metadata_change",
+      message: `Refusing to tag v${version}: release package.json version is "${releasePkg.version ?? ""}" (expected "${version}").`,
+    };
+  }
+
+  const normalizedBetaPkg = { ...betaPkg, version };
+  if (canonicalizeJson(normalizedBetaPkg) !== canonicalizeJson(releasePkg)) {
+    const changedKeys = diffTopLevelObjectKeys(normalizedBetaPkg, releasePkg);
+    return {
+      ok: false,
+      code: "unapproved_package_metadata_change",
+      message: `Refusing to tag v${version}: package.json modified non-version fields since approved beta (${changedKeys.join(", ")}).`,
+      changedKeys,
+    };
+  }
+
+  if (betaPackageLockText !== undefined || releasePackageLockText !== undefined) {
+    const betaLockRes = parsePlainJsonObject(betaPackageLockText, "beta package-lock.json");
+    if (!betaLockRes.ok) {
+      return {
+        ok: false,
+        code: "unapproved_package_metadata_change",
+        message: `Refusing to tag v${version}: ${betaLockRes.message}`,
+      };
+    }
+    const releaseLockRes = parsePlainJsonObject(releasePackageLockText, "release package-lock.json");
+    if (!releaseLockRes.ok) {
+      return {
+        ok: false,
+        code: "unapproved_package_metadata_change",
+        message: `Refusing to tag v${version}: ${releaseLockRes.message}`,
+      };
+    }
+
+    const betaLock = betaLockRes.value;
+    const releaseLock = releaseLockRes.value;
+    if (releaseLock.version !== version) {
+      return {
+        ok: false,
+        code: "unapproved_package_metadata_change",
+        message: `Refusing to tag v${version}: release package-lock.json version is "${releaseLock.version ?? ""}" (expected "${version}").`,
+      };
+    }
+
+    const normalizedBetaLock = structuredClone(betaLock);
+    normalizedBetaLock.version = version;
+    if (
+      normalizedBetaLock.packages &&
+      typeof normalizedBetaLock.packages === "object" &&
+      !Array.isArray(normalizedBetaLock.packages) &&
+      normalizedBetaLock.packages[""] &&
+      typeof normalizedBetaLock.packages[""] === "object" &&
+      !Array.isArray(normalizedBetaLock.packages[""])
+    ) {
+      if (releaseLock.packages?.[""]?.version !== version) {
+        return {
+          ok: false,
+          code: "unapproved_package_metadata_change",
+          message: `Refusing to tag v${version}: release package-lock.json packages[""].version is "${releaseLock.packages?.[""]?.version ?? ""}" (expected "${version}").`,
+        };
+      }
+      normalizedBetaLock.packages[""].version = version;
+    }
+
+    if (canonicalizeJson(normalizedBetaLock) !== canonicalizeJson(releaseLock)) {
+      const changedKeys = diffTopLevelObjectKeys(normalizedBetaLock, releaseLock);
+      return {
+        ok: false,
+        code: "unapproved_package_metadata_change",
+        message: `Refusing to tag v${version}: package-lock.json modified non-version fields since approved beta (${changedKeys.join(", ")}).`,
+        changedKeys,
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
 export function verifyApprovedBetaSourceTree({
   version,
   proof,
   betaTagSha,
   changedPathsSinceBeta = [],
+  betaPackageJsonText,
+  releasePackageJsonText,
+  betaPackageLockText,
+  releasePackageLockText,
 }) {
   if (!proof || !proof.betaVersion || !proof.betaSha) {
     return {
@@ -305,6 +489,24 @@ export function verifyApprovedBetaSourceTree({
       message: `Refusing to tag v${version}: release tree differs from approved beta v${proof.betaVersion} (${betaTagSha}) outside allowlisted release files (${disallowedPaths.join(", ")}).`,
       disallowedPaths,
     };
+  }
+
+  if (
+    betaPackageJsonText !== undefined ||
+    releasePackageJsonText !== undefined ||
+    betaPackageLockText !== undefined ||
+    releasePackageLockText !== undefined
+  ) {
+    const metadataCheck = verifyVersionOnlyPackageMetadata({
+      version,
+      betaPackageJsonText,
+      releasePackageJsonText,
+      betaPackageLockText,
+      releasePackageLockText,
+    });
+    if (!metadataCheck.ok) {
+      return metadataCheck;
+    }
   }
 
   return {
@@ -579,6 +781,8 @@ function resolveTagCommitSha(tag, root = repositoryRoot, gitExec = defaultGit) {
   return gitExec(["rev-list", "-n", "1", tag], root);
 }
 
+const RECOGNIZED_NOT_FOUND_ERRORS = new Set(["NotFound", "PackageNotFound", "PluginNotFound"]);
+
 export async function fetchRegistryVersions(
   slug,
   registryUrl = DEFAULT_REGISTRY_URL,
@@ -611,12 +815,7 @@ export async function fetchRegistryVersions(
     if (typeof response.json === "function") {
       try {
         const body = await response.json();
-        if (
-          status === 400 &&
-          (body?.error === "NotFound" ||
-            body?.error === "PackageNotFound" ||
-            body?.error === "PluginNotFound")
-        ) {
+        if (status === 400 && RECOGNIZED_NOT_FOUND_ERRORS.has(body?.error)) {
           return [];
         }
         if (typeof body?.error === "string" && body.error.trim()) {
@@ -644,31 +843,90 @@ export async function fetchRegistryVersions(
     throw new Error(`Registry lookup failed for ${slug} at ${endpoint}: malformed JSON payload.`);
   }
 
-  if (
-    payload.error === "NotFound" ||
-    payload.error === "PackageNotFound" ||
-    payload.error === "PluginNotFound"
-  ) {
-    return [];
+  if (payload.error !== undefined) {
+    if (RECOGNIZED_NOT_FOUND_ERRORS.has(payload.error)) {
+      return [];
+    }
+    throw new Error(
+      `Registry lookup failed for ${slug} at ${endpoint}: error payload (${String(payload.error)}).`,
+    );
   }
 
-  if (payload.versions !== undefined && !Array.isArray(payload.versions)) {
+  if (!Array.isArray(payload.versions)) {
     throw new Error(
       `Registry lookup failed for ${slug} at ${endpoint}: expected "versions" to be an array.`,
     );
   }
 
-  const versions = Array.isArray(payload.versions)
-    ? payload.versions
-        .map((entry) => (typeof entry === "string" ? entry : entry?.version))
-        .filter(Boolean)
-    : [];
-  if (payload?.plugin?.latestVersion && !versions.includes(payload.plugin.latestVersion)) {
-    versions.push(payload.plugin.latestVersion);
+  if (payload.plugin !== undefined) {
+    if (!payload.plugin || typeof payload.plugin !== "object" || Array.isArray(payload.plugin)) {
+      throw new Error(
+        `Registry lookup failed for ${slug} at ${endpoint}: malformed "plugin" descriptor.`,
+      );
+    }
+    if (payload.plugin.slug !== undefined && payload.plugin.slug !== slug) {
+      throw new Error(
+        `Registry lookup failed for ${slug} at ${endpoint}: plugin.slug "${String(payload.plugin.slug)}" does not match "${slug}".`,
+      );
+    }
+    if (
+      payload.plugin.latestVersion !== undefined &&
+      payload.plugin.latestVersion !== null
+    ) {
+      if (typeof payload.plugin.latestVersion !== "string" || !payload.plugin.latestVersion.trim()) {
+        throw new Error(
+          `Registry lookup failed for ${slug} at ${endpoint}: malformed plugin.latestVersion.`,
+        );
+      }
+      try {
+        parseSemver(payload.plugin.latestVersion);
+      } catch {
+        throw new Error(
+          `Registry lookup failed for ${slug} at ${endpoint}: invalid semver in plugin.latestVersion "${payload.plugin.latestVersion}".`,
+        );
+      }
+    }
   }
-  for (const version of versions) {
-    parseSemver(version);
+
+  const versions = [];
+  for (let idx = 0; idx < payload.versions.length; idx += 1) {
+    const entry = payload.versions[idx];
+    let rawVersion;
+    if (typeof entry === "string") {
+      rawVersion = entry;
+    } else if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      rawVersion = entry.version;
+    } else {
+      throw new Error(
+        `Registry lookup failed for ${slug} at ${endpoint}: malformed version entry at index ${idx}.`,
+      );
+    }
+
+    if (typeof rawVersion !== "string" || !rawVersion.trim()) {
+      throw new Error(
+        `Registry lookup failed for ${slug} at ${endpoint}: version entry at index ${idx} is missing a valid version string.`,
+      );
+    }
+
+    const trimmedVersion = rawVersion.trim();
+    try {
+      parseSemver(trimmedVersion);
+    } catch {
+      throw new Error(
+        `Registry lookup failed for ${slug} at ${endpoint}: invalid semver "${trimmedVersion}" at index ${idx}.`,
+      );
+    }
+
+    versions.push(trimmedVersion);
   }
+
+  if (
+    typeof payload?.plugin?.latestVersion === "string" &&
+    !versions.includes(payload.plugin.latestVersion.trim())
+  ) {
+    versions.push(payload.plugin.latestVersion.trim());
+  }
+
   return versions;
 }
 
@@ -719,9 +977,11 @@ export async function runReleaseFlowCli(argv, deps = {}) {
 
   if (command === "validate-emdash-dispatch") {
     const eventName = flags["event-name"] ?? process.env.EVENT_NAME ?? process.env.GITHUB_EVENT_NAME ?? "";
-    const ref = flags.ref ?? process.env.GITHUB_REF ?? "";
+    const ref = flags.ref ?? process.env.TARGET_REF ?? process.env.GITHUB_REF ?? "";
     const inputVersion = flags.version ?? process.env.INPUT_VERSION ?? "";
-    const gate = validateEmDashDispatchGate({ eventName, ref, inputVersion });
+    const releaseMode =
+      flags["release-mode"] ?? process.env.INPUT_RELEASE_MODE ?? process.env.RELEASE_MODE ?? "";
+    const gate = validateEmDashDispatchGate({ eventName, ref, inputVersion, releaseMode });
     if (!gate.ok) {
       throw new Error(gate.message);
     }
@@ -923,7 +1183,8 @@ export async function runReleaseFlowCli(argv, deps = {}) {
 
   if (command === "publish-merged-release") {
     const pending = await readPendingChangesets(root);
-    const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+    const releasePackageJsonText = await readFile(join(root, "package.json"), "utf8");
+    const pkg = JSON.parse(releasePackageJsonText);
     const version = pkg.version;
     const tag = `v${version}`;
     const registryUrl = flags["registry-url"] || process.env.EMDASH_REGISTRY_URL || DEFAULT_REGISTRY_URL;
@@ -1010,11 +1271,38 @@ export async function runReleaseFlowCli(argv, deps = {}) {
           .filter(Boolean)
       : [];
 
+    let betaPackageJsonText;
+    let betaPackageLockText;
+    let releasePackageLockText;
+    if (betaTagSha) {
+      try {
+        betaPackageJsonText = gitExec(["show", `${betaTagSha}:package.json`], root);
+      } catch {
+        betaPackageJsonText = "";
+      }
+      if (existsSync(join(root, "package-lock.json")) || changedPathsSinceBeta.includes("package-lock.json")) {
+        try {
+          betaPackageLockText = gitExec(["show", `${betaTagSha}:package-lock.json`], root);
+        } catch {
+          betaPackageLockText = "";
+        }
+        try {
+          releasePackageLockText = await readFile(join(root, "package-lock.json"), "utf8");
+        } catch {
+          releasePackageLockText = "";
+        }
+      }
+    }
+
     const sourceCheck = verifyApprovedBetaSourceTree({
       version,
       proof,
       betaTagSha,
       changedPathsSinceBeta,
+      betaPackageJsonText,
+      releasePackageJsonText,
+      betaPackageLockText,
+      releasePackageLockText,
     });
     if (!sourceCheck.ok) {
       throw new Error(sourceCheck.message);

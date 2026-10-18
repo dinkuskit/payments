@@ -5,14 +5,22 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { runReleaseAuthorityProof } from "../scripts/release-authority-proof.mjs";
+import {
+  classifyPkgPrNewOutput,
+  runPkgPrNewPreview,
+} from "../.github/scripts/publish-pkg-pr-new.mjs";
+import {
+  runExtractedGateScriptProcess,
+  runReleaseAuthorityProof,
+  verifyShippedEmDashWorkflowGateBinding,
+} from "../scripts/release-authority-proof.mjs";
 import {
   BASELINE_TAG,
   BASELINE_VERSION,
   BETA_INSTALLED_PLUGIN_ID,
   BETA_PLUGIN_NAME,
   BETA_REGISTRY_SLUG,
-  MAX_PLUGIN_BUNDLE_BYTES,
+   MAX_PLUGIN_BUNDLE_BYTES,
   PACKAGE_NAME,
   RELEASE_PR_BRANCH,
   RELEASE_PR_TITLE_PREFIX,
@@ -37,6 +45,7 @@ import {
   validateEmDashDispatchGate,
   verifyApprovedBetaSourceTree,
   verifyBuiltPluginBundleSize,
+  verifyVersionOnlyPackageMetadata,
 } from "../scripts/release-flow.mjs";
 
 test("locked stable and beta EmDash Registry identities match release-beta-cut-071", () => {
@@ -179,52 +188,103 @@ test("computeTargetVersion and computeNextBetaVersion advance monotonically from
   assert.equal(secondBeta.tag, "v0.2.9-beta.3");
 });
 
-test("validateEmDashDispatchGate blocks manual stable dispatch and non-main manual dispatch before any credentials or Registry I/O", () => {
-  const autoBeta = validateEmDashDispatchGate({
-    eventName: "workflow_dispatch",
-    ref: "refs/heads/main",
-    inputVersion: "",
-  });
-  assert.equal(autoBeta.ok, true);
-  assert.equal(autoBeta.slug, BETA_REGISTRY_SLUG);
-  assert.equal(autoBeta.requestedVersion, null);
+test("validateEmDashDispatchGate and .github/scripts/emdash-dispatch-gate.mjs agree on every caller/dispatch case and bind to emdash-release.yml", async () => {
+  const binding = await verifyShippedEmDashWorkflowGateBinding();
+  assert.equal(binding.jobIfMatches, true);
+  assert.equal(binding.gateScriptInvokedBeforeCredentials, true);
+  assert.equal(binding.callerPassesStableReleaseMode, true);
 
-  const explicitBeta = validateEmDashDispatchGate({
-    eventName: "workflow_dispatch",
-    ref: "refs/heads/main",
-    inputVersion: "0.2.9-beta.2",
-  });
-  assert.equal(explicitBeta.ok, true);
-  assert.equal(explicitBeta.slug, BETA_REGISTRY_SLUG);
-  assert.equal(explicitBeta.requestedVersion, "0.2.9-beta.2");
+  const testCases = [
+    {
+      label: "manual workflow_dispatch auto beta on main",
+      input: { eventName: "workflow_dispatch", ref: "refs/heads/main", inputVersion: "", releaseMode: "" },
+      expectedOk: true,
+      expectedMode: "cut-beta",
+      expectedSlug: BETA_REGISTRY_SLUG,
+    },
+    {
+      label: "manual workflow_dispatch explicit beta on main",
+      input: { eventName: "workflow_dispatch", ref: "refs/heads/main", inputVersion: "0.2.9-beta.2", releaseMode: "" },
+      expectedOk: true,
+      expectedMode: "cut-beta",
+      expectedSlug: BETA_REGISTRY_SLUG,
+    },
+    {
+      label: "manual workflow_dispatch stable version rejected",
+      input: { eventName: "workflow_dispatch", ref: "refs/heads/main", inputVersion: "0.2.9", releaseMode: "" },
+      expectedOk: false,
+      expectedCode: "manual_stable_dispatch_forbidden",
+    },
+    {
+      label: "manual workflow_dispatch spoofing release_mode=stable rejected",
+      input: { eventName: "workflow_dispatch", ref: "refs/heads/main", inputVersion: "0.2.9-beta.1", releaseMode: "stable" },
+      expectedOk: false,
+      expectedCode: "manual_stable_dispatch_forbidden",
+    },
+    {
+      label: "manual workflow_dispatch on non-main ref rejected",
+      input: { eventName: "workflow_dispatch", ref: "refs/heads/feat/rogue-branch", inputVersion: "0.2.9-beta.1", releaseMode: "" },
+      expectedOk: false,
+      expectedCode: "forbidden_dispatch_ref",
+    },
+    {
+      label: "delegated push from release.yml on main with release_mode=stable succeeds",
+      input: { eventName: "push", ref: "refs/heads/main", inputVersion: "0.2.9", releaseMode: "stable" },
+      expectedOk: true,
+      expectedMode: "stable-call",
+      expectedSlug: STABLE_REGISTRY_SLUG,
+    },
+    {
+      label: "push without release_mode=stable rejected",
+      input: { eventName: "push", ref: "refs/heads/main", inputVersion: "0.2.9", releaseMode: "" },
+      expectedOk: false,
+      expectedCode: "missing_stable_caller_input",
+    },
+    {
+      label: "push on non-main ref rejected even with release_mode=stable",
+      input: { eventName: "push", ref: "refs/heads/feat/rogue", inputVersion: "0.2.9", releaseMode: "stable" },
+      expectedOk: false,
+      expectedCode: "forbidden_caller_ref",
+    },
+    {
+      label: "push with release_mode=stable but missing version rejected",
+      input: { eventName: "push", ref: "refs/heads/main", inputVersion: "", releaseMode: "stable" },
+      expectedOk: false,
+      expectedCode: "missing_workflow_call_version",
+    },
+    {
+      label: "push with release_mode=stable and beta version rejected",
+      input: { eventName: "push", ref: "refs/heads/main", inputVersion: "0.2.9-beta.1", releaseMode: "stable" },
+      expectedOk: false,
+      expectedCode: "invalid_stable_caller_version",
+    },
+    {
+      label: "unsupported event rejected",
+      input: { eventName: "pull_request", ref: "refs/heads/main", inputVersion: "0.2.9", releaseMode: "stable" },
+      expectedOk: false,
+      expectedCode: "unsupported_event",
+    },
+  ];
 
-  const manualStable = validateEmDashDispatchGate({
-    eventName: "workflow_dispatch",
-    ref: "refs/heads/main",
-    inputVersion: "0.2.9",
-  });
-  assert.equal(manualStable.ok, false);
-  assert.equal(manualStable.code, "manual_stable_dispatch_forbidden");
+  for (const tc of testCases) {
+    const jsGate = validateEmDashDispatchGate(tc.input);
+    const cliProc = runExtractedGateScriptProcess(tc.input);
 
-  const nonMain = validateEmDashDispatchGate({
-    eventName: "workflow_dispatch",
-    ref: "refs/heads/feat/rogue-branch",
-    inputVersion: "0.2.9-beta.1",
-  });
-  assert.equal(nonMain.ok, false);
-  assert.equal(nonMain.code, "forbidden_dispatch_ref");
+    assert.equal(jsGate.ok, tc.expectedOk, `${tc.label}: JS gate ok mismatch`);
+    assert.equal(cliProc.exitCode === 0, tc.expectedOk, `${tc.label}: CLI script exitCode mismatch`);
 
-  const delegatedStable = validateEmDashDispatchGate({
-    eventName: "workflow_call",
-    ref: "refs/heads/main",
-    inputVersion: "0.2.9",
-  });
-  assert.equal(delegatedStable.ok, true);
-  assert.equal(delegatedStable.slug, STABLE_REGISTRY_SLUG);
-  assert.equal(delegatedStable.requestedVersion, "0.2.9");
+    if (tc.expectedOk) {
+      assert.equal(jsGate.mode, tc.expectedMode, `${tc.label}: mode mismatch`);
+      assert.equal(jsGate.slug, tc.expectedSlug, `${tc.label}: slug mismatch`);
+      assert.deepEqual(cliProc.parsed, jsGate, `${tc.label}: CLI JSON output must match JS gate`);
+    } else {
+      assert.equal(jsGate.code, tc.expectedCode, `${tc.label}: error code mismatch`);
+      assert.match(cliProc.stderr, new RegExp(jsGate.message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    }
+  }
 });
 
-test("fetchRegistryVersions fails closed on network error, non-404 HTTP status, or malformed payload and treats only 404/NotFound as empty", async () => {
+test("fetchRegistryVersions validates schema of 200 responses and every version entry, failing closed in cut-beta and check-registry-version", async () => {
   const notFound = await fetchRegistryVersions(BETA_REGISTRY_SLUG, "https://registry.example", {
     fetchImpl: async () => ({
       ok: false,
@@ -243,53 +303,135 @@ test("fetchRegistryVersions fails closed on network error, non-404 HTTP status, 
   });
   assert.deepEqual(pkgNotFound, []);
 
-  await assert.rejects(
-    () =>
-      fetchRegistryVersions(BETA_REGISTRY_SLUG, "https://registry.example", {
-        fetchImpl: async () => ({
-          ok: false,
-          status: 503,
-          json: async () => ({ error: "ServiceUnavailable" }),
-        }),
-      }),
-    /Registry lookup failed.*HTTP 503 \(ServiceUnavailable\)/,
-  );
+  const validEmptyList = await fetchRegistryVersions(BETA_REGISTRY_SLUG, "https://registry.example", {
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ plugin: { slug: BETA_REGISTRY_SLUG }, versions: [] }),
+    }),
+  });
+  assert.deepEqual(validEmptyList, []);
 
-  await assert.rejects(
-    () =>
-      fetchRegistryVersions(BETA_REGISTRY_SLUG, "https://registry.example", {
-        fetchImpl: async () => {
-          throw new Error("ECONNRESET");
-        },
-      }),
-    /Registry lookup failed.*ECONNRESET/,
-  );
-
-  await assert.rejects(
-    () =>
-      fetchRegistryVersions(BETA_REGISTRY_SLUG, "https://registry.example", {
-        fetchImpl: async () => ({
-          ok: true,
-          status: 200,
-          json: async () => {
-            throw new SyntaxError("Unexpected token <");
-          },
+  const malformedCases = [
+    {
+      name: "HTTP 503 error",
+      response: { ok: false, status: 503, json: async () => ({ error: "ServiceUnavailable" }) },
+      pattern: /HTTP 503 \(ServiceUnavailable\)/,
+    },
+    {
+      name: "200 empty object {}",
+      response: { ok: true, status: 200, json: async () => ({}) },
+      pattern: /expected "versions" to be an array/,
+    },
+    {
+      name: "200 unrecognized error object",
+      response: { ok: true, status: 200, json: async () => ({ error: "UpstreamDatabaseOffline" }) },
+      pattern: /error payload \(UpstreamDatabaseOffline\)/,
+    },
+    {
+      name: "200 non-array versions field",
+      response: { ok: true, status: 200, json: async () => ({ versions: "not-an-array" }) },
+      pattern: /expected "versions" to be an array/,
+    },
+    {
+      name: "200 malformed version entry missing version string",
+      response: {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          plugin: { slug: BETA_REGISTRY_SLUG },
+          versions: [{ version: "0.2.9-beta.1" }, { badEntry: 123 }],
         }),
-      }),
-    /Registry lookup failed.*invalid JSON/,
-  );
-
-  await assert.rejects(
-    () =>
-      fetchRegistryVersions(BETA_REGISTRY_SLUG, "https://registry.example", {
-        fetchImpl: async () => ({
-          ok: true,
-          status: 200,
-          json: async () => ({ versions: "not-an-array" }),
+      },
+      pattern: /version entry at index 1 is missing a valid version string/,
+    },
+    {
+      name: "200 version entry with invalid semver",
+      response: {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          plugin: { slug: BETA_REGISTRY_SLUG },
+          versions: [{ version: "0.2.9-beta.1" }, { version: "not-a-semver" }],
         }),
-      }),
-    /expected "versions" to be an array/,
-  );
+      },
+      pattern: /invalid semver "not-a-semver" at index 1/,
+    },
+    {
+      name: "200 mismatched plugin.slug",
+      response: {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          plugin: { slug: "wrong-slug" },
+          versions: [{ version: "0.2.9-beta.1" }],
+        }),
+      },
+      pattern: /plugin\.slug "wrong-slug" does not match/,
+    },
+  ];
+
+  const tempRoot = await mkdtemp(join(tmpdir(), "payments-registry-validation-"));
+  try {
+    await mkdir(join(tempRoot, ".changeset"), { recursive: true });
+    await writeFile(
+      join(tempRoot, "package.json"),
+      `${JSON.stringify({ name: PACKAGE_NAME, version: "0.2.8", type: "module" }, null, 2)}\n`,
+      "utf8",
+    );
+    await writeFile(
+      join(tempRoot, ".changeset/bump.md"),
+      `---\n"${PACKAGE_NAME}": patch\n---\n\nFix.\n`,
+      "utf8",
+    );
+    const git = (args) =>
+      execFileSync("git", args, { cwd: tempRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    git(["init", "-b", "main"]);
+    git(["config", "user.name", "Test"]);
+    git(["config", "user.email", "test@example.invalid"]);
+    git(["add", "-A"]);
+    git(["commit", "-m", "init"]);
+
+    for (const tc of malformedCases) {
+      await assert.rejects(
+        () =>
+          fetchRegistryVersions(BETA_REGISTRY_SLUG, "https://registry.example", {
+            fetchImpl: async () => tc.response,
+          }),
+        tc.pattern,
+        `fetchRegistryVersions should reject ${tc.name}`,
+      );
+
+      await assert.rejects(
+        () =>
+          runReleaseFlowCli(["cut-beta"], {
+            root: tempRoot,
+            gitExec: git,
+            fetchImpl: async () => tc.response,
+            log: () => {},
+          }),
+        tc.pattern,
+        `cut-beta should reject ${tc.name}`,
+      );
+
+      await assert.rejects(
+        () =>
+          runReleaseFlowCli(
+            ["check-registry-version", "--slug", BETA_REGISTRY_SLUG, "--version", "0.2.9-beta.1"],
+            {
+              root: tempRoot,
+              gitExec: git,
+              fetchImpl: async () => tc.response,
+              log: () => {},
+            },
+          ),
+        tc.pattern,
+        `check-registry-version should reject ${tc.name}`,
+      );
+    }
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("validateBetaPromotionGate enforces beta tag, no new changesets after beta, registry presence, and @running proof", () => {
@@ -337,7 +479,7 @@ test("validateBetaPromotionGate enforces beta tag, no new changesets after beta,
   });
 });
 
-test("verifyApprovedBetaSourceTree enforces exact source-tree equality between v<betaVersion> and HEAD outside allowlisted release files", () => {
+test("verifyApprovedBetaSourceTree and verifyVersionOnlyPackageMetadata enforce version-only package.json and package-lock.json diffs", () => {
   const betaSha = "abcdef1234567890abcdef1234567890abcdef12";
   const proof = {
     betaVersion: "0.2.9-beta.1",
@@ -345,21 +487,118 @@ test("verifyApprovedBetaSourceTree enforces exact source-tree equality between v
     proofRef: "run-999 0.2.9-beta.1 @running pass",
   };
 
-  assert.equal(isAllowedReleaseTreePath("package.json"), true);
-  assert.equal(isAllowedReleaseTreePath("package-lock.json"), true);
-  assert.equal(isAllowedReleaseTreePath("CHANGELOG.md"), true);
-  assert.equal(isAllowedReleaseTreePath(".changeset/fix-checkout.md"), true);
-  assert.equal(isAllowedReleaseTreePath(".changeset/README.md"), false);
-  assert.equal(isAllowedReleaseTreePath("src/plugin.ts"), false);
+  const basePkg = {
+    name: PACKAGE_NAME,
+    version: "0.2.8",
+    type: "module",
+    scripts: { build: "npm run plugin:build" },
+    dependencies: { jose: "6.2.12", stripe: "23.0.0" },
+  };
+  const baseLock = {
+    name: PACKAGE_NAME,
+    version: "0.2.8",
+    lockfileVersion: 3,
+    packages: {
+      "": {
+        name: PACKAGE_NAME,
+        version: "0.2.8",
+        dependencies: { jose: "6.2.12", stripe: "23.0.0" },
+      },
+      "node_modules/stripe": {
+        version: "23.0.0",
+        resolved: "https://registry.npmjs.org/stripe/-/stripe-23.0.0.tgz",
+        integrity: "sha512-valid==",
+      },
+    },
+  };
 
-  const cleanReleaseTree = verifyApprovedBetaSourceTree({
+  const cleanReleasePkg = { ...basePkg, version: "0.2.9" };
+  const cleanReleaseLock = structuredClone(baseLock);
+  cleanReleaseLock.version = "0.2.9";
+  cleanReleaseLock.packages[""].version = "0.2.9";
+
+  // 1. Version-only bump passes
+  const cleanTree = verifyApprovedBetaSourceTree({
     version: "0.2.9",
     proof,
     betaTagSha: betaSha,
     changedPathsSinceBeta: ["package.json", "package-lock.json", "CHANGELOG.md", ".changeset/fix-checkout.md"],
+    betaPackageJsonText: JSON.stringify(basePkg),
+    releasePackageJsonText: JSON.stringify(cleanReleasePkg),
+    betaPackageLockText: JSON.stringify(baseLock),
+    releasePackageLockText: JSON.stringify(cleanReleaseLock),
   });
-  assert.equal(cleanReleaseTree.ok, true);
+  assert.equal(cleanTree.ok, true);
 
+  // 2. Dependency change in package.json is rejected
+  const depChangedPkg = {
+    ...cleanReleasePkg,
+    dependencies: { ...cleanReleasePkg.dependencies, "malicious-dep": "1.0.0" },
+  };
+  const depResult = verifyApprovedBetaSourceTree({
+    version: "0.2.9",
+    proof,
+    betaTagSha: betaSha,
+    changedPathsSinceBeta: ["package.json", "package-lock.json", "CHANGELOG.md"],
+    betaPackageJsonText: JSON.stringify(basePkg),
+    releasePackageJsonText: JSON.stringify(depChangedPkg),
+    betaPackageLockText: JSON.stringify(baseLock),
+    releasePackageLockText: JSON.stringify(cleanReleaseLock),
+  });
+  assert.equal(depResult.ok, false);
+  assert.equal(depResult.code, "unapproved_package_metadata_change");
+  assert.match(depResult.message, /package\.json modified non-version fields.*dependencies/);
+
+  // 3. Script change in package.json is rejected
+  const scriptChangedPkg = {
+    ...cleanReleasePkg,
+    scripts: { build: "node -e 'evil()'" },
+  };
+  const scriptResult = verifyApprovedBetaSourceTree({
+    version: "0.2.9",
+    proof,
+    betaTagSha: betaSha,
+    changedPathsSinceBeta: ["package.json", "package-lock.json", "CHANGELOG.md"],
+    betaPackageJsonText: JSON.stringify(basePkg),
+    releasePackageJsonText: JSON.stringify(scriptChangedPkg),
+    betaPackageLockText: JSON.stringify(baseLock),
+    releasePackageLockText: JSON.stringify(cleanReleaseLock),
+  });
+  assert.equal(scriptResult.ok, false);
+  assert.equal(scriptResult.code, "unapproved_package_metadata_change");
+  assert.match(scriptResult.message, /package\.json modified non-version fields.*scripts/);
+
+  // 4. Lockfile resolved/integrity change is rejected
+  const lockTampered = structuredClone(cleanReleaseLock);
+  lockTampered.packages["node_modules/stripe"].resolved = "https://evil.example/stripe.tgz";
+  lockTampered.packages["node_modules/stripe"].integrity = "sha512-tampered==";
+  const lockResult = verifyApprovedBetaSourceTree({
+    version: "0.2.9",
+    proof,
+    betaTagSha: betaSha,
+    changedPathsSinceBeta: ["package.json", "package-lock.json", "CHANGELOG.md"],
+    betaPackageJsonText: JSON.stringify(basePkg),
+    releasePackageJsonText: JSON.stringify(cleanReleasePkg),
+    betaPackageLockText: JSON.stringify(baseLock),
+    releasePackageLockText: JSON.stringify(lockTampered),
+  });
+  assert.equal(lockResult.ok, false);
+  assert.equal(lockResult.code, "unapproved_package_metadata_change");
+  assert.match(lockResult.message, /package-lock\.json modified non-version fields.*packages/);
+
+  // 5. Malformed JSON is rejected
+  const malformedJsonResult = verifyVersionOnlyPackageMetadata({
+    version: "0.2.9",
+    betaPackageJsonText: JSON.stringify(basePkg),
+    releasePackageJsonText: "{bad-json",
+    betaPackageLockText: JSON.stringify(baseLock),
+    releasePackageLockText: JSON.stringify(cleanReleaseLock),
+  });
+  assert.equal(malformedJsonResult.ok, false);
+  assert.equal(malformedJsonResult.code, "unapproved_package_metadata_change");
+  assert.match(malformedJsonResult.message, /release package\.json is not valid JSON/);
+
+  // 6. Disallowed file path is still rejected
   const tamperedSource = verifyApprovedBetaSourceTree({
     version: "0.2.9",
     proof,
@@ -369,15 +608,48 @@ test("verifyApprovedBetaSourceTree enforces exact source-tree equality between v
   assert.equal(tamperedSource.ok, false);
   assert.equal(tamperedSource.code, "unapproved_source_changes_since_beta");
   assert.deepEqual(tamperedSource.disallowedPaths, ["src/plugin.ts"]);
+});
 
-  const mismatchedTagSha = verifyApprovedBetaSourceTree({
-    version: "0.2.9",
-    proof,
-    betaTagSha: "0000000000000000000000000000000000000000",
-    changedPathsSinceBeta: ["package.json", "CHANGELOG.md"],
+test("publish-pkg-pr-new helper skips with ::notice:: and exit 0 on 404 App-not-installed output and fails on other errors", () => {
+  const canned404Stderr =
+    'Check failed (404): {"url":"/check","statusCode":404,"statusMessage":"Not Found","message":"The app https://github.com/apps/pkg-pr-new is not installed on or does not have access to dinkuskit/payments.","stack":""}';
+
+  const skipped = classifyPkgPrNewOutput({
+    status: 1,
+    stdout: "",
+    stderr: canned404Stderr,
   });
-  assert.equal(mismatchedTagSha.ok, false);
-  assert.equal(mismatchedTagSha.code, "beta_tag_sha_mismatch");
+  assert.equal(skipped.outcome, "skipped_app_not_installed");
+  assert.equal(skipped.exitCode, 0);
+  assert.match(skipped.notice, /pkg-pr-new GitHub App is not installed/);
+
+  const notices = [];
+  const runSkipped = runPkgPrNewPreview({
+    jsonPath: "preview.json",
+    spawnImpl: () => ({ status: 1, stdout: "", stderr: canned404Stderr }),
+    writeStdout: () => {},
+    writeStderr: () => {},
+    logNotice: (msg) => notices.push(msg),
+  });
+  assert.equal(runSkipped.exitCode, 0);
+  assert.equal(notices.length, 1);
+
+  const otherFailure = classifyPkgPrNewOutput({
+    status: 1,
+    stdout: "",
+    stderr: "Check failed (500): Internal Server Error",
+  });
+  assert.equal(otherFailure.outcome, "failed");
+  assert.equal(otherFailure.exitCode, 1);
+  assert.equal(otherFailure.notice, null);
+
+  const success = classifyPkgPrNewOutput({
+    status: 0,
+    stdout: "Published preview https://pkg.pr.new/@dinkuskit/payments@f74b9e4",
+    stderr: "",
+  });
+  assert.equal(success.outcome, "published");
+  assert.equal(success.exitCode, 0);
 });
 
 test("publish-merged-release resumes missing GitHub Release and triggers downstream Registry publish when tag already exists on HEAD", async () => {
@@ -387,13 +659,17 @@ test("publish-merged-release resumes missing GitHub Release and triggers downstr
     await mkdir(join(tempRoot, "src"), { recursive: true });
     await writeFile(
       join(tempRoot, "package.json"),
-      `${JSON.stringify({ name: PACKAGE_NAME, version: "0.2.9", type: "module" }, null, 2)}\n`,
+      `${JSON.stringify({ name: PACKAGE_NAME, version: "0.2.8", type: "module" }, null, 2)}\n`,
       "utf8",
     );
-    await writeFile(join(tempRoot, "package-lock.json"), "{}\n", "utf8");
+    await writeFile(
+      join(tempRoot, "package-lock.json"),
+      `${JSON.stringify({ name: PACKAGE_NAME, version: "0.2.8", packages: { "": { name: PACKAGE_NAME, version: "0.2.8" } } }, null, 2)}\n`,
+      "utf8",
+    );
     await writeFile(
       join(tempRoot, "CHANGELOG.md"),
-      "# @dinkuskit/payments\n\n## 0.2.9\n\n- Patch fix.\n",
+      "# @dinkuskit/payments\n\n## 0.2.8\n\n- Baseline.\n",
       "utf8",
     );
     await writeFile(join(tempRoot, "src/plugin.ts"), "export const x = 1;\n", "utf8");
@@ -411,11 +687,21 @@ test("publish-merged-release resumes missing GitHub Release and triggers downstr
     const betaSha = git(["rev-parse", "HEAD"]);
 
     await writeFile(
+      join(tempRoot, "package.json"),
+      `${JSON.stringify({ name: PACKAGE_NAME, version: "0.2.9", type: "module" }, null, 2)}\n`,
+      "utf8",
+    );
+    await writeFile(
+      join(tempRoot, "package-lock.json"),
+      `${JSON.stringify({ name: PACKAGE_NAME, version: "0.2.9", packages: { "": { name: PACKAGE_NAME, version: "0.2.9" } } }, null, 2)}\n`,
+      "utf8",
+    );
+    await writeFile(
       join(tempRoot, "CHANGELOG.md"),
       "# @dinkuskit/payments\n\n## 0.2.9\n\n- Patch fix.\n\n## 0.2.8\n\n- Baseline.\n",
       "utf8",
     );
-    git(["add", "CHANGELOG.md"]);
+    git(["add", "package.json", "package-lock.json", "CHANGELOG.md"]);
     const trailer = formatBetaProofRecord({
       betaVersion: "0.2.9-beta.1",
       betaSha,
@@ -529,12 +815,12 @@ test("built sandbox plugin bundle exists and stays under the 128 KB limit", asyn
   assert.ok(result.bytes < MAX_PLUGIN_BUNDLE_BYTES);
 });
 
-test("release-authority-proof harness passes all 7 release-authority scenarios (a)-(g)", async () => {
+test("release-authority-proof harness passes all 12 release-authority scenarios (a)-(l)", async () => {
   const report = await runReleaseAuthorityProof();
   assert.equal(report.allPassed, true);
-  assert.equal(report.scenarioCount, 7);
+  assert.equal(report.scenarioCount, 12);
   assert.deepEqual(
     report.scenarios.map((s) => s.id),
-    ["a", "b", "c", "d", "e", "f", "g"],
+    ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"],
   );
 });
