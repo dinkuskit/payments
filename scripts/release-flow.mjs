@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { appendFile, cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolvePdsEndpoint } from "../.github/scripts/verify-registry-release.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const repositoryRoot = resolve(here, "..");
@@ -20,7 +21,7 @@ export const MAX_PLUGIN_BUNDLE_BYTES = 131_072;
 export const RELEASE_PR_BRANCH = "changeset-release/main";
 export const RELEASE_PR_TITLE_PREFIX = "ci: release";
 export const BETA_PROOF_TRAILER = "Release-Beta-Proof";
-export const DEFAULT_REGISTRY_URL = "https://emdash-registry.pages.dev";
+const RELEASE_COLLECTION = "com.emdashcms.experimental.package.release";
 
 export const ALLOWED_RELEASE_TREE_PATHS = Object.freeze([
   "package.json",
@@ -781,153 +782,64 @@ function resolveTagCommitSha(tag, root = repositoryRoot, gitExec = defaultGit) {
   return gitExec(["rev-list", "-n", "1", tag], root);
 }
 
-const RECOGNIZED_NOT_FOUND_ERRORS = new Set(["NotFound", "PackageNotFound", "PluginNotFound"]);
-
+// Release allocation must include every occupied version, including records that
+// discovery hides until approval. The publisher PDS is authoritative for this
+// inventory; an unavailable catalog is never evidence of an empty history.
 export async function fetchRegistryVersions(
   slug,
-  registryUrl = DEFAULT_REGISTRY_URL,
-  { fetchImpl = globalThis.fetch } = {},
+  { root = repositoryRoot, fetchImpl = globalThis.fetch } = {},
 ) {
   if (typeof fetchImpl !== "function") {
     throw new Error(`Registry lookup failed for ${slug}: fetch implementation is unavailable.`);
   }
-  const endpoint = `${String(registryUrl).replace(/\/+$/, "")}/api/registry/plugins/${encodeURIComponent(slug)}`;
-  let response;
-  try {
-    response = await fetchImpl(endpoint, { headers: { accept: "application/json" } });
-  } catch (error) {
-    throw new Error(
-      `Registry lookup failed for ${slug} at ${endpoint}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+  const manifest = JSON.parse(await readFile(join(root, "emdash-plugin.jsonc"), "utf8"));
+  const publisherDid = manifest.publisher;
+  if (typeof publisherDid !== "string" || !/^did:(?:plc|web):[^\s/?#]+$/.test(publisherDid)) {
+    throw new Error("Release inventory requires a publisher DID in emdash-plugin.jsonc.");
   }
-
-  if (!response || typeof response !== "object") {
-    throw new Error(`Registry lookup failed for ${slug} at ${endpoint}: empty response.`);
+  const request = (url) => fetchImpl(url, {
+    headers: { accept: "application/json" },
+    signal: AbortSignal.timeout(15_000),
+  });
+  const pds = new URL(await resolvePdsEndpoint(publisherDid, request));
+  if (pds.protocol !== "https:" || pds.username || pds.password || pds.search || pds.hash) {
+    throw new Error("Publisher PDS must be an HTTPS endpoint without credentials, query, or fragment.");
   }
-
-  const status = Number(response.status ?? (response.ok ? 200 : 0));
-  if (status === 404) {
-    return [];
-  }
-
-  if (!response.ok || status < 200 || status >= 300) {
-    let errorDetail = "";
-    if (typeof response.json === "function") {
-      try {
-        const body = await response.json();
-        if (status === 400 && RECOGNIZED_NOT_FOUND_ERRORS.has(body?.error)) {
-          return [];
-        }
-        if (typeof body?.error === "string" && body.error.trim()) {
-          errorDetail = ` (${body.error.trim()})`;
-        }
-      } catch {
-        // Ignore body parse failure on non-2xx and fail closed with HTTP status below.
+  const endpoint = new URL("/xrpc/com.atproto.repo.listRecords", pds);
+  endpoint.searchParams.set("repo", publisherDid);
+  endpoint.searchParams.set("collection", RELEASE_COLLECTION);
+  endpoint.searchParams.set("limit", "100");
+  const prefix = `at://${publisherDid}/${RELEASE_COLLECTION}/`;
+  const versions = new Set();
+  const cursors = new Set();
+  for (let page = 0; page < 1000; page += 1) {
+    const response = await request(endpoint.href);
+    if (!response.ok) throw new Error(`Release inventory failed for ${slug}: HTTP ${response.status}.`);
+    const payload = await response.json();
+    if (!payload || !Array.isArray(payload.records)) {
+      throw new Error('Release inventory expected "records" to be an array.');
+    }
+    for (const record of payload.records) {
+      const value = record?.value;
+      if (!value || Array.isArray(value) || typeof value.package !== "string" || typeof value.version !== "string") {
+        throw new Error("Release inventory contains a malformed record.");
+      }
+      if (record.uri !== `${prefix}${value.package}:${value.version}`) {
+        throw new Error("Release inventory record URI does not match its publisher, package, and version.");
+      }
+      if (value.package === slug) {
+        parseSemver(value.version);
+        versions.add(value.version);
       }
     }
-    throw new Error(
-      `Registry lookup failed for ${slug} at ${endpoint}: HTTP ${status || "error"}${errorDetail}`,
-    );
-  }
-
-  let payload;
-  try {
-    payload = await response.json();
-  } catch (error) {
-    throw new Error(
-      `Registry lookup failed for ${slug} at ${endpoint}: invalid JSON (${error instanceof Error ? error.message : String(error)})`,
-    );
-  }
-
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error(`Registry lookup failed for ${slug} at ${endpoint}: malformed JSON payload.`);
-  }
-
-  if (payload.error !== undefined) {
-    if (RECOGNIZED_NOT_FOUND_ERRORS.has(payload.error)) {
-      return [];
+    if (payload.cursor === undefined) return [...versions];
+    if (typeof payload.cursor !== "string" || !payload.cursor || cursors.has(payload.cursor)) {
+      throw new Error("Release inventory returned an invalid or repeated cursor.");
     }
-    throw new Error(
-      `Registry lookup failed for ${slug} at ${endpoint}: error payload (${String(payload.error)}).`,
-    );
+    cursors.add(payload.cursor);
+    endpoint.searchParams.set("cursor", payload.cursor);
   }
-
-  if (!Array.isArray(payload.versions)) {
-    throw new Error(
-      `Registry lookup failed for ${slug} at ${endpoint}: expected "versions" to be an array.`,
-    );
-  }
-
-  if (payload.plugin !== undefined) {
-    if (!payload.plugin || typeof payload.plugin !== "object" || Array.isArray(payload.plugin)) {
-      throw new Error(
-        `Registry lookup failed for ${slug} at ${endpoint}: malformed "plugin" descriptor.`,
-      );
-    }
-    if (payload.plugin.slug !== undefined && payload.plugin.slug !== slug) {
-      throw new Error(
-        `Registry lookup failed for ${slug} at ${endpoint}: plugin.slug "${String(payload.plugin.slug)}" does not match "${slug}".`,
-      );
-    }
-    if (
-      payload.plugin.latestVersion !== undefined &&
-      payload.plugin.latestVersion !== null
-    ) {
-      if (typeof payload.plugin.latestVersion !== "string" || !payload.plugin.latestVersion.trim()) {
-        throw new Error(
-          `Registry lookup failed for ${slug} at ${endpoint}: malformed plugin.latestVersion.`,
-        );
-      }
-      try {
-        parseSemver(payload.plugin.latestVersion);
-      } catch {
-        throw new Error(
-          `Registry lookup failed for ${slug} at ${endpoint}: invalid semver in plugin.latestVersion "${payload.plugin.latestVersion}".`,
-        );
-      }
-    }
-  }
-
-  const versions = [];
-  for (let idx = 0; idx < payload.versions.length; idx += 1) {
-    const entry = payload.versions[idx];
-    let rawVersion;
-    if (typeof entry === "string") {
-      rawVersion = entry;
-    } else if (entry && typeof entry === "object" && !Array.isArray(entry)) {
-      rawVersion = entry.version;
-    } else {
-      throw new Error(
-        `Registry lookup failed for ${slug} at ${endpoint}: malformed version entry at index ${idx}.`,
-      );
-    }
-
-    if (typeof rawVersion !== "string" || !rawVersion.trim()) {
-      throw new Error(
-        `Registry lookup failed for ${slug} at ${endpoint}: version entry at index ${idx} is missing a valid version string.`,
-      );
-    }
-
-    const trimmedVersion = rawVersion.trim();
-    try {
-      parseSemver(trimmedVersion);
-    } catch {
-      throw new Error(
-        `Registry lookup failed for ${slug} at ${endpoint}: invalid semver "${trimmedVersion}" at index ${idx}.`,
-      );
-    }
-
-    versions.push(trimmedVersion);
-  }
-
-  if (
-    typeof payload?.plugin?.latestVersion === "string" &&
-    !versions.includes(payload.plugin.latestVersion.trim())
-  ) {
-    versions.push(payload.plugin.latestVersion.trim());
-  }
-
-  return versions;
+  throw new Error("Release inventory pagination exceeded 1000 pages; refusing an incomplete history.");
 }
 
 async function writeGithubOutputs(outputFile, values) {
@@ -1025,7 +937,6 @@ export async function runReleaseFlowCli(argv, deps = {}) {
       );
     }
 
-    const registryUrl = flags["registry-url"] || process.env.EMDASH_REGISTRY_URL || DEFAULT_REGISTRY_URL;
     let version = flags.version?.trim();
     let targetVersion = computeTargetVersion(
       pkg.version,
@@ -1040,11 +951,11 @@ export async function runReleaseFlowCli(argv, deps = {}) {
         );
       }
       targetVersion = version.replace(/-beta\.\d+$/, "");
-      await fetchRegistryVersions(BETA_REGISTRY_SLUG, registryUrl, { fetchImpl });
+      await fetchRegistryVersions(BETA_REGISTRY_SLUG, { root, fetchImpl });
     } else {
       const gitTags = listGitTags(`v${targetVersion}-beta.*`, root, gitExec);
-      const registryVersions = await fetchRegistryVersions(BETA_REGISTRY_SLUG, registryUrl, {
-        fetchImpl,
+      const registryVersions = await fetchRegistryVersions(BETA_REGISTRY_SLUG, {
+        root, fetchImpl,
       });
       const next = computeNextBetaVersion({ targetVersion, gitTags, registryVersions });
       version = next.version;
@@ -1083,7 +994,6 @@ export async function runReleaseFlowCli(argv, deps = {}) {
   if (command === "promote") {
     const betaVersion = flags["beta-version"] || process.env.BETA_VERSION || "";
     const proofRef = flags["proof-ref"] || process.env.PROOF_REF || "";
-    const registryUrl = flags["registry-url"] || process.env.EMDASH_REGISTRY_URL || DEFAULT_REGISTRY_URL;
 
     const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
     const pending = await readPendingChangesets(root);
@@ -1104,7 +1014,7 @@ export async function runReleaseFlowCli(argv, deps = {}) {
     const registryVersions =
       flags["skip-registry-check"] === "true"
         ? []
-        : await fetchRegistryVersions(BETA_REGISTRY_SLUG, registryUrl, { fetchImpl });
+        : await fetchRegistryVersions(BETA_REGISTRY_SLUG, { root, fetchImpl });
     const registryHasBetaVersion =
       flags["skip-registry-check"] === "true" || registryVersions.includes(betaVersion);
 
@@ -1187,7 +1097,6 @@ export async function runReleaseFlowCli(argv, deps = {}) {
     const pkg = JSON.parse(releasePackageJsonText);
     const version = pkg.version;
     const tag = `v${version}`;
-    const registryUrl = flags["registry-url"] || process.env.EMDASH_REGISTRY_URL || DEFAULT_REGISTRY_URL;
 
     if (pending.length > 0) {
       const skipped = {
@@ -1333,8 +1242,8 @@ export async function runReleaseFlowCli(argv, deps = {}) {
 
     let registryAlreadyPublished = false;
     if (flags["skip-registry-check"] !== "true") {
-      const stableRegistryVersions = await fetchRegistryVersions(STABLE_REGISTRY_SLUG, registryUrl, {
-        fetchImpl,
+      const stableRegistryVersions = await fetchRegistryVersions(STABLE_REGISTRY_SLUG, {
+        root, fetchImpl,
       });
       registryAlreadyPublished = stableRegistryVersions.includes(version);
     }
@@ -1371,12 +1280,11 @@ export async function runReleaseFlowCli(argv, deps = {}) {
   if (command === "check-registry-version") {
     const slug = flags.slug || process.env.EMDASH_PLUGIN_SLUG || STABLE_REGISTRY_SLUG;
     const version = flags.version || process.env.RELEASE_VERSION || "";
-    const registryUrl = flags["registry-url"] || process.env.EMDASH_REGISTRY_URL || DEFAULT_REGISTRY_URL;
     if (!version) {
       throw new Error("check-registry-version requires --version <version>.");
     }
     parseSemver(version);
-    const versions = await fetchRegistryVersions(slug, registryUrl, { fetchImpl });
+    const versions = await fetchRegistryVersions(slug, { root, fetchImpl });
     const alreadyPublished = versions.includes(version);
     const result = {
       slug,

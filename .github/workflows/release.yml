@@ -76,7 +76,6 @@ jobs:
           PROOF_REF: ${{ inputs.proof_ref }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          EMDASH_REGISTRY_URL: ${{ vars.EMDASH_REGISTRY_URL || 'https://emdash-registry.pages.dev' }}
         run: |
           node scripts/release-flow.mjs promote \
             --beta-version "$BETA_VERSION" \
@@ -88,7 +87,6 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          EMDASH_REGISTRY_URL: ${{ vars.EMDASH_REGISTRY_URL || 'https://emdash-registry.pages.dev' }}
         run: |
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             {
