@@ -155,6 +155,15 @@ test("playground queues no wakes, even for a verified Stripe webhook", async () 
   expect(await playgroundStub().listWakes({ accountId: "x", siteId: "playground" }, "playground", 25)).toEqual([]);
 });
 
+test("a Stripe webhook refused inside a store's object answers 409 with its code", async () => {
+  stripeFixture();
+  const payload = JSON.stringify({ id: "evt_refused", object: "event", type: "checkout.session.completed", livemode: false, account: "acct_refused", data: { object: { object: "checkout.session", id: "cs_test_refused", livemode: false, metadata: { dinkus_site: "site-refused", dinkus_attempt: "no-such-attempt", dinkus_binding: "binding-refused" } } } });
+  const signature = await Stripe.webhooks.generateTestHeaderStringAsync({ payload, secret: "whsec_synthetic_fixture" });
+  const webhook = await worker.fetch(new Request("https://payments.example.invalid/v1/webhooks/stripe", { method: "POST", headers: { "stripe-signature": signature }, body: payload }), configured);
+  expect(webhook.status).toBe(409);
+  expect(await webhook.json()).toEqual({ error: "unknown_attempt" });
+});
+
 test("about 3 sessions per 10 minutes per client IP, then a stable public 429", async () => {
   const stripe = stripeFixture();
   for (let i = 0; i < 3; i++) {
