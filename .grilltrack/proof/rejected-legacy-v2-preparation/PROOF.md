@@ -8,7 +8,7 @@ provider request or recovery execution was performed.
 ## Behavior
 
 The authenticated, bodyless POST is additionally bound to the deployment's
-operator/site, exact binding, original start and failure, six-request
+operator/site, exact binding/failure, validated stored start, six-request
 rejection attestation, approved country, expected current platform and expiry.
 It captures its audit digest internally, performs only an identity GET, rechecks the complete original snapshot transactionally,
 preserves the original record and evidence digest, and returns a prepared receipt.
@@ -43,8 +43,8 @@ Merge, deployment, policy configuration, transition invocation and any later
 account-creation action remain separate owner decisions. No generic reset,
 rollback, storage API or deferred read-only recovery endpoint was added.
 
-Final verification: `bin/verify-payments full` PASS — 274 unit tests, 36 Worker
-runtime tests, 27 plugin runtime tests; TypeScript, repository audit, Worker and
+Final verification: `bin/verify-payments full` PASS — 276 unit tests, 36 Worker
+runtime tests, 32 plugin runtime tests; TypeScript, repository audit, Worker and
 plugin builds, plugin validation and built identity checks passed. All runtime
 source and test hashes match the final verified clean snapshot. The runtime
 logs contain expected synthetic refusal diagnostics; test verdicts are passing.
@@ -91,3 +91,26 @@ follow-up splits those scenarios into independent tests with identical
 assertions and the unchanged default per-test timeout. All 32 compiled tests
 then passed locally. The production source is unchanged from the reviewed
 feature head; the final commit receives its own CI and exact-head reviews.
+
+## Internal start-time admission
+
+The externally supplied expectedStartedAt field is removed from the strict
+policy. The original stored timestamp must be a nonnegative safe integer, no
+later than the exact attested failure, and at least 23 hours old. Its actual value
+is preserved in the original record and internal digest; full-snapshot comparison
+still rejects any in-flight change, including to that clock. Tests cover invalid
+and young clocks, the exact 23-hour boundary, preservation, and clock tampering
+before replay. All other target/failure/operation guards remain unchanged.
+
+This does not independently detect a prior out-of-band rewrite of only the old
+start to another valid old value. Supported writers give a new binding or v2
+operation markers to new generations; arbitrary storage rewrites and unfenced
+old executables remain excluded. No new endpoint, consumer or live action was
+introduced. Previous-head clean reviews are historical; this revision requires
+fresh exact-head verification and reviews.
+
+The internal-start revision passed a fresh `bin/verify-payments full`: 276 unit,
+36 Worker runtime and 32 compiled plugin tests, plus both TypeScript targets,
+repository audit, Worker/plugin builds and plugin validation/identity checks.
+Runtime source and tests match the verified clean snapshot. The existing
+compiled tests retain independent per-scenario timeouts. No live action occurred.

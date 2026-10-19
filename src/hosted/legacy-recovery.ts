@@ -6,7 +6,6 @@ export interface LegacyRecoveryPolicy {
   operationId: string;
   siteId: string;
   bindingRef: string;
-  expectedStartedAt: number;
   failureAt: number;
   evidenceSha256: string;
   rejection: "accounts_v1_unsupported";
@@ -43,7 +42,7 @@ const object = (value: unknown): value is Record<string, unknown> =>
 const epoch = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 const digest = (value: unknown) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 const segment = (value: unknown) => typeof value === "string" && /^[A-Za-z0-9_-]{1,200}$/.test(value);
-const policyKeys = ["operationId", "siteId", "bindingRef", "expectedStartedAt", "failureAt", "evidenceSha256", "rejection", "rejectedRequestCount", "country", "expiresAt"];
+const policyKeys = ["operationId", "siteId", "bindingRef", "failureAt", "evidenceSha256", "rejection", "rejectedRequestCount", "country", "expiresAt"];
 
 export function validLegacyRecoveryAdmission(value: unknown): value is LegacyRecoveryAdmission {
   if (!object(value) || Object.keys(value).some(key => !["operatorAccount", "operatorSite", "expectedPlatform", "policy"].includes(key)) ||
@@ -53,7 +52,7 @@ export function validLegacyRecoveryAdmission(value: unknown): value is LegacyRec
   return Object.keys(p).length === policyKeys.length && Object.keys(p).every(key => policyKeys.includes(key)) &&
     segment(p.operationId) && segment(p.siteId) && p.siteId === value.operatorSite &&
     typeof p.bindingRef === "string" && /^stripe_[A-Za-z0-9_-]{1,190}$/.test(p.bindingRef) &&
-    epoch(p.expectedStartedAt) && epoch(p.failureAt) && p.expectedStartedAt <= p.failureAt && epoch(p.expiresAt) &&
+    epoch(p.failureAt) && epoch(p.expiresAt) &&
     digest(p.evidenceSha256) && p.rejection === "accounts_v1_unsupported" && p.rejectedRequestCount === 6 && countryCode(p.country);
 }
 

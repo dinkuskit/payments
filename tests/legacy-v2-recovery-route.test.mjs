@@ -6,7 +6,7 @@ import { legacyRecoveryAdmission } from '../src/hosted/legacy-recovery.ts';
 
 const path = '/v1/connect/reconcile-legacy-rejection';
 const policy = { operationId: 'synthetic-recovery', siteId: 'synthetic-site', bindingRef: 'stripe_synthetic',
-  expectedStartedAt: 1, failureAt: 2, evidenceSha256: 'b'.repeat(64),
+  failureAt: 2, evidenceSha256: 'b'.repeat(64),
   rejection: 'accounts_v1_unsupported', rejectedRequestCount: 6, country: 'US', expiresAt: 1000 };
 const identity = { issuer: 'https://identity.example.invalid', operatorAccount: '["https://identity.example.invalid","operator"]',
   operatorSite: policy.siteId, expectedPlatform: 'acct_synthetic' };
@@ -16,6 +16,7 @@ test('operator policy is absent by default and rejects malformed or unscoped con
   assert.deepEqual(legacyRecoveryAdmission(JSON.stringify(policy), identity).policy, policy);
   for (const [raw, ids] of [
     ['invalid', identity], [JSON.stringify({ ...policy, extra: true }), identity],
+    [JSON.stringify({ ...policy, expectedStartedAt: 1 }), identity],
     [JSON.stringify({ ...policy, rejectedRequestCount: 5 }), identity],
     [JSON.stringify(policy), { ...identity, issuer: 'https://other.example.invalid' }],
     [JSON.stringify(policy), { ...identity, operatorAccount: undefined }],

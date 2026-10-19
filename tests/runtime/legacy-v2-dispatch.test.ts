@@ -22,7 +22,7 @@ test('confirmed plugin preparation reaches the signed Worker boundary and real D
     STRIPE_DIAGNOSTIC_EXPECTED_ACCOUNT: 'acct_dispatchplatform', STRIPE_TEST_MERCHANT_COUNTRY_CONFIG: undefined,
     STRIPE_TEST_MERCHANT_COUNTRY_SITES: JSON.stringify([{ siteId, country: 'US' }]),
     STRIPE_TEST_LEGACY_V2_RECOVERY: JSON.stringify({ operationId: 'synthetic-dispatch-operation', siteId,
-      bindingRef: original.bindingRef, expectedStartedAt: original.startedAt, failureAt: original.creationFailure.at,
+      bindingRef: original.bindingRef, failureAt: original.creationFailure.at,
       evidenceSha256: 'a'.repeat(64), rejection: 'accounts_v1_unsupported', rejectedRequestCount: 6, country: 'US', expiresAt: now + 300000 }) };
   let previous: Record<string, unknown>;
   await runInDurableObject(stub, (instance, state) => {

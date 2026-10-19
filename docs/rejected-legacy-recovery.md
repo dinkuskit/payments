@@ -21,7 +21,6 @@ The single policy has this shape (all values below are synthetic):
   "operationId": "approved-recovery-example",
   "siteId": "synthetic-site",
   "bindingRef": "stripe_synthetic",
-  "expectedStartedAt": 1800000000000,
   "failureAt": 1800000001000,
   "evidenceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "rejection": "accounts_v1_unsupported",
@@ -39,19 +38,26 @@ outside this public repository. Its digest and count are retained in the
 reconciliation record. A generic HTTP 400, empty account list or unmatched
 request does not qualify.
 
-Admission matches the configured owner/site/binding, original start time and
-exact recorded failure, TEST/Stripe mode, no processor account and no prior v2
-operation or repair marker. The service captures the complete matching record
-and computes its audit fingerprint internally. It compares that complete snapshot
+Admission matches the configured owner/site/binding and exact recorded failure,
+TEST/Stripe mode, no processor account and no prior v2 operation or repair marker.
+The actual stored start must be a nonnegative safe integer, no later than the
+failure, and at least 23 hours old. The service captures that actual start with
+the complete matching record and computes its audit fingerprint internally. It compares that complete snapshot
 again inside the transaction after the platform read, then preserves the original
-record and digest. No storage export or externally obtained fingerprint is needed.
+record and digest. No storage export, externally obtained fingerprint or original
+start-time input is needed.
 
 This intentionally approves the exact legacy-attempt predicates, rather than
 pre-approving every byte/property order of a previously exported record. Harmless
 normalization or unrelated legacy fields present before invocation are retained;
 a change to any field during the platform read refuses the transition. A changed
-target, original start/failure, account, protocol or repair marker still refuses
-admission. Same-operation replay verifies the preserved record's internal digest.
+target, failure, account, protocol or repair marker still refuses admission.
+Same-operation replay verifies the preserved record's internal digest, including
+its original start. A prior out-of-band rewrite of only the start to another
+valid old value is not independently detected; no supported writer performs
+such a generation reset without changing the binding or adding operation
+markers. Arbitrary storage edits and unfenced old executables remain outside
+this recovery contract. The original stored clock is never rewritten in history.
 The admission expires and must be no more than 24 hours in the future when
 invoked. Changing the operation ID never resets a prepared operation.
 

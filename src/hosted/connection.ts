@@ -107,6 +107,8 @@ export function createConnectionService(options: {
     if (mode !== "test" || providerId !== "stripe" || provider.creationProtocol !== "accounts_v2" || !provider.creationScope ||
         policy.expiresAt <= now() || policy.expiresAt > now() + 86_400_000) throw new ConnectionError("legacy_recovery_refused");
     const readExact = () => store.transaction(tx => tx.read());
+    const validLegacyStart = (value: Connection) => Number.isSafeInteger(value.startedAt) && value.startedAt >= 0 &&
+      value.startedAt <= policy.failureAt && now() - value.startedAt >= CREATION_RETRY_WINDOW_MS;
     const record = readExact();
     if (!record || record.owner.accountId !== principal.accountId || record.owner.siteId !== principal.siteId ||
         record.mode !== "test" || (record.providerId ?? "stripe") !== "stripe" || record.bindingRef !== policy.bindingRef) {
@@ -116,7 +118,7 @@ export function createConnectionService(options: {
       value.legacyRecovery.evidenceSha256 === policy.evidenceSha256 && value.legacyRecovery.rejection === policy.rejection && value.legacyRecovery.rejectedRequestCount === 6 &&
       value.creationOperationId === policy.operationId && value.creationProtocol === "accounts_v2" &&
       value.creationScope === admission.expectedPlatform && value.creationCountry === policy.country &&
-      value.startedAt === value.legacyRecovery.preparedAt && value.legacyRecovery.previous.startedAt === policy.expectedStartedAt &&
+      value.startedAt === value.legacyRecovery.preparedAt && validLegacyStart(value.legacyRecovery.previous) &&
       value.legacyRecovery.previous.creationFailure?.at === policy.failureAt;
     if (record.legacyRecovery) {
       if (!repeat(record) || await legacyStateFingerprint(record.legacyRecovery.previous) !== record.legacyRecovery.sourceFingerprint) {
@@ -128,7 +130,7 @@ export function createConnectionService(options: {
     }
     if (record.stripeAccountId !== null || (record.authorizeNetMerchantId ?? null) !== null || record.creationProtocol !== undefined ||
         record.creationOperationId !== undefined || record.creationScope !== undefined || record.creationCountryRepair !== undefined ||
-        record.startedAt !== policy.expectedStartedAt || now() - record.startedAt < CREATION_RETRY_WINDOW_MS ||
+        !validLegacyStart(record) ||
         record.creationFailure?.category !== "unknown" || record.creationFailure.status !== 400 ||
         record.creationFailure.at !== policy.failureAt || policy.failureAt > now()) throw new ConnectionError("legacy_recovery_refused");
     const country = options.merchantCountry?.(principal.siteId);

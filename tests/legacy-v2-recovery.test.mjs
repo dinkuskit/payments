@@ -15,7 +15,7 @@ function fixture() {
   const calls = { scopes: 0, creates: 0, links: 0, statuses: 0 };
   const admission = { operatorAccount: owner.accountId, operatorSite: owner.siteId, expectedPlatform: 'acct_platform',
     policy: { operationId: 'recovery_operation_1', siteId: owner.siteId, bindingRef: saved.bindingRef,
-      expectedStartedAt: saved.startedAt, failureAt: saved.creationFailure.at,
+      failureAt: saved.creationFailure.at,
       evidenceSha256: 'a'.repeat(64), rejection: 'accounts_v1_unsupported', rejectedRequestCount: 6, country: 'US', expiresAt: time + 300_000 } };
   const provider = { creationProtocol: 'accounts_v2', async creationScope() { calls.scopes++; return 'acct_platform'; },
     async createAccount() { calls.creates++; return 'acct_recipient'; },
@@ -78,7 +78,7 @@ test('absent admission, wrong principal, invalid evidence and stale snapshots re
     f => { f.admission.policy.rejection = 'generic_400'; },
     f => { f.admission.policy.expectedFingerprint = 'b'.repeat(64); }, // obsolete external policy must fail closed
     f => { f.admission.policy.failureAt--; },
-    f => { f.admission.policy.expectedStartedAt--; },
+    f => { f.admission.policy.expectedStartedAt = f.saved().startedAt; }, // removed input remains forbidden
     f => { f.admission.policy.expiresAt = initialTime; },
     f => { f.admission.operatorSite = 'other'; },
     f => { f.admission.expectedPlatform = 'invalid'; },
@@ -151,7 +151,7 @@ test('a late old-operation success or failure cannot overwrite the prepared v2 o
     const pending = f.make({ provider: oldProvider }).connect(owner);
     while (!finish) await new Promise(resolve => setImmediate(resolve));
     f.advance(172_800_000);
-    Object.assign(f.admission.policy, { expectedStartedAt: young.startedAt, failureAt: young.creationFailure.at,
+    Object.assign(f.admission.policy, { failureAt: young.creationFailure.at,
       expiresAt: initialTime + 172_800_000 + 300_000 });
     await f.make().prepareRejectedLegacyV2(owner);
     const prepared = structuredClone(f.saved());
@@ -177,12 +177,52 @@ test('captures the matching state internally, accepts pre-call normalization, an
   assert.equal(f.writes(), 1);
 });
 
-test('rejects complete snapshot drift during platform I/O, including unrelated fields', async () => {
-  const f = fixture();
-  f.provider.creationScope = async () => {
-    f.replace({ ...f.saved(), additionalLegacyNote: 'changed while awaiting identity' });
-    return 'acct_platform';
-  };
-  await assert.rejects(f.make().prepareRejectedLegacyV2(owner), /legacy_recovery_conflict/);
-  assert.equal(f.writes(), 0);
+test('rejects complete snapshot drift during platform I/O, including the stored clock', async () => {
+  for (const change of [{ additionalLegacyNote: 'changed while awaiting identity' }, { startedAt: initialTime - 200_000_000 }]) {
+    const f = fixture();
+    f.provider.creationScope = async () => {
+      f.replace({ ...f.saved(), ...change });
+      return 'acct_platform';
+    };
+    await assert.rejects(f.make().prepareRejectedLegacyV2(owner), /legacy_recovery_conflict/);
+    assert.equal(f.writes(), 0);
+  }
+});
+
+test('validates the stored legacy clock without external start input and preserves its actual value', async () => {
+  for (const age of [23 * 3600000, 72 * 3600000]) {
+    const f = fixture();
+    const original = { ...f.saved(), startedAt: initialTime - age };
+    original.creationFailure = { ...original.creationFailure, at: initialTime - 1000 };
+    f.admission.policy.failureAt = original.creationFailure.at;
+    f.replace(original);
+    assert.equal('expectedStartedAt' in f.admission.policy, false);
+    const receipt = await f.make().prepareRejectedLegacyV2(owner);
+    assert.equal(f.saved().legacyRecovery.previous.startedAt, original.startedAt);
+    assert.equal(f.saved().legacyRecovery.sourceFingerprint, fingerprint(original));
+    assert.equal(f.saved().startedAt, receipt.preparedAt);
+    f.advance(1000);
+    assert.deepEqual(await f.make().prepareRejectedLegacyV2(owner), receipt);
+    assert.equal(f.writes(), 1);
+    assert.equal(f.calls.creates, 0);
+    assert.equal(f.calls.links, 0);
+    f.saved().legacyRecovery.previous.startedAt--;
+    await assert.rejects(f.make().prepareRejectedLegacyV2(owner), /legacy_recovery_conflict/);
+    assert.equal(f.writes(), 1);
+  }
+});
+
+test('refuses invalid, post-failure and unexpired stored clocks before provider I/O', async () => {
+  const starts = [undefined, null, '1799827200000', NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, -1,
+    initialTime + 1, initialTime - 500, initialTime - 23 * 3600000 + 1];
+  for (const startedAt of starts) {
+    const f = fixture();
+    f.replace({ ...f.saved(), startedAt, creationFailure: { ...f.saved().creationFailure, at: initialTime - 1000 } });
+    f.admission.policy.failureAt = initialTime - 1000;
+    const before = structuredClone(f.saved());
+    await assert.rejects(f.make().prepareRejectedLegacyV2(owner), /legacy_recovery_refused/);
+    assert.deepEqual(f.saved(), before);
+    assert.equal(f.writes(), 0);
+    assert.deepEqual(f.calls, { scopes: 0, creates: 0, links: 0, statuses: 0 });
+  }
 });

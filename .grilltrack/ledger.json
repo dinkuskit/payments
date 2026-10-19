@@ -4,11 +4,11 @@
   "current_focus": {
     "cadence": "sequential",
     "confirmed": true,
-    "confirmed_at": "2026-10-19T19:34:50+00:00",
+    "confirmed_at": "2026-10-19T19:55:02+00:00",
     "domain": "Rejected legacy TEST account operation recovery",
-    "started_at": "2026-10-19T19:34:50+00:00",
+    "started_at": "2026-10-19T19:55:02+00:00",
     "status": "confirmed",
-    "summary": "Implement the confirmed Payments-only operator path and test its real dispatcher-to-Worker/DO behavior, stale sessions and races, preserving zero create/link calls. No release, deployment, policy change, live request, credentials or deferred endpoint."
+    "summary": "Implement only internal start validation and preservation, strict policy removal of expectedStartedAt, focused tests and documentation. Retain the existing confirmed Registry consumer and every other guard. No merge, release, deployment, configuration, credentials or live actions."
   },
   "decisions": [
     {
@@ -2648,7 +2648,7 @@
     {
       "baseline_ref": "git:b92ec308eda74c2dfff8c2deca574bf2e17ff654",
       "candidate_refs": [],
-      "choice": "One disabled-by-default TEST operator preparation retains exact owner/site/binding/original-time/failure/no-account/protocol/repair gates, rejection evidence, country/platform and expiry; captures its full snapshot and audit digest internally and atomically compares it; preserves prior history and one v2 operation. Add an explicit confirmation and prepared result in the existing Registry session consumer, with a fixed authenticated bodyless POST and no automatic Setup. No external fingerprint acquisition, generic storage/broker, DinkusKit website change, or deferred read-only endpoint. Pre-invocation scope is the exact legacy-attempt predicates rather than a byte-for-byte externally approved record.",
+      "choice": "One confirmed operator-only TEST preparation fixes owner/site/binding and exact failure/rejection evidence, validates the actual stored start as a safe nonnegative integer no later than failure and at least 23 hours old, and captures full history and digest internally. Keep no-account/no-protocol/scope/recovery/repair admission, country/platform, expiry, one operation ID, full transactional snapshot comparison, replay integrity and late-writer fences. No external fingerprint or expectedStartedAt, new endpoint, consumer, reset or automatic Setup. An out-of-band start-only rewrite before invocation is outside this detection boundary.",
       "context_ref": "https://github.com/dinkuskit/payments/issues/55",
       "created_at": "2026-10-19T19:18:54+00:00",
       "deferred_reason": null,
@@ -2755,12 +2755,68 @@
           "review_source_identity": null,
           "to": "verified",
           "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
+        },
+        {
+          "at": "2026-10-19T19:55:02+00:00",
+          "choice": "One disabled-by-default TEST operator preparation retains exact owner/site/binding/original-time/failure/no-account/protocol/repair gates, rejection evidence, country/platform and expiry; captures its full snapshot and audit digest internally and atomically compares it; preserves prior history and one v2 operation. Add an explicit confirmation and prepared result in the existing Registry session consumer, with a fixed authenticated bodyless POST and no automatic Setup. No external fingerprint acquisition, generic storage/broker, DinkusKit website change, or deferred read-only endpoint. Pre-invocation scope is the exact legacy-attempt predicates rather than a byte-for-byte externally approved record.",
+          "from": "verified",
+          "implementation_ref": "src/hosted/legacy-recovery.ts;src/hosted/connection.ts;src/registry/connection.ts;src/registry/setup.ts;src/plugin.ts;docs/rejected-legacy-recovery.md",
+          "note": "Parent accepted internal validation and capture of the actual stored start time within the existing source-only scope. External expectedStartedAt is unavailable. Preserve exact target/failure and all operation, replay, transaction and late-writer guards; document loss of detecting an out-of-band prior start-only rewrite.",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": "https://github.com/saari-co/spark-dgx/actions/runs/39313652718",
+          "review_result": "clean",
+          "review_source_identity": "git:85ce9fddf4bd0ca418298b6820a4e7f44f968850",
+          "to": "reopened",
+          "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
+        },
+        {
+          "at": "2026-10-19T19:55:02+00:00",
+          "choice": "One disabled-by-default TEST operator preparation retains exact owner/site/binding/original-time/failure/no-account/protocol/repair gates, rejection evidence, country/platform and expiry; captures its full snapshot and audit digest internally and atomically compares it; preserves prior history and one v2 operation. Add an explicit confirmation and prepared result in the existing Registry session consumer, with a fixed authenticated bodyless POST and no automatic Setup. No external fingerprint acquisition, generic storage/broker, DinkusKit website change, or deferred read-only endpoint. Pre-invocation scope is the exact legacy-attempt predicates rather than a byte-for-byte externally approved record.",
+          "from": "reopened",
+          "implementation_ref": "src/hosted/legacy-recovery.ts;src/hosted/connection.ts;src/registry/connection.ts;src/registry/setup.ts;src/plugin.ts;docs/rejected-legacy-recovery.md",
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": "https://github.com/saari-co/spark-dgx/actions/runs/39313652718",
+          "review_result": "clean",
+          "review_source_identity": "git:85ce9fddf4bd0ca418298b6820a4e7f44f968850",
+          "to": "locked",
+          "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
+        },
+        {
+          "at": "2026-10-19T19:55:15+00:00",
+          "choice": "One confirmed operator-only TEST preparation fixes owner/site/binding and exact failure/rejection evidence, validates the actual stored start as a safe nonnegative integer no later than failure and at least 23 hours old, and captures full history and digest internally. Keep no-account/no-protocol/scope/recovery/repair admission, country/platform, expiry, one operation ID, full transactional snapshot comparison, replay integrity and late-writer fences. No external fingerprint or expectedStartedAt, new endpoint, consumer, reset or automatic Setup. An out-of-band start-only rewrite before invocation is outside this detection boundary.",
+          "from": "locked",
+          "implementation_ref": "src/hosted/legacy-recovery.ts;src/hosted/connection.ts;src/registry/connection.ts;src/registry/setup.ts;src/plugin.ts;docs/rejected-legacy-recovery.md",
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": "https://github.com/saari-co/spark-dgx/actions/runs/39313652718",
+          "review_result": "clean",
+          "review_source_identity": "git:85ce9fddf4bd0ca418298b6820a4e7f44f968850",
+          "to": "implemented",
+          "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
+        },
+        {
+          "at": "2026-10-19T19:56:35+00:00",
+          "choice": "One confirmed operator-only TEST preparation fixes owner/site/binding and exact failure/rejection evidence, validates the actual stored start as a safe nonnegative integer no later than failure and at least 23 hours old, and captures full history and digest internally. Keep no-account/no-protocol/scope/recovery/repair admission, country/platform, expiry, one operation ID, full transactional snapshot comparison, replay integrity and late-writer fences. No external fingerprint or expectedStartedAt, new endpoint, consumer, reset or automatic Setup. An out-of-band start-only rewrite before invocation is outside this detection boundary.",
+          "from": "implemented",
+          "implementation_ref": "src/hosted/connection.ts;src/hosted/legacy-recovery.ts;tests/legacy-v2-recovery.test.mjs;docs/rejected-legacy-recovery.md",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
         }
       ],
       "id": "rejected-legacy-v2-preparation-038",
-      "implementation_ref": "src/hosted/legacy-recovery.ts;src/hosted/connection.ts;src/registry/connection.ts;src/registry/setup.ts;src/plugin.ts;docs/rejected-legacy-recovery.md",
+      "implementation_ref": "src/hosted/connection.ts;src/hosted/legacy-recovery.ts;tests/legacy-v2-recovery.test.mjs;docs/rejected-legacy-recovery.md",
       "question": "How may the operator prepare a new v2 operation after confirmed legacy creation rejection?",
-      "rationale": "Parent source-scope adjudication accepted the minimal Payments-only option within the existing source-only approval. All live actions and later account creation remain separate owner decisions.",
+      "rationale": "Parent adjudicated the bounded internal-start option after confirming no existing safe receipt or supported diagnostic exposes the original start. Existing source-only authority applies; merge and all runtime actions remain separately gated.",
       "repair_required": false,
       "review_classifications": [],
       "review_history": [
@@ -2770,19 +2826,26 @@
           "result": "clean",
           "reviewed_at": "2026-10-19T19:44:15+00:00",
           "source_identity": "git:5cea218f2bf835bd6cd4c193017a43c1f2050a75"
+        },
+        {
+          "classifications": [],
+          "ref": "https://github.com/saari-co/spark-dgx/actions/runs/39313652718",
+          "result": "clean",
+          "reviewed_at": "2026-10-19T19:55:02+00:00",
+          "source_identity": "git:85ce9fddf4bd0ca418298b6820a4e7f44f968850"
         }
       ],
-      "review_ref": "https://github.com/dinkuskit/payments/pull/64#issuecomment-6275519938",
-      "review_result": "clean",
-      "review_source_identity": "git:5cea218f2bf835bd6cd4c193017a43c1f2050a75",
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
       "status": "verified",
       "superseded_by": null,
-      "updated_at": "2026-10-19T19:44:15+00:00",
+      "updated_at": "2026-10-19T19:56:35+00:00",
       "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
     }
   ],
   "last_activation": {
-    "at": "2026-10-19T19:34:50+00:00",
+    "at": "2026-10-19T19:55:02+00:00",
     "mechanism": "implicit"
   },
   "last_pause": null,
@@ -2801,5 +2864,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-19T19:44:15+00:00"
+  "updated_at": "2026-10-19T19:56:35+00:00"
 }
