@@ -119,6 +119,11 @@ new operation on another API or platform. Preserve unresolved state; no reset,
 automatic reconciliation or account deletion is included. See the
 [Accounts v2 migration](accounts-v2-migration.md) for the rollout boundary.
 
+A separately configured operator may [prepare one v2 operation after confirmed
+legacy rejection](rejected-legacy-recovery.md). This preserves the binding and
+original evidence, is disabled by default, and makes no account-create or link
+call. It is not a merchant retry or reset action.
+
 Existing saved account IDs remain in place and are read through their v2 view.
 Readiness requires an applied merchant configuration, active card-payment and
 payout capabilities, and no user requirements that are currently or past due.

@@ -4,11 +4,11 @@
   "current_focus": {
     "cadence": "sequential",
     "confirmed": true,
-    "confirmed_at": "2026-10-11T14:34:55+00:00",
-    "domain": "Payment setup TEST-order check",
-    "started_at": "2026-10-11T14:34:55+00:00",
+    "confirmed_at": "2026-10-19T19:18:55+00:00",
+    "domain": "Rejected legacy TEST account operation recovery",
+    "started_at": "2026-10-19T19:18:54+00:00",
     "status": "confirmed",
-    "summary": "'Place a test order' completes for the store's current payment connection when Stripe or Authorize.net confirmed a TEST checkout as paid through Payments' own lookup and Commerce acknowledged that checkout's payment notice, which Commerce does only after saving the paid order bound to it. No Commerce change and no order number. The maintainer chose 'Stripe and Commerce' on a decision card on 2026-10-11."
+    "summary": "Implement only the operator-controlled, single-use legacy-to-v2 preparation with historical preservation, strict current state/platform/country checks, concurrent and late-result protection, and no create/link side effects. Add tests, proof and PR; no merge, deployment, configuration or live execution."
   },
   "decisions": [
     {
@@ -2644,6 +2644,77 @@
       "superseded_by": null,
       "updated_at": "2026-10-18T17:58:47+00:00",
       "verification_ref": null
+    },
+    {
+      "baseline_ref": "git:b92ec308eda74c2dfff8c2deca574bf2e17ff654",
+      "candidate_refs": [],
+      "choice": "One disabled-by-default, server-policy-bound TEST operator action preserves the same owner/site/binding and historical rejection evidence, validates current platform and approved country, and atomically prepares one idempotent v2 operation without account-create/link calls. Normal setup remains a separately approved action. Exact subject/site/binding/fingerprint/evidence and expiry are server owned. No generic reset, automatic retry or read-only evidence endpoint.",
+      "context_ref": "https://github.com/dinkuskit/payments/issues/55",
+      "created_at": "2026-10-19T19:18:54+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "merchant-stripe-onboarding-002"
+      ],
+      "domain": "Rejected legacy TEST account operation recovery",
+      "history": [
+        {
+          "at": "2026-10-19T19:18:55+00:00",
+          "choice": "One disabled-by-default, server-policy-bound TEST operator action preserves the same owner/site/binding and historical rejection evidence, validates current platform and approved country, and atomically prepares one idempotent v2 operation without account-create/link calls. Normal setup remains a separately approved action. Exact subject/site/binding/fingerprint/evidence and expiry are server owned. No generic reset, automatic retry or read-only evidence endpoint.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-19T19:20:55+00:00",
+          "choice": "One disabled-by-default, server-policy-bound TEST operator action preserves the same owner/site/binding and historical rejection evidence, validates current platform and approved country, and atomically prepares one idempotent v2 operation without account-create/link calls. Normal setup remains a separately approved action. Exact subject/site/binding/fingerprint/evidence and expiry are server owned. No generic reset, automatic retry or read-only evidence endpoint.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-19T19:23:49+00:00",
+          "choice": "One disabled-by-default, server-policy-bound TEST operator action preserves the same owner/site/binding and historical rejection evidence, validates current platform and approved country, and atomically prepares one idempotent v2 operation without account-create/link calls. Normal setup remains a separately approved action. Exact subject/site/binding/fingerprint/evidence and expiry are server owned. No generic reset, automatic retry or read-only evidence endpoint.",
+          "from": "implemented",
+          "implementation_ref": "src/hosted/legacy-recovery.ts;src/hosted/connection.ts;docs/rejected-legacy-recovery.md",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": null
+        }
+      ],
+      "id": "rejected-legacy-v2-preparation-038",
+      "implementation_ref": "src/hosted/legacy-recovery.ts;src/hosted/connection.ts;docs/rejected-legacy-recovery.md",
+      "question": "How may the operator prepare a new v2 operation after confirmed legacy creation rejection?",
+      "rationale": "Owner explicitly approved this bounded source-only recovery PR after six binding-matched v1 validation rejections. All runtime changes retain separate gates.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "verified",
+      "superseded_by": null,
+      "updated_at": "2026-10-19T19:23:49+00:00",
+      "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
     }
   ],
   "last_activation": {
@@ -2666,5 +2737,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-18T17:58:47+00:00"
+  "updated_at": "2026-10-19T19:23:49+00:00"
 }
