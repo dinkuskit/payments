@@ -44,25 +44,65 @@ a request can change it. A pass without it cannot start a checkout
 (`409 store_origin_missing`), so DinkusKit.com must be deployed with that claim
 before this Worker.
 
-## Stripe test webhook
+## Stripe webhook (event destination)
 
-In the Stripe Dashboard's **Test mode**, register this exact endpoint:
+Store checkouts run on each store's connected account, so Stripe tells Payments
+about a payment only through an event destination that listens to connected
+accounts. Create it in the Stripe Dashboard under **Workbench > Webhooks**,
+**Add destination**, with these settings:
+
+- **Environment:** the same Stripe environment that issued `STRIPE_API_KEY`.
+  Today that key belongs to a Stripe **Sandbox**, not to the account's
+  **Test mode**, so switch to that Sandbox before adding the destination.
+- **Events from:** **Connected accounts**.
+- **Payload style:** **Snapshot**.
+- **API version:** `2026-08-26.dahlia`, the version Payments pins for Checkout
+  Sessions (`LEGACY_STRIPE_API_VERSION` in `src/stripe/onboarding.ts`).
+- **Events:** only `checkout.session.completed`.
+- **Endpoint URL:** this exact address:
 
 ```text
 https://payments.dinkuskit.com/v1/webhooks/stripe
 ```
 
-Subscribe only to:
+Then put the new destination's signing secret (it starts with `whsec_`) in
+`STRIPE_WEBHOOK_SECRET` with `wrangler secret put` as shown above, and turn off
+any older destination for the same URL so only one secret is in play.
 
-```text
-checkout.session.completed
-```
+Two settings fail silently, with no error anywhere:
 
-Use the endpoint's generated `whsec_...` value for
-`STRIPE_WEBHOOK_SECRET`. Stripe must send the connected-account context; the
-Worker verifies the raw signature, TEST mode, connected account, site and
+- **Wrong environment.** A Sandbox has its own events and webhooks, separate
+  from Test mode. A destination made in Test mode never hears a checkout that
+  ran in the Sandbox, and the reverse is also true. Stripe shows no failed
+  delivery because it never attempts one.
+- **"Your account" instead of "Connected accounts".** A checkout on a store's
+  connected account is that account's event, so a destination listening to
+  your own account never receives it. Payments also refuses any event without
+  the signed `account` field.
+
+When the setup is right, the next paid TEST order turns the setup page's
+**Place a test order** step to **Complete**. If it stays on "Waiting for
+Stripe's payment notice", check the destination's event deliveries in the
+same environment: no deliveries means one of the two settings above; HTTP 400
+`invalid_signature` means `STRIPE_WEBHOOK_SECRET` does not match this
+destination.
+
+The Worker verifies the raw signature, TEST mode, connected account, site and
 attempt metadata before queuing reconciliation. A webhook never marks an
-order paid by itself.
+order paid by itself. Commerce settles a payment whose shopper never returns
+to the store only from these notices, so a store must not take real orders
+until this destination works.
+
+Payments reads only the event's `id`, `livemode` and `account`, and the
+Checkout Session's `object`, `id`, `livemode` and `metadata`, so a destination left on a newer
+or preview API version keeps working today. Move it to `2026-08-26.dahlia`
+the next time anyone edits it, so a future Stripe version change cannot alter
+those fields under Payments.
+
+**Going live**, once Payments supports live mode, needs its own destination: the same settings in live mode
+(Connected accounts, `checkout.session.completed`, the URL above) with its own
+signing secret in the live Worker's `STRIPE_WEBHOOK_SECRET`. A TEST
+destination or secret never carries live events.
 
 ## Post-deploy checks
 
