@@ -2763,13 +2763,21 @@
       "rationale": "Parent source-scope adjudication accepted the minimal Payments-only option within the existing source-only approval. All live actions and later account creation remain separate owner decisions.",
       "repair_required": false,
       "review_classifications": [],
-      "review_history": [],
-      "review_ref": null,
-      "review_result": null,
-      "review_source_identity": null,
+      "review_history": [
+        {
+          "classifications": [],
+          "ref": "https://github.com/dinkuskit/payments/pull/64#issuecomment-6275519938",
+          "result": "clean",
+          "reviewed_at": "2026-10-19T19:44:15+00:00",
+          "source_identity": "git:5cea218f2bf835bd6cd4c193017a43c1f2050a75"
+        }
+      ],
+      "review_ref": "https://github.com/dinkuskit/payments/pull/64#issuecomment-6275519938",
+      "review_result": "clean",
+      "review_source_identity": "git:5cea218f2bf835bd6cd4c193017a43c1f2050a75",
       "status": "verified",
       "superseded_by": null,
-      "updated_at": "2026-10-19T19:37:59+00:00",
+      "updated_at": "2026-10-19T19:44:15+00:00",
       "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
     }
   ],
@@ -2793,5 +2801,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-19T19:37:59+00:00"
+  "updated_at": "2026-10-19T19:44:15+00:00"
 }

@@ -180,8 +180,8 @@ test("compiled final control-read failure reports a safe terminal cause without 
   } finally { vi.restoreAllMocks(); await host.dispose(); }
 });
 
-test("compiled status failures identify only the observed safe stage and recover on a fresh check", async () => {
-  for (const stage of ["read_control", "read_session", "verify_session", "fetch_status", "decode_status", "http_status"] as const) {
+for (const stage of ["read_control", "read_session", "verify_session", "fetch_status", "decode_status", "http_status"] as const) {
+  test(`compiled status failure ${stage} stays bounded and recovers on a fresh check`, async () => {
     const f = await fixture(); const { host } = f;
     try {
       await f.prepareStart(`failure-${stage}`); await f.action("connect"); await f.pollDue();
@@ -216,8 +216,8 @@ test("compiled status failures identify only the observed safe stage and recover
       assert.match(recovered, /No processor account is connected/);
       assert.deepEqual(host.http.requests().map(r => r.url), [JWKS, STATUS]);
     } finally { vi.restoreAllMocks(); await host.dispose(); }
-  }
-});
+  });
+}
 
 test("loads the built registry plugin and validates its private status page", async () => {
   const host = await createPluginRuntimeTestHost();

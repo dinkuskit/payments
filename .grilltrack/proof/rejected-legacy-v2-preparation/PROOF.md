@@ -77,3 +77,17 @@ source and tests match the verified clean snapshot. The new real-DO composition
 checks the fixed preparation POST, original-history preservation, stable replay,
 wrong-admin and expired-session refusal. The compiled EmDash test checks the
 confirmation, encrypted-session consumer, bounded reply and zero implicit Setup.
+
+## Exact-source review and CI test isolation
+
+Feature source `5cea218f2bf835bd6cd4c193017a43c1f2050a75` received clean
+comprehensive P3 OpenClaw review (request
+`req-20261019T193839Z-397297512958`) and native ClawSweeper high-confidence
+ready review (run `39312683393`, comment `6275519938`). These reviews do not
+claim that the old head's CI was green: its public-contract run `39312624496`
+exposed a six-scenario existing compiled test exceeding its shared five-second
+timeout, then leaking mock timing into two following cases. The test-only
+follow-up splits those scenarios into independent tests with identical
+assertions and the unchanged default per-test timeout. All 32 compiled tests
+then passed locally. The production source is unchanged from the reviewed
+feature head; the final commit receives its own CI and exact-head reviews.
