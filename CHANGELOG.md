@@ -1,5 +1,11 @@
 # @dinkuskit/payments
 
+## 0.2.10
+
+### Patch Changes
+
+- [#64](https://github.com/dinkuskit/payments/pull/64) [`bc44f09`](https://github.com/dinkuskit/payments/commit/bc44f098ff43280c8c4c51f4e99c4cd9dc9892e7) Thanks [@saariuslystoned](https://github.com/saariuslystoned)! - Add a disabled-by-default, operator-scoped action that preserves a rejected legacy TEST binding's history and prepares one v2 operation without creating an account. Add explicit confirmation through the existing Registry session; validate and preserve the stored start, matched record and audit digest internally.
+
 ## 0.2.9
 
 ### Patch Changes
