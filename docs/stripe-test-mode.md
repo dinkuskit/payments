@@ -9,8 +9,8 @@ belongs in source, Wrangler vars, Commerce requests, or storefront code.
 
 1. Configure the test-only host bindings:
    - `STRIPE_API_KEY`: a Stripe test secret key (`sk_test_…`).
-   - `STRIPE_WEBHOOK_SECRET`: the signing secret (`whsec_…`) for the test
-     webhook endpoint.
+   - `STRIPE_WEBHOOK_SECRET`: the signing secret (`whsec_…`) of the event
+     destination in step 4.
 2. Configure the non-secret Worker vars from `wrangler.jsonc`. Return pages are
    not configured here: each checkout returns to the store's own
    `/checkout/success` or `/cart`, at the address signed into its pass (see
@@ -24,13 +24,25 @@ belongs in source, Wrangler vars, Commerce requests, or storefront code.
    `recovery_required` and must not be reset or treated as a new v2 operation.
    Existing saved account IDs remain unchanged; readiness uses v2 merchant
    capabilities and requirements. See [Accounts v2 migration](accounts-v2-migration.md).
-4. Register the test webhook URL
-   `/v1/webhooks/stripe` in Stripe for the connected test account. Stripe
-   events must carry the connected account in the signed `account` field.
-   Payments verifies the raw request bytes and `STRIPE_WEBHOOK_SECRET`, checks
-   the site, binding, account, mode, session, and amount, then only queues a
-   reconciliation wake. Commerce must perform the authoritative lookup before
-   reporting paid.
+4. Create a Stripe event destination for `/v1/webhooks/stripe`, as set out in
+   [DEPLOY.md](../DEPLOY.md#stripe-webhook-event-destination):
+   - make it in the same Stripe environment as `STRIPE_API_KEY` (today a
+     Sandbox, not Test mode);
+   - set **Events from** to **Connected accounts**;
+   - send only `checkout.session.completed`, pinned to API version
+     `2026-08-26.dahlia`;
+   - put its signing secret in `STRIPE_WEBHOOK_SECRET`.
+
+   A Sandbox and Test mode keep separate events, so a destination in the wrong
+   one receives nothing. A destination listening to "Your account" also
+   receives nothing, because each checkout is an event of the store's
+   connected account. Stripe reports neither as a failed delivery.
+   Stripe events must carry the connected account in the signed `account`
+   field. Payments verifies the raw request bytes and `STRIPE_WEBHOOK_SECRET`,
+   checks the site, binding, account, mode, session, and amount, then only
+   queues a reconciliation wake. Commerce must perform the authoritative
+   lookup before reporting paid. Live mode later needs its own Connected
+   accounts destination and its own signing secret.
 
 The proof script can also use an explicitly supplied test connected account
 with `STRIPE_TEST_ACCOUNT_ID`. It never prints the key or webhook secret.
