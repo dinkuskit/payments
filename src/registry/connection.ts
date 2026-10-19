@@ -1,6 +1,7 @@
 import { validOnboardingUrl } from "../onboarding-url.js";
 import { decodeProviderIdentityDiagnostic, type ProviderIdentityDiagnostic } from "../provider-identity.js";
 import { decodeDiagnostics, type ConnectionDiagnostics } from "../connection-diagnostics.js";
+import { decodeLegacyRecoveryReceipt, type LegacyRecoveryReceipt } from "../hosted/legacy-recovery.js";
 import { pluginResponse } from "emdash/plugin";
 import {
   betaRegistryInstallationIdentity,
@@ -85,6 +86,9 @@ type Control = {
   lastStatus?: { checkedAt: number; status: unknown };
 };
 export type RegistryFlowResult =
+  | { state: "legacy_recovery_confirmation" }
+  | { state: "legacy_recovery_prepared"; receipt: LegacyRecoveryReceipt }
+  | { state: "legacy_recovery_unconfirmed" }
   | { state: "provider_identity"; providerIdentity: ProviderIdentityDiagnostic }
   | { state: "unconfigured" | "disconnected" | "connecting" | "ready" | "checking" | "recovery_required"; receipt?: ProofReceipt; status?: unknown; diagnostics?: ConnectionDiagnostics }
   | { state: "action_required"; lastChecked?: { at: number; status: unknown } }
@@ -410,6 +414,29 @@ export function createRegistryConnection(options: {
       return { state: "provider_identity", providerIdentity: decodeProviderIdentityDiagnostic(await response.json(), now()) };
     } catch { return unavailable(); }
   }
+  async function prepareLegacyV2(user: UserInfo, confirmed = false): Promise<RegistryFlowResult> {
+    let requested = false;
+    try {
+      const prior = await current(), c = prior?.value;
+      const endpoint = statusUrl();
+      if (!origin || !options.http || !endpoint || endpoint.port) return { state: "unconfigured" };
+      if (!c || c.phase !== "complete" || c.adminId !== user?.id || c.origin !== origin || c.expiresAt <= now() || !c.binding) return { state: "action_required" };
+      const stored = await secret(c);
+      if (stored.parsed.kind !== "session") return { state: "action_required" };
+      const verified = await verifySessionToken(stored.parsed.token, c.binding.siteId);
+      if (verified.subject !== c.binding.subject || c.binding.issuer !== REGISTRY_ISSUER ||
+          (await current())?.revision !== prior!.revision || c.expiresAt <= now()) return { state: "action_required" };
+      if (!confirmed) return { state: "legacy_recovery_confirmation" };
+      requested = true;
+      const response = await options.http.fetch(`${endpoint.origin}/v1/connect/reconcile-legacy-rejection`, noRedirect({
+        method: "POST", headers: { Authorization: `Bearer ${verified.token}`, "X-Dinkus-Site": c.binding.siteId },
+      }));
+      if (!response.ok) return { state: "legacy_recovery_unconfirmed" };
+      const receipt = decodeLegacyRecoveryReceipt(await response.json(), now());
+      if ((await current())?.revision !== prior!.revision || c.expiresAt <= now()) return { state: "legacy_recovery_unconfirmed" };
+      return { state: "legacy_recovery_prepared", receipt };
+    } catch { return { state: requested ? "legacy_recovery_unconfirmed" : "action_required" }; }
+  }
   return {
     start,
     receipt,
@@ -417,6 +444,7 @@ export function createRegistryConnection(options: {
     status,
     setupProcessor,
     providerIdentity,
+    prepareLegacyV2,
     proofPath,
     callbackPath,
     installedPluginId: installation?.installedPluginId ?? null,

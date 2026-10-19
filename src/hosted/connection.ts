@@ -2,6 +2,7 @@ import { validOnboardingUrl } from "../onboarding-url.js";
 import { countryCode, type TestMerchantCountry } from "./merchant-country.js";
 import { creationFailure } from "./creation-failure.js";
 import { decodeDiagnostics, type ConnectionDiagnostics, type CreationFailure } from "../connection-diagnostics.js";
+import { legacyStateFingerprint, recoveryReceipt, validLegacyRecoveryAdmission, type LegacyRecoveryAdmission, type LegacyRecoveryRecord, type LegacyRecoveryReceipt } from "./legacy-recovery.js";
 export type Mode = "test" | "live";
 /** Created by verified shared-account authentication, never by request JSON. */
 export interface Principal {
@@ -24,6 +25,9 @@ export interface Connection {
   creationScope?: string;
   creationCountry?: string;
   creationCountryRepair?: { code: "identity_country_required"; failureAt: number };
+  /** Present only for an operator-prepared replacement of a rejected legacy operation. */
+  creationOperationId?: string;
+  legacyRecovery?: LegacyRecoveryRecord;
 }
 export interface ConnectionStore {
   /** Atomic across processes; the callback must be synchronous. */
@@ -81,11 +85,80 @@ export function createConnectionService(options: {
   newId?: () => string;
   /** Trusted operator configuration for one TEST merchant, resolved only before creation. */
   merchantCountry?: (siteId: string) => TestMerchantCountry | undefined;
+  /** Disabled unless the deployment supplies one exact, approved operator policy. */
+  legacyRecovery?: () => LegacyRecoveryAdmission | undefined;
 }) {
   const now = options.now ?? Date.now;
   const { store, provider, mode } = options;
   const providerId = options.providerId ?? "stripe";
   const authorizeNetMerchantId = options.authorizeNetMerchantId;
+  const sameOperation = (a: Connection, b: Connection) => a.creationOperationId === b.creationOperationId &&
+    a.creationProtocol === b.creationProtocol && a.startedAt === b.startedAt;
+
+  async function prepareRejectedLegacyV2(principal: Principal): Promise<LegacyRecoveryReceipt> {
+    let admission: LegacyRecoveryAdmission | undefined;
+    try { admission = options.legacyRecovery?.(); } catch { throw new ConnectionError("legacy_recovery_unavailable"); }
+    if (!validLegacyRecoveryAdmission(admission)) throw new ConnectionError("legacy_recovery_unavailable");
+    admission = structuredClone(admission);
+    const { policy } = admission;
+    if (principal.accountId !== admission.operatorAccount || principal.siteId !== admission.operatorSite) {
+      throw new ConnectionError("legacy_recovery_forbidden");
+    }
+    if (mode !== "test" || providerId !== "stripe" || provider.creationProtocol !== "accounts_v2" || !provider.creationScope ||
+        policy.expiresAt <= now() || policy.expiresAt > now() + 86_400_000) throw new ConnectionError("legacy_recovery_refused");
+    const readExact = () => store.transaction(tx => tx.read());
+    const validLegacyStart = (value: Connection) => Number.isSafeInteger(value.startedAt) && value.startedAt >= 0 &&
+      value.startedAt <= policy.failureAt && now() - value.startedAt >= CREATION_RETRY_WINDOW_MS;
+    const record = readExact();
+    if (!record || record.owner.accountId !== principal.accountId || record.owner.siteId !== principal.siteId ||
+        record.mode !== "test" || (record.providerId ?? "stripe") !== "stripe" || record.bindingRef !== policy.bindingRef) {
+      throw new ConnectionError("legacy_recovery_refused");
+    }
+    const repeat = (value: Connection) => value.legacyRecovery?.operationId === policy.operationId &&
+      value.legacyRecovery.evidenceSha256 === policy.evidenceSha256 && value.legacyRecovery.rejection === policy.rejection && value.legacyRecovery.rejectedRequestCount === 6 &&
+      value.creationOperationId === policy.operationId && value.creationProtocol === "accounts_v2" &&
+      value.creationScope === admission.expectedPlatform && value.creationCountry === policy.country &&
+      value.startedAt === value.legacyRecovery.preparedAt && validLegacyStart(value.legacyRecovery.previous) &&
+      value.legacyRecovery.previous.creationFailure?.at === policy.failureAt;
+    if (record.legacyRecovery) {
+      if (!repeat(record) || await legacyStateFingerprint(record.legacyRecovery.previous) !== record.legacyRecovery.sourceFingerprint) {
+        throw new ConnectionError("legacy_recovery_conflict");
+      }
+      const current = readExact();
+      if (!current || JSON.stringify(current) !== JSON.stringify(record) || policy.expiresAt <= now()) throw new ConnectionError("legacy_recovery_conflict");
+      return recoveryReceipt(current);
+    }
+    if (record.stripeAccountId !== null || (record.authorizeNetMerchantId ?? null) !== null || record.creationProtocol !== undefined ||
+        record.creationOperationId !== undefined || record.creationScope !== undefined || record.creationCountryRepair !== undefined ||
+        !validLegacyStart(record) ||
+        record.creationFailure?.category !== "unknown" || record.creationFailure.status !== 400 ||
+        record.creationFailure.at !== policy.failureAt || policy.failureAt > now()) throw new ConnectionError("legacy_recovery_refused");
+    const country = options.merchantCountry?.(principal.siteId);
+    if (!country || country.siteId !== principal.siteId || country.country !== policy.country) throw new ConnectionError("legacy_recovery_refused");
+    if (policy.expiresAt <= now()) throw new ConnectionError("legacy_recovery_refused");
+    const snapshot = JSON.stringify(record);
+    const sourceFingerprint = await legacyStateFingerprint(record);
+    let platform: string;
+    try { platform = await provider.creationScope(); } catch { throw new ConnectionError("legacy_recovery_platform_unconfirmed"); }
+    if (platform !== admission.expectedPlatform) throw new ConnectionError("legacy_recovery_platform_mismatch");
+    const latestCountry = options.merchantCountry?.(principal.siteId);
+    if (!latestCountry || latestCountry.siteId !== principal.siteId || latestCountry.country !== policy.country) throw new ConnectionError("legacy_recovery_refused");
+    return store.transaction(tx => {
+      const current = tx.read();
+      if (policy.expiresAt <= now()) throw new ConnectionError("legacy_recovery_conflict");
+      if (current && repeat(current) && current.legacyRecovery!.sourceFingerprint === sourceFingerprint && JSON.stringify(current.legacyRecovery!.previous) === snapshot &&
+          current.owner.accountId === principal.accountId && current.owner.siteId === principal.siteId && current.mode === "test") return recoveryReceipt(current);
+      if (!current || JSON.stringify(current) !== snapshot) throw new ConnectionError("legacy_recovery_conflict");
+      const preparedAt = now();
+      const { creationFailure: _failure, ...unchanged } = current;
+      const prepared: Connection = { ...unchanged, startedAt: preparedAt, creationProtocol: "accounts_v2",
+        creationOperationId: policy.operationId, creationScope: platform, creationCountry: policy.country,
+        legacyRecovery: { operationId: policy.operationId, evidenceSha256: policy.evidenceSha256,
+          rejection: policy.rejection, rejectedRequestCount: 6, preparedAt, sourceFingerprint, previous: current } };
+      tx.write(prepared);
+      return recoveryReceipt(prepared);
+    });
+  }
   function creationCountry(record: Connection, principal: Principal): string | undefined | null {
     if (provider.creationProtocol !== "accounts_v2") return undefined;
     // Persisted before the corrected POST: consume the one authorized repair even
@@ -221,7 +294,7 @@ export function createConnectionService(options: {
         try { scope = await provider.creationScope(); } catch { return { state: "checking", mode, bindingRef: record.bindingRef }; }
         const admitted = store.transaction(tx => {
           const current = tx.read();
-          if (!current || current.bindingRef !== record.bindingRef || current.owner.accountId !== principal.accountId || current.owner.siteId !== principal.siteId || current.mode !== mode || current.creationProtocol !== provider.creationProtocol || current.stripeAccountId) return false;
+          if (!current || !sameOperation(current, record) || current.bindingRef !== record.bindingRef || current.owner.accountId !== principal.accountId || current.owner.siteId !== principal.siteId || current.mode !== mode || current.creationProtocol !== provider.creationProtocol || current.stripeAccountId) return false;
           if (current.creationScope && current.creationScope !== scope) return false;
           if (current.creationCountry !== record.creationCountry || creationCountry(current, principal) !== country) return false;
           const repaired = country !== undefined && record.creationCountry === undefined && !!record.creationScope;
@@ -239,7 +312,7 @@ export function createConnectionService(options: {
         const failure = creationFailure(error, now());
         store.transaction(tx => {
           const current = tx.read();
-          if (current && current.bindingRef === record.bindingRef && current.owner.accountId === principal.accountId && current.owner.siteId === principal.siteId && current.creationCountry === country && (scope === undefined || current.creationScope === scope) && !current.stripeAccountId) {
+          if (current && sameOperation(current, record) && current.bindingRef === record.bindingRef && current.owner.accountId === principal.accountId && current.owner.siteId === principal.siteId && current.creationCountry === country && (scope === undefined || current.creationScope === scope) && !current.stripeAccountId) {
             tx.write({ ...current, creationFailure: failure });
           }
         });
@@ -248,7 +321,7 @@ export function createConnectionService(options: {
       if (!/^acct_[a-zA-Z0-9]+$/.test(accountId)) return { state: "checking", mode, bindingRef: record.bindingRef };
       store.transaction(tx => {
         const current = tx.read();
-        if (!current || current.bindingRef !== record.bindingRef || current.owner.accountId !== principal.accountId || current.owner.siteId !== principal.siteId || current.mode !== mode || current.creationCountry !== country || (scope !== undefined && (current.creationScope !== scope || current.creationProtocol !== provider.creationProtocol)) || (current.stripeAccountId && current.stripeAccountId !== accountId)) throw new ConnectionError("connection_conflict");
+        if (!current || !sameOperation(current, record) || current.bindingRef !== record.bindingRef || current.owner.accountId !== principal.accountId || current.owner.siteId !== principal.siteId || current.mode !== mode || current.creationCountry !== country || (scope !== undefined && (current.creationScope !== scope || current.creationProtocol !== provider.creationProtocol)) || (current.stripeAccountId && current.stripeAccountId !== accountId)) throw new ConnectionError("connection_conflict");
         const { creationFailure: _failure, ...cleared } = current;
         tx.write({ ...cleared, stripeAccountId: accountId });
       });
@@ -295,5 +368,5 @@ export function createConnectionService(options: {
     };
     return decodeDiagnostics(result, now());
   }
-  return { connect, status, diagnostics, checkoutBinding, existingBinding };
+  return { connect, status, diagnostics, checkoutBinding, existingBinding, prepareRejectedLegacyV2 };
 }

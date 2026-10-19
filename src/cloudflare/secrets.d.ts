@@ -1,5 +1,7 @@
 // Supplied through the host secret binding, never plugin settings or source.
 interface Env {
+  /** Disabled-by-default operator attestation for one rejected legacy TEST binding. */
+  STRIPE_TEST_LEGACY_V2_RECOVERY?: string;
   STRIPE_API_KEY: string;
   STRIPE_WEBHOOK_SECRET: string;
   /** Stripe TEST secret key of the playground sandbox account. Must be sk_test_; fails closed otherwise. */

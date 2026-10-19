@@ -11,6 +11,7 @@ import { hostedHttpRoutes, hostedWebhookRoutes, matchAuthorizeNetWebhookSite } f
 type ConnectionApi = Pick<ReturnType<typeof createConnectionService>, "connect" | "status" | "checkoutBinding" | "existingBinding"> & {
   diagnostics?(principal: Principal): ReturnType<ReturnType<typeof createConnectionService>["diagnostics"]> | Promise<ReturnType<ReturnType<typeof createConnectionService>["diagnostics"]>>;
   providerIdentityDiagnostic?(principal: Principal): Promise<unknown>;
+  prepareRejectedLegacyV2?(principal: Principal): Promise<unknown>;
 };
 type CheckoutApi = {
   ensureSession(request: PaymentRequest): Promise<PaymentOutcome>;
@@ -86,6 +87,8 @@ function checkoutErrorStatus(error: unknown): number {
   if (error.message === PLAYGROUND_RATE_LIMIT_ERROR) return 429;
   if (error.message === "stripe_mode_mismatch" || error.message === "playground_unconfigured" || error.message === "diagnostic_unavailable") return 503;
   if (error.message === "connection_owner_mismatch") return 403;
+  if (error.message === "legacy_recovery_forbidden") return 403;
+  if (["legacy_recovery_refused", "legacy_recovery_conflict", "legacy_recovery_platform_mismatch"].includes(error.message)) return 409;
   // Thrown inside the store's Durable Object; only the message survives RPC.
   if (error.message === "store_origin_missing") return 409;
   if (error instanceof WakeError && error.message === "invalid_wake") return 400;
@@ -167,6 +170,12 @@ export function createHostedHandler(options: {
         const service = options.service(principal);
         if (!service.diagnostics) return respond({ error: "not_found" }, 404);
         return respond(await service.diagnostics(principal));
+      }
+      if (pathname === "/v1/connect/reconcile-legacy-rejection") {
+        if (searchParams.size || await hasBodyBytes(request)) return respond({ error: "unexpected_input" }, 400);
+        const service = options.service(principal);
+        if (!service.prepareRejectedLegacyV2) return respond({ error: "not_found" }, 404);
+        return respond(await service.prepareRejectedLegacyV2(principal));
       }
       if (pathname === "/v1/connect/provider-identity") {
         if (searchParams.size || await hasBodyBytes(request)) return respond({ error: "unexpected_input" }, 400);

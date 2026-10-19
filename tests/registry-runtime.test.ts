@@ -180,8 +180,8 @@ test("compiled final control-read failure reports a safe terminal cause without 
   } finally { vi.restoreAllMocks(); await host.dispose(); }
 });
 
-test("compiled status failures identify only the observed safe stage and recover on a fresh check", async () => {
-  for (const stage of ["read_control", "read_session", "verify_session", "fetch_status", "decode_status", "http_status"] as const) {
+for (const stage of ["read_control", "read_session", "verify_session", "fetch_status", "decode_status", "http_status"] as const) {
+  test(`compiled status failure ${stage} stays bounded and recovers on a fresh check`, async () => {
     const f = await fixture(); const { host } = f;
     try {
       await f.prepareStart(`failure-${stage}`); await f.action("connect"); await f.pollDue();
@@ -216,8 +216,8 @@ test("compiled status failures identify only the observed safe stage and recover
       assert.match(recovered, /No processor account is connected/);
       assert.deepEqual(host.http.requests().map(r => r.url), [JWKS, STATUS]);
     } finally { vi.restoreAllMocks(); await host.dispose(); }
-  }
-});
+  });
+}
 
 test("loads the built registry plugin and validates its private status page", async () => {
   const host = await createPluginRuntimeTestHost();
@@ -736,5 +736,36 @@ test("compiled sessions saved by the previous release keep working with no remem
     assert.match(JSON.stringify(await f.page()), /Connected: Stripe test mode\. Test card payments work at checkout/);
     assert.deepEqual((await snapshot(host)).setting, saved.setting);
     assert.equal((await control(host)).flowId, saved.control.flowId);
+  } finally { await host.dispose(); }
+});
+
+
+test("compiled operator preparation requires confirmation and keeps the held grant private", async () => {
+  const f = await fixture(); const { host } = f;
+  try {
+    await f.prepareStart("legacy-recovery"); await f.action("connect"); await f.pollDue();
+    const token = await f.prepareExchange(); await f.action("continue"); host.http.clear();
+    await f.prepareDiagnostics("recovery_required", { state: "recovery_required", mode: "test", processorAccountPresent: false, evidence: "observed", lastFailure: { category: "unknown", status: 400, at: Date.now() - 86400000 } });
+    const start = JSON.stringify(await f.action("check"));
+    assert.match(start, /review_legacy_v2/);
+    host.http.clear(); await f.prepareStatus();
+    const confirmation = JSON.stringify(await f.action("review_legacy_v2"));
+    assert.match(confirmation, /Confirm recovery preparation/);
+    assert.equal(host.http.requests().some(r => r.method === "POST"), false);
+    host.http.clear(); await f.prepareStatus();
+    await host.http.respond("https://payments.dinkuskit.com/v1/connect/reconcile-legacy-rejection", Response.json({
+      state: "prepared", mode: "test", bindingRef: "stripe_synthetic", operationId: "synthetic-operation", preparedAt: Date.now(),
+    }));
+    const result = JSON.stringify(await f.action("prepare_legacy_v2"));
+    assert.match(result, /Recovery preparation saved/);
+    assert.doesNotMatch(result, /setup_processor|prepare_legacy_v2/);
+    assert.equal(result.includes(token), false);
+    const posts = host.http.requests().filter(r => r.method === "POST");
+    assert.equal(posts.length, 1); assert.equal(posts[0].url, "https://payments.dinkuskit.com/v1/connect/reconcile-legacy-rejection");
+    assert.equal(posts[0].body.byteLength, 0);
+    const another = await host.fixtures.user({ email: "another-admin@example.invalid", role: "admin" });
+    host.http.clear();
+    assert.match(JSON.stringify(await host.admin.act("/status", "prepare_legacy_v2", { user: another })), /Sign in again/);
+    assert.equal(host.http.requests().length, 0);
   } finally { await host.dispose(); }
 });
