@@ -552,6 +552,11 @@ function stubFor(env: Env, siteId: string) {
   return env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", siteId]));
 }
 
+const STRIPE_WEBHOOK_REFUSALS = new Set([
+  "invalid_event_id", "missing_attempt", "unknown_attempt", "session_mismatch", "binding_mismatch", "site_mismatch",
+  "mode_mismatch", "account_unsigned", "account_mismatch", "session_missing", "event_reuse", "wake_association_mismatch",
+]);
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -619,7 +624,14 @@ export default {
           // Lookup-only tenant: never queue wakes for the playground.
           if (siteId === PLAYGROUND_SITE_ID) return;
           // Re-verify inside the site object. Routing uses only post-verify metadata.
-          await stubFor(env, siteId).receiveWebhook(payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength) as ArrayBuffer, signature, stripeAccount);
+          try {
+            await stubFor(env, siteId).receiveWebhook(payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength) as ArrayBuffer, signature, stripeAccount);
+          } catch (error) {
+            // Errors lose their class over RPC; restore known refusals so Stripe's delivery log shows the code.
+            const message = error instanceof Error ? error.message : "";
+            if (STRIPE_WEBHOOK_REFUSALS.has(message)) throw new WebhookError(message);
+            throw error;
+          }
         },
         authorizeNetWebhook: async (payload, signature, eventId, siteId) => {
           if ((env.PAYMENT_PROVIDER as string) !== "authorize_net" || env.AUTHORIZE_NET_MODE !== "test") throw new Error("webhook_unconfigured");
