@@ -8,7 +8,6 @@ export interface LegacyRecoveryPolicy {
   bindingRef: string;
   expectedStartedAt: number;
   failureAt: number;
-  expectedFingerprint: string;
   evidenceSha256: string;
   rejection: "accounts_v1_unsupported";
   rejectedRequestCount: 6;
@@ -34,6 +33,7 @@ export interface LegacyRecoveryRecord {
   rejection: "accounts_v1_unsupported";
   rejectedRequestCount: 6;
   preparedAt: number;
+  sourceFingerprint: string;
   /** Protected service state, never included in the operator response. */
   previous: Connection;
 }
@@ -43,7 +43,7 @@ const object = (value: unknown): value is Record<string, unknown> =>
 const epoch = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 const digest = (value: unknown) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 const segment = (value: unknown) => typeof value === "string" && /^[A-Za-z0-9_-]{1,200}$/.test(value);
-const policyKeys = ["operationId", "siteId", "bindingRef", "expectedStartedAt", "failureAt", "expectedFingerprint", "evidenceSha256", "rejection", "rejectedRequestCount", "country", "expiresAt"];
+const policyKeys = ["operationId", "siteId", "bindingRef", "expectedStartedAt", "failureAt", "evidenceSha256", "rejection", "rejectedRequestCount", "country", "expiresAt"];
 
 export function validLegacyRecoveryAdmission(value: unknown): value is LegacyRecoveryAdmission {
   if (!object(value) || Object.keys(value).some(key => !["operatorAccount", "operatorSite", "expectedPlatform", "policy"].includes(key)) ||
@@ -54,7 +54,7 @@ export function validLegacyRecoveryAdmission(value: unknown): value is LegacyRec
     segment(p.operationId) && segment(p.siteId) && p.siteId === value.operatorSite &&
     typeof p.bindingRef === "string" && /^stripe_[A-Za-z0-9_-]{1,190}$/.test(p.bindingRef) &&
     epoch(p.expectedStartedAt) && epoch(p.failureAt) && p.expectedStartedAt <= p.failureAt && epoch(p.expiresAt) &&
-    digest(p.expectedFingerprint) && digest(p.evidenceSha256) && p.rejection === "accounts_v1_unsupported" && p.rejectedRequestCount === 6 && countryCode(p.country);
+    digest(p.evidenceSha256) && p.rejection === "accounts_v1_unsupported" && p.rejectedRequestCount === 6 && countryCode(p.country);
 }
 
 /** Absence disables the operation. Invalid configuration never enables it. */
@@ -80,6 +80,15 @@ export function legacyRecoveryAdmission(
 export async function legacyStateFingerprint(record: Connection): Promise<string> {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(record)));
   return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** The consumer accepts only this bounded, non-secret preparation receipt. */
+export function decodeLegacyRecoveryReceipt(value: unknown, now = Date.now()): LegacyRecoveryReceipt {
+  if (!object(value) || Object.keys(value).sort().join(",") !== "bindingRef,mode,operationId,preparedAt,state" ||
+      value.state !== "prepared" || value.mode !== "test" || typeof value.bindingRef !== "string" ||
+      !/^stripe_[A-Za-z0-9_-]{1,190}$/.test(value.bindingRef) || !segment(value.operationId) ||
+      !epoch(value.preparedAt) || Number(value.preparedAt) > now + 5000) throw Error("invalid_recovery_receipt");
+  return value as unknown as LegacyRecoveryReceipt;
 }
 
 export function recoveryReceipt(record: Connection): LegacyRecoveryReceipt {

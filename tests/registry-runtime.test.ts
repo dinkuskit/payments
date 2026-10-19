@@ -738,3 +738,34 @@ test("compiled sessions saved by the previous release keep working with no remem
     assert.equal((await control(host)).flowId, saved.control.flowId);
   } finally { await host.dispose(); }
 });
+
+
+test("compiled operator preparation requires confirmation and keeps the held grant private", async () => {
+  const f = await fixture(); const { host } = f;
+  try {
+    await f.prepareStart("legacy-recovery"); await f.action("connect"); await f.pollDue();
+    const token = await f.prepareExchange(); await f.action("continue"); host.http.clear();
+    await f.prepareDiagnostics("recovery_required", { state: "recovery_required", mode: "test", processorAccountPresent: false, evidence: "observed", lastFailure: { category: "unknown", status: 400, at: Date.now() - 86400000 } });
+    const start = JSON.stringify(await f.action("check"));
+    assert.match(start, /review_legacy_v2/);
+    host.http.clear(); await f.prepareStatus();
+    const confirmation = JSON.stringify(await f.action("review_legacy_v2"));
+    assert.match(confirmation, /Confirm recovery preparation/);
+    assert.equal(host.http.requests().some(r => r.method === "POST"), false);
+    host.http.clear(); await f.prepareStatus();
+    await host.http.respond("https://payments.dinkuskit.com/v1/connect/reconcile-legacy-rejection", Response.json({
+      state: "prepared", mode: "test", bindingRef: "stripe_synthetic", operationId: "synthetic-operation", preparedAt: Date.now(),
+    }));
+    const result = JSON.stringify(await f.action("prepare_legacy_v2"));
+    assert.match(result, /Recovery preparation saved/);
+    assert.doesNotMatch(result, /setup_processor|prepare_legacy_v2/);
+    assert.equal(result.includes(token), false);
+    const posts = host.http.requests().filter(r => r.method === "POST");
+    assert.equal(posts.length, 1); assert.equal(posts[0].url, "https://payments.dinkuskit.com/v1/connect/reconcile-legacy-rejection");
+    assert.equal(posts[0].body.byteLength, 0);
+    const another = await host.fixtures.user({ email: "another-admin@example.invalid", role: "admin" });
+    host.http.clear();
+    assert.match(JSON.stringify(await host.admin.act("/status", "prepare_legacy_v2", { user: another })), /Sign in again/);
+    assert.equal(host.http.requests().length, 0);
+  } finally { await host.dispose(); }
+});

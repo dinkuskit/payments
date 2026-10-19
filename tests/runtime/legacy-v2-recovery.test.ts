@@ -1,7 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { runInDurableObject } from 'cloudflare:test';
 import { afterEach, expect, test, vi } from 'vitest';
-import { legacyStateFingerprint } from '../../src/hosted/legacy-recovery';
 import type { Connection } from '../../src/hosted/connection';
 
 afterEach(() => vi.restoreAllMocks());
@@ -15,7 +14,7 @@ test('real Durable Object prepares only its configured legacy binding with one i
     creationFailure: { category: 'unknown', status: 400, at: now - 86_400_000 } };
   const policy = { operationId: 'synthetic-recovery-operation', siteId: owner.siteId, bindingRef: original.bindingRef,
     expectedStartedAt: original.startedAt, failureAt: original.creationFailure!.at,
-    expectedFingerprint: await legacyStateFingerprint(original), evidenceSha256: 'a'.repeat(64),
+    evidenceSha256: 'a'.repeat(64),
     rejection: 'accounts_v1_unsupported', rejectedRequestCount: 6, country: 'US', expiresAt: now + 300_000 };
   let calls = 0;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {

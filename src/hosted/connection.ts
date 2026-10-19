@@ -119,7 +119,7 @@ export function createConnectionService(options: {
       value.startedAt === value.legacyRecovery.preparedAt && value.legacyRecovery.previous.startedAt === policy.expectedStartedAt &&
       value.legacyRecovery.previous.creationFailure?.at === policy.failureAt;
     if (record.legacyRecovery) {
-      if (!repeat(record) || await legacyStateFingerprint(record.legacyRecovery.previous) !== policy.expectedFingerprint) {
+      if (!repeat(record) || await legacyStateFingerprint(record.legacyRecovery.previous) !== record.legacyRecovery.sourceFingerprint) {
         throw new ConnectionError("legacy_recovery_conflict");
       }
       const current = readExact();
@@ -130,12 +130,12 @@ export function createConnectionService(options: {
         record.creationOperationId !== undefined || record.creationScope !== undefined || record.creationCountryRepair !== undefined ||
         record.startedAt !== policy.expectedStartedAt || now() - record.startedAt < CREATION_RETRY_WINDOW_MS ||
         record.creationFailure?.category !== "unknown" || record.creationFailure.status !== 400 ||
-        record.creationFailure.at !== policy.failureAt || policy.failureAt > now() ||
-        await legacyStateFingerprint(record) !== policy.expectedFingerprint) throw new ConnectionError("legacy_recovery_refused");
+        record.creationFailure.at !== policy.failureAt || policy.failureAt > now()) throw new ConnectionError("legacy_recovery_refused");
     const country = options.merchantCountry?.(principal.siteId);
     if (!country || country.siteId !== principal.siteId || country.country !== policy.country) throw new ConnectionError("legacy_recovery_refused");
     if (policy.expiresAt <= now()) throw new ConnectionError("legacy_recovery_refused");
     const snapshot = JSON.stringify(record);
+    const sourceFingerprint = await legacyStateFingerprint(record);
     let platform: string;
     try { platform = await provider.creationScope(); } catch { throw new ConnectionError("legacy_recovery_platform_unconfirmed"); }
     if (platform !== admission.expectedPlatform) throw new ConnectionError("legacy_recovery_platform_mismatch");
@@ -144,7 +144,7 @@ export function createConnectionService(options: {
     return store.transaction(tx => {
       const current = tx.read();
       if (policy.expiresAt <= now()) throw new ConnectionError("legacy_recovery_conflict");
-      if (current && repeat(current) && JSON.stringify(current.legacyRecovery!.previous) === snapshot &&
+      if (current && repeat(current) && current.legacyRecovery!.sourceFingerprint === sourceFingerprint && JSON.stringify(current.legacyRecovery!.previous) === snapshot &&
           current.owner.accountId === principal.accountId && current.owner.siteId === principal.siteId && current.mode === "test") return recoveryReceipt(current);
       if (!current || JSON.stringify(current) !== snapshot) throw new ConnectionError("legacy_recovery_conflict");
       const preparedAt = now();
@@ -152,7 +152,7 @@ export function createConnectionService(options: {
       const prepared: Connection = { ...unchanged, startedAt: preparedAt, creationProtocol: "accounts_v2",
         creationOperationId: policy.operationId, creationScope: platform, creationCountry: policy.country,
         legacyRecovery: { operationId: policy.operationId, evidenceSha256: policy.evidenceSha256,
-          rejection: policy.rejection, rejectedRequestCount: 6, preparedAt, previous: current } };
+          rejection: policy.rejection, rejectedRequestCount: 6, preparedAt, sourceFingerprint, previous: current } };
       tx.write(prepared);
       return recoveryReceipt(prepared);
     });

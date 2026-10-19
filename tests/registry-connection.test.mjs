@@ -30,7 +30,7 @@ async function fixture({ testOnly, installedPluginId, pluginId, endpoint = { sta
   const expectedPluginId = installedPluginId === 'dinkus-payments-beta' || pluginId === 'dinkus-payments-beta'
     ? 'r_sffx6l4z6mpqliki'
     : (installedPluginId ?? (pluginId === 'dinkus-payments' ? 'r_3brsc2on3bu673rn' : pluginId) ?? 'r_3brsc2on3bu673rn');
-  const f = { now: 1_800_000_000_000, starts: 0, exchanges: 0, statuses: 0, approved: false, siteId: 'site', subject: 'org', error: null, calls: [], gate: null, claims: {}, setupReply: { state: 'setup_required', mode: 'test', bindingRef: 'synthetic-binding', url: 'https://connect.stripe.com/setup/synthetic', expiresAt: 1_800_000_300_000 }, setupStatus: 200, slept: [], statusReply: { state: 'disconnected', mode: 'test', bindingRef: 'synthetic-binding' } };
+  const f = { now: 1_800_000_000_000, starts: 0, exchanges: 0, statuses: 0, approved: false, siteId: 'site', subject: 'org', error: null, calls: [], gate: null, claims: {}, setupReply: { state: 'setup_required', mode: 'test', bindingRef: 'synthetic-binding', url: 'https://connect.stripe.com/setup/synthetic', expiresAt: 1_800_000_300_000 }, setupStatus: 200, recoveryReply: { state: 'prepared', mode: 'test', bindingRef: 'stripe_synthetic', operationId: 'approved_operation', preparedAt: 1_800_000_000_000 }, recoveryStatus: 200, slept: [], statusReply: { state: 'disconnected', mode: 'test', bindingRef: 'synthetic-binding' } };
   const connection = createRegistryConnection({
     ...store,
     config: { endpoint, testOnly, ...(installedPluginId ? { installedPluginId } : {}) },
@@ -61,6 +61,7 @@ async function fixture({ testOnly, installedPluginId, pluginId, endpoint = { sta
         return json({ access_token: token, token_type: 'Bearer', site_id: f.siteId, expires_in: 300 });
       }
       if (url.endsWith('/jwks.json')) return json({ keys: [jwk] });
+      if (url.endsWith('/reconcile-legacy-rejection')) { if (f.recoveryGate) await f.recoveryGate(); return json(f.recoveryReply, f.recoveryStatus); }
       if (url.endsWith('/v1/connect')) return json(f.setupReply, f.setupStatus);
       f.statuses++; assert.equal(init.headers['X-Dinkus-Site'], f.siteId); assert.match(init.headers.Authorization, /^Bearer /);
       return json(f.statusReply);
@@ -283,4 +284,35 @@ test('the newest of the approval-time status and a later Check is shown after th
   f.statusReply = { state: 'disconnected', mode: 'test', bindingRef: 'synthetic-binding' };
   await f.connect(); const approvedAt = f.now; f.now += 301000;
   assert.deepEqual((await connection.status({ id: 'admin' })).lastChecked, { at: approvedAt, status: f.statusReply });
+});
+
+test('legacy preparation requires a separate confirmation and uses only the held exact-site admin session', async () => {
+  const { f, connection } = await fixture(); await f.connect(); f.calls.length = 0;
+  assert.equal((await connection.prepareLegacyV2({ id: 'admin' })).state, 'legacy_recovery_confirmation');
+  assert.equal(f.calls.some(call => call.init.method === 'POST'), false);
+  const prepared = await connection.prepareLegacyV2({ id: 'admin' }, true);
+  assert.equal(prepared.state, 'legacy_recovery_prepared');
+  const calls = f.calls.filter(call => call.init.method === 'POST');
+  assert.equal(calls.length, 1); assert.ok(calls[0].url.endsWith('/v1/connect/reconcile-legacy-rejection'));
+  assert.equal(calls[0].init.body, undefined); assert.equal(new URL(calls[0].url).search, '');
+  assert.equal(calls[0].init.headers['X-Dinkus-Site'], f.siteId);
+  assert.equal(JSON.stringify(prepared).includes('Bearer'), false);
+  assert.equal(f.calls.some(call => call.url.endsWith('/v1/connect')), false);
+});
+
+test('legacy preparation refuses another admin, expired session, changed flow and malformed receipts', async () => {
+  const { f, connection, store } = await fixture(); await f.connect(); f.calls.length = 0;
+  assert.equal((await connection.prepareLegacyV2({ id: 'different-admin' }, true)).state, 'action_required');
+  assert.equal(f.calls.length, 0);
+  f.now += 301_000;
+  assert.equal((await connection.prepareLegacyV2({ id: 'admin' }, true)).state, 'action_required');
+  assert.equal(f.calls.length, 0);
+  f.now -= 301_000;
+  f.recoveryReply = { ...f.recoveryReply, token: 'PRIVATE_CANARY' };
+  assert.equal((await connection.prepareLegacyV2({ id: 'admin' }, true)).state, 'legacy_recovery_unconfirmed');
+  f.recoveryReply = { state: 'prepared', mode: 'test', bindingRef: 'stripe_synthetic', operationId: 'approved_operation', preparedAt: f.now };
+  f.recoveryGate = async () => { const c = await store.kv.get('state:registry-v2-control'); await store.kv.set('state:registry-v2-control', { ...c, flowId: 'replacement' }); };
+  const result = await connection.prepareLegacyV2({ id: 'admin' }, true);
+  assert.equal(result.state, 'legacy_recovery_unconfirmed');
+  assert.equal(JSON.stringify(result).includes('PRIVATE_CANARY'), false);
 });

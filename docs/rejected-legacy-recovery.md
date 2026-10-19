@@ -23,7 +23,6 @@ The single policy has this shape (all values below are synthetic):
   "bindingRef": "stripe_synthetic",
   "expectedStartedAt": 1800000000000,
   "failureAt": 1800000001000,
-  "expectedFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "evidenceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "rejection": "accounts_v1_unsupported",
   "rejectedRequestCount": 6,
@@ -40,13 +39,21 @@ outside this public repository. Its digest and count are retained in the
 reconciliation record. A generic HTTP 400, empty account list or unmatched
 request does not qualify.
 
-`expectedFingerprint` is `legacyStateFingerprint` of the parsed current
-connection, including its original owner, times and failure. Obtain it inside
-an approved service-owner inspection; do not dump storage, read credentials or
-add a generic storage endpoint. The current record must remain unchanged until
-the operation commits. The admission expires and must be no more than 24 hours
-in the future when invoked. Changing the operation ID never resets a prepared
-operation.
+Admission matches the configured owner/site/binding, original start time and
+exact recorded failure, TEST/Stripe mode, no processor account and no prior v2
+operation or repair marker. The service captures the complete matching record
+and computes its audit fingerprint internally. It compares that complete snapshot
+again inside the transaction after the platform read, then preserves the original
+record and digest. No storage export or externally obtained fingerprint is needed.
+
+This intentionally approves the exact legacy-attempt predicates, rather than
+pre-approving every byte/property order of a previously exported record. Harmless
+normalization or unrelated legacy fields present before invocation are retained;
+a change to any field during the platform read refuses the transition. A changed
+target, original start/failure, account, protocol or repair marker still refuses
+admission. Same-operation replay verifies the preserved record's internal digest.
+The admission expires and must be no more than 24 hours in the future when
+invoked. Changing the operation ID never resets a prepared operation.
 
 The existing approved merchant-country configuration must select the same site
 and country. Missing or conflicting country, identity or policy configuration
@@ -54,11 +61,23 @@ refuses the action. No fallback selects another platform or site.
 
 ## Request and result
 
-An approved owner consumer sends **POST
-`https://payments.dinkuskit.com/v1/connect/reconcile-legacy-rejection`**, with the
-existing owner authentication and exact `X-Dinkus-Site`. No query or request
-body is accepted. Credentials stay within that consumer. This document does
-not authorize a new credential consumer, selector or login mode.
+The installed Payments plugin is the credential-holding consumer. On the
+recovery-required TEST screen, **Review support-approved recovery** opens a
+confirmation screen. **Confirm recovery preparation** sends one bodyless,
+queryless **POST `/v1/connect/reconcile-legacy-rejection`** to the configured
+Payments service origin (production: `https://payments.dinkuskit.com`).
+It reuses the current verified Registry session and exact `X-Dinkus-Site`;
+the token never leaves that consumer. The current local admin, stored
+organization/site, issuer, audience, scope, expiry and session revision must all
+match. This does not add a CLI command, new login mode or credential broker.
+
+If that five-minute session has expired, complete the existing **Sign in again**
+flow and its normal DinkusKit owner consent first. Store keys only issue checkout
+passes and cannot substitute for this admin grant. The confirmation screen is
+an explicit operator action, not permission for ordinary merchants to recover:
+the service's deployment-owned operator/target policy remains authoritative.
+A saved preparation is shown separately; it does not call Setup or create a link.
+A lost, refused or malformed response reports unconfirmed and does not retry.
 
 The service checks TEST/Stripe mode, the exact expired legacy record and absent
 processor account, and performs one current-platform identity GET. A mismatch

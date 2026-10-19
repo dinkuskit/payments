@@ -6,7 +6,7 @@ import { legacyRecoveryAdmission } from '../src/hosted/legacy-recovery.ts';
 
 const path = '/v1/connect/reconcile-legacy-rejection';
 const policy = { operationId: 'synthetic-recovery', siteId: 'synthetic-site', bindingRef: 'stripe_synthetic',
-  expectedStartedAt: 1, failureAt: 2, expectedFingerprint: 'a'.repeat(64), evidenceSha256: 'b'.repeat(64),
+  expectedStartedAt: 1, failureAt: 2, evidenceSha256: 'b'.repeat(64),
   rejection: 'accounts_v1_unsupported', rejectedRequestCount: 6, country: 'US', expiresAt: 1000 };
 const identity = { issuer: 'https://identity.example.invalid', operatorAccount: '["https://identity.example.invalid","operator"]',
   operatorSite: policy.siteId, expectedPlatform: 'acct_synthetic' };

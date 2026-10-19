@@ -15,7 +15,7 @@ function fixture() {
   const calls = { scopes: 0, creates: 0, links: 0, statuses: 0 };
   const admission = { operatorAccount: owner.accountId, operatorSite: owner.siteId, expectedPlatform: 'acct_platform',
     policy: { operationId: 'recovery_operation_1', siteId: owner.siteId, bindingRef: saved.bindingRef,
-      expectedStartedAt: saved.startedAt, failureAt: saved.creationFailure.at, expectedFingerprint: fingerprint(saved),
+      expectedStartedAt: saved.startedAt, failureAt: saved.creationFailure.at,
       evidenceSha256: 'a'.repeat(64), rejection: 'accounts_v1_unsupported', rejectedRequestCount: 6, country: 'US', expiresAt: time + 300_000 } };
   const provider = { creationProtocol: 'accounts_v2', async creationScope() { calls.scopes++; return 'acct_platform'; },
     async createAccount() { calls.creates++; return 'acct_recipient'; },
@@ -35,6 +35,7 @@ test('prepares one v2 operation while preserving legacy evidence and creating no
     operationId: 'recovery_operation_1', preparedAt: initialTime });
   assert.deepEqual(f.saved().legacyRecovery.previous, f.original);
   assert.equal(f.saved().legacyRecovery.evidenceSha256, 'a'.repeat(64));
+  assert.equal(f.saved().legacyRecovery.sourceFingerprint, fingerprint(f.original));
   assert.equal(f.saved().legacyRecovery.rejectedRequestCount, 6);
   assert.equal(f.saved().creationOperationId, receipt.operationId);
   assert.equal(f.saved().startedAt, initialTime);
@@ -75,13 +76,21 @@ test('absent admission, wrong principal, invalid evidence and stale snapshots re
     f => { f.admission.policy.rejectedRequestCount = 5; },
     f => { f.admission.policy.evidenceSha256 = 'invalid'; },
     f => { f.admission.policy.rejection = 'generic_400'; },
-    f => { f.admission.policy.expectedFingerprint = 'b'.repeat(64); },
+    f => { f.admission.policy.expectedFingerprint = 'b'.repeat(64); }, // obsolete external policy must fail closed
     f => { f.admission.policy.failureAt--; },
     f => { f.admission.policy.expectedStartedAt--; },
     f => { f.admission.policy.expiresAt = initialTime; },
     f => { f.admission.operatorSite = 'other'; },
     f => { f.admission.expectedPlatform = 'invalid'; },
     f => { f.replace({ ...f.saved(), stripeAccountId: 'acct_existing' }); },
+    f => { f.replace({ ...f.saved(), authorizeNetMerchantId: 'existing' }); },
+    f => { f.replace({ ...f.saved(), bindingRef: 'stripe_other' }); },
+    f => { f.replace({ ...f.saved(), owner: { ...owner, accountId: 'other' } }); },
+    f => { f.replace({ ...f.saved(), owner: { ...owner, siteId: 'other' } }); },
+    f => { f.replace({ ...f.saved(), creationOperationId: 'already_prepared' }); },
+    f => { f.replace({ ...f.saved(), creationCountryRepair: { code: 'identity_country_required', failureAt: 1 } }); },
+    f => { f.replace({ ...f.saved(), creationFailure: { ...f.saved().creationFailure, status: 403 } }); },
+    f => { f.replace({ ...f.saved(), creationFailure: { ...f.saved().creationFailure, category: 'permission' } }); },
     f => { f.replace({ ...f.saved(), creationProtocol: 'accounts_v2' }); },
     f => { f.replace({ ...f.saved(), creationScope: 'acct_old' }); },
     f => { f.replace({ ...f.saved(), mode: 'live' }); },
@@ -120,7 +129,8 @@ test('concurrent preparations commit once and a different operation cannot resta
   const f = fixture(), waiting = [];
   f.provider.creationScope = () => new Promise(resolve => { f.calls.scopes++; waiting.push(resolve); });
   const service = f.make(), a = service.prepareRejectedLegacyV2(owner), b = service.prepareRejectedLegacyV2(owner);
-  while (waiting.length < 2) await new Promise(resolve => setImmediate(resolve));
+  for (let i = 0; waiting.length < 2 && i < 100; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(waiting.length, 2);
   waiting.forEach(resolve => resolve('acct_platform'));
   assert.deepEqual(await a, await b);
   assert.equal(f.writes(), 1);
@@ -142,11 +152,37 @@ test('a late old-operation success or failure cannot overwrite the prepared v2 o
     while (!finish) await new Promise(resolve => setImmediate(resolve));
     f.advance(172_800_000);
     Object.assign(f.admission.policy, { expectedStartedAt: young.startedAt, failureAt: young.creationFailure.at,
-      expectedFingerprint: fingerprint(young), expiresAt: initialTime + 172_800_000 + 300_000 });
+      expiresAt: initialTime + 172_800_000 + 300_000 });
     await f.make().prepareRejectedLegacyV2(owner);
     const prepared = structuredClone(f.saved());
     finish();
     await pending.catch(error => assert.match(error.message, /connection_conflict/));
     assert.deepEqual(f.saved(), prepared);
   }
+});
+
+test('captures the matching state internally, accepts pre-call normalization, and rejects history tampering', async () => {
+  const f = fixture();
+  const beforeNormalization = { ...f.saved() }; delete beforeNormalization.providerId; delete beforeNormalization.authorizeNetMerchantId;
+  f.replace(beforeNormalization);
+  const normalized = { ...f.saved(), providerId: 'stripe', authorizeNetMerchantId: null, additionalLegacyNote: 'synthetic retained field' };
+  f.replace(normalized);
+  const receipt = await f.make().prepareRejectedLegacyV2(owner);
+  assert.deepEqual(f.saved().legacyRecovery.previous, normalized);
+  assert.equal(f.saved().legacyRecovery.sourceFingerprint, fingerprint(normalized));
+  assert.equal(receipt.state, 'prepared');
+  f.replace({ ...f.saved(), legacyRecovery: { ...f.saved().legacyRecovery,
+    previous: { ...normalized, additionalLegacyNote: 'changed' } } });
+  await assert.rejects(f.make().prepareRejectedLegacyV2(owner), /legacy_recovery_conflict/);
+  assert.equal(f.writes(), 1);
+});
+
+test('rejects complete snapshot drift during platform I/O, including unrelated fields', async () => {
+  const f = fixture();
+  f.provider.creationScope = async () => {
+    f.replace({ ...f.saved(), additionalLegacyNote: 'changed while awaiting identity' });
+    return 'acct_platform';
+  };
+  await assert.rejects(f.make().prepareRejectedLegacyV2(owner), /legacy_recovery_conflict/);
+  assert.equal(f.writes(), 0);
 });

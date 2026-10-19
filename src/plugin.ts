@@ -39,6 +39,8 @@ export function createPaymentsPlugin(config: PaymentsPluginConfig = DEFAULT_CONF
         const actionId = input.action_id;
         try {
           if (type === "block_action" && typeof actionId === "string") {
+            if (actionId === "review_legacy_v2") return renderSetupScreen(await connection.prepareLegacyV2(user));
+            if (actionId === "prepare_legacy_v2") return renderSetupScreen(await connection.prepareLegacyV2(user, true));
             if (actionId === "check_provider_identity") return renderSetupScreen(await connection.providerIdentity(routeCtx.user));
             if (actionId === "setup_processor") return renderSetupScreen(await connection.setupProcessor(routeCtx.user));
             if (actionId === "connect") return renderSetupScreen(await connection.start(routeCtx.user));
