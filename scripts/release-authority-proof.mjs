@@ -98,10 +98,21 @@ export async function verifyShippedEmDashWorkflowGateBinding() {
     throw new Error("release.yml must delegate to emdash-release.yml with release_mode: stable");
   }
 
+  // Cut beta is release.yml's button too: emdash-release.yml has none of its own, so the release
+  // service connects both listings through release.yml.
+  const emdashTriggers = /^on:\n([\s\S]*?)^\S/m.exec(emdashWorkflowText)?.[1] ?? "";
+  if (!emdashTriggers.includes("workflow_call:") || emdashTriggers.includes("workflow_dispatch")) {
+    throw new Error("emdash-release.yml must be workflow_call-only; Cut beta is a release.yml workflow_dispatch");
+  }
+  if (!releaseWorkflowText.includes("release_mode: beta")) {
+    throw new Error("release.yml must delegate Cut beta to emdash-release.yml with release_mode: beta");
+  }
+
   return {
     jobIfMatches: true,
     gateScriptInvokedBeforeCredentials: true,
     callerPassesStableReleaseMode: true,
+    callerPassesBetaReleaseMode: true,
     delegatedOidcReleaseConfigured: true,
   };
 }
@@ -408,6 +419,7 @@ export async function runReleaseAuthorityProof() {
         eventName: "workflow_dispatch",
         ref: "refs/heads/main",
         inputVersion: "",
+        releaseMode: "beta",
         events,
         runCutBeta: async () => {
           cutResult = await runReleaseFlowCli(["cut-beta"], {
@@ -512,6 +524,7 @@ export async function runReleaseAuthorityProof() {
       eventName: "workflow_dispatch",
       ref: "refs/heads/main",
       inputVersion: "0.2.9",
+      releaseMode: "beta",
       events,
       runCutBeta: async () => {
         events.push("UNEXPECTED:cut-beta");
@@ -547,6 +560,7 @@ export async function runReleaseAuthorityProof() {
       eventName: "workflow_dispatch",
       ref: "refs/heads/feat/unmerged-branch",
       inputVersion: "0.2.9-beta.1",
+      releaseMode: "beta",
       events,
       runCutBeta: async () => {
         events.push("UNEXPECTED:cut-beta");
@@ -939,7 +953,7 @@ export async function runReleaseAuthorityProof() {
       eventName: "workflow_dispatch",
       ref: "refs/heads/main",
       inputVersion: "0.2.9",
-      releaseMode: "",
+      releaseMode: "beta",
       events,
       runCutBeta: async () => events.push("UNEXPECTED:cut-beta"),
       runPublish: async () => events.push("UNEXPECTED:publish"),

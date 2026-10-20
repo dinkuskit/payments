@@ -12,6 +12,7 @@
 - Every release builds the Cloudflare sandbox artifact (`dist/sandbox/plugin.mjs`) and verifies that its size stays strictly under `128 KB` (`131,072` bytes).
 - Historical git tags before `v0.2.8` are never backfilled; the stable tag baseline is `v0.2.8`.
 - Every GitHub Actions `uses:` reference in `.github/workflows/*.yml` is pinned to a full 40-character commit SHA (enforced by `npm run audit:repo`).
+- Both release buttons are on **Release** (`.github/workflows/release.yml`): `action: cut-beta` and `action: promote`. `.github/workflows/emdash-release.yml` is a `workflow_call`-only helper. DinkusKit Commerce and Ship are to copy these files, so all three plugins release the same way.
 
 ## Delegated Registry Publishing (No Stored PDS Credentials)
 
@@ -36,7 +37,7 @@ Before the first beta release can publish through the delegated release service,
    ```bash
    ./node_modules/.bin/emdash-plugin profile setup --dir /tmp/payments-beta-profile --yes
    ```
-3. In the [EmDash release-service publisher dashboard](https://releases.emdashcms.com/publisher), choose **Authorize publishing** for `dinkus-payments-beta` (and `dinkus-payments` if not already authorized), then approve the `dinkuskit/payments` `.github/workflows/emdash-release.yml` workflow connection on its first run.
+3. In the [EmDash release-service publisher dashboard](https://releases.emdashcms.com/publisher), choose **Authorize publishing** for `dinkus-payments-beta` (and `dinkus-payments` if not already authorized), then approve the `dinkuskit/payments` `.github/workflows/release.yml` workflow connection when the dashboard first asks. Both buttons (Cut beta and Promote) live on `release.yml`, and `.github/workflows/emdash-release.yml` is only ever called from it, so one connection covers both listings. A connection made earlier through `emdash-release.yml` (from before Cut beta moved to `release.yml`) is no longer used.
 
 ## Step 1: Every PR Includes a Changeset
 
@@ -56,8 +57,8 @@ Merging normal PRs to `main` does **not** automatically publish a beta or open a
 
 When `main` has pending version-bumping `.changeset/*.md` files and you are ready to cut a beta:
 
-1. Manually dispatch **Publish to EmDash Registry** (`.github/workflows/emdash-release.yml`) on `refs/heads/main` (leave `version` blank to auto-compute the next `X.Y.Z-beta.N`, or supply an explicit `X.Y.Z-beta.N` override).
-   - Manual `workflow_dispatch` is gated by `.github/scripts/emdash-dispatch-gate.mjs` (`validateEmDashDispatchGate`) to `refs/heads/main` and `-beta.N` versions before minting any GitHub App token or performing Registry I/O. Manual stable dispatches and non-`main` dispatches are rejected immediately.
+1. Press **Run workflow** on **Release** (`.github/workflows/release.yml`) on `main` with `action: cut-beta` (leave `beta_version` blank to auto-compute the next `X.Y.Z-beta.N`, or supply an explicit `X.Y.Z-beta.N` override).
+   - Its **Cut beta** job calls `.github/workflows/emdash-release.yml` through `workflow_call` with `release_mode: beta`. That workflow has no button of its own. Its gate, `.github/scripts/emdash-dispatch-gate.mjs` (`validateEmDashDispatchGate`), allows only `refs/heads/main`, `release_mode: beta` and `-beta.N` versions before minting any GitHub App token or performing Registry I/O. Stable versions, a missing `release_mode` and non-`main` dispatches are rejected immediately.
 2. The workflow:
    - Computes the target `X.Y.Z` from pending changesets on `main` and determines the next `X.Y.Z-beta.N` across existing git tags and all `dinkus-payments-beta` release records on the manifest publisher’s PDS. This reads every page of the public `com.atproto.repo.listRecords` inventory, including versions not yet visible in the discovery catalog, and fails closed on lookup, identity, schema, or pagination errors. The retired aggregator host and discovery listing policy are not used to allocate version numbers.
    - Tags the `main` commit `vX.Y.Z-beta.N` using the release GitHub App token (`RELEASE_APP_ID` / `RELEASE_APP_PRIVATE_KEY`).
@@ -66,7 +67,7 @@ When `main` has pending version-bumping `.changeset/*.md` files and you are read
 
 ## Step 3: Run Beta Store `@running` Journeys
 
-Cut beta starts them itself. Once the beta is published, its **Start the live journeys on the beta store** job presses **Live journeys** in [SaariusSkills](https://github.com/saariuslystoned/SaariusSkills/actions/workflows/live-journeys.yml) with `beta: dinkus-payments-beta X.Y.Z-beta.N`. That run waits for the Registry to offer the beta, updates the beta store (beta.sm0ky.dev, `installedPluginId: r_sffx6l4z6mpqliki`) to it in place, and runs the `@running` journeys there. Its run is named `Live journeys for dinkus-payments-beta X.Y.Z-beta.N`, and its page shows each journey's pass or fail and the plugin versions tested. When it passes, Step 4's `proof_ref` is that run's address followed by the beta version, for example `https://github.com/saariuslystoned/SaariusSkills/actions/runs/<run id> (X.Y.Z-beta.N @running pass)`; the address alone has no version in it, and the promotion gate refuses a proof that doesn't name the beta. If an update asks for new permissions the run stops and its page says what was asked; update the plugin by hand from the store's Plugins page, then press Run workflow again with the same `beta`.
+Cut beta starts them itself. Once the beta is published, Release's **Start the live journeys on the beta store** job presses **Live journeys** in [SaariusSkills](https://github.com/saariuslystoned/SaariusSkills/actions/workflows/live-journeys.yml) with `beta: dinkus-payments-beta X.Y.Z-beta.N`. That run waits for the Registry to offer the beta, updates the beta store (beta.sm0ky.dev, `installedPluginId: r_sffx6l4z6mpqliki`) to it in place, and runs the `@running` journeys there. Its run is named `Live journeys for dinkus-payments-beta X.Y.Z-beta.N`, and its page shows each journey's pass or fail and the plugin versions tested. When it passes, Step 4's `proof_ref` is that run's address followed by the beta version, for example `https://github.com/saariuslystoned/SaariusSkills/actions/runs/<run id> (X.Y.Z-beta.N @running pass)`; the address alone has no version in it, and the promotion gate refuses a proof that doesn't name the beta. If an update asks for new permissions the run stops and its page says what was asked; update the plugin by hand from the store's Plugins page, then press Run workflow again with the same `beta`.
 
 The press needs the `LIVE_JOURNEYS_TOKEN` repository secret: a fine-grained GitHub token whose only access is **Actions: Read and write** on `saariuslystoned/SaariusSkills`. Without it the job fails after the publish, and the journeys can be started by hand with the same `beta` input.
 
@@ -74,7 +75,7 @@ The press needs the `LIVE_JOURNEYS_TOKEN` repository secret: a fine-grained GitH
 
 Once `dinkus-payments-beta@X.Y.Z-beta.N` has passed the beta-store `@running` journeys:
 
-1. Manually dispatch **Release** (`.github/workflows/release.yml`) on `main` with:
+1. Press **Run workflow** on **Release** (`.github/workflows/release.yml`) on `main` with `action: promote` and:
    - `beta_version`: `X.Y.Z-beta.N` (e.g. `0.2.9-beta.1`)
    - `proof_ref`: the recorded `@running` pass proof reference naming `X.Y.Z-beta.N`
 2. The promotion gate verifies that:

@@ -30,7 +30,7 @@ export const ALLOWED_RELEASE_TREE_PATHS = Object.freeze([
 ]);
 
 export const EMDASH_PUBLISH_JOB_IF =
-  "github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && inputs.release_mode == 'stable' && inputs.version != ''))";
+  "github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.release_mode == 'beta') || (github.event_name == 'push' && inputs.release_mode == 'stable' && inputs.version != ''))";
 
 const BUMP_RANK = Object.freeze({
   patch: 1,
@@ -67,7 +67,7 @@ export function validateEmDashDispatchGate({
       return {
         ok: false,
         code: "forbidden_dispatch_ref",
-        message: `Manual workflow_dispatch for emdash-release.yml is only allowed on refs/heads/main (got "${normalizedRef || "(empty)"}").`,
+        message: `Cut beta (a release.yml workflow_dispatch) is only allowed on refs/heads/main (got "${normalizedRef || "(empty)"}").`,
       };
     }
 
@@ -76,6 +76,14 @@ export function validateEmDashDispatchGate({
         ok: false,
         code: "manual_stable_dispatch_forbidden",
         message: `Manual workflow_dispatch cannot set release_mode="${normalizedMode}"; only beta cuts on refs/heads/main are allowed via workflow_dispatch.`,
+      };
+    }
+
+    if (normalizedMode !== "beta") {
+      return {
+        ok: false,
+        code: "missing_beta_caller_input",
+        message: `Cut beta reaches emdash-release.yml only through release.yml's workflow_call with release_mode="beta" (got "${normalizedMode || "(empty)"}").`,
       };
     }
 
@@ -628,7 +636,7 @@ export function validateBetaPromotionGate({
     return {
       ok: false,
       code: "missing_beta_tag",
-      message: `Git tag "v${betaVersion}" does not exist on main. Cut the beta first via emdash-release.yml.`,
+      message: `Git tag "v${betaVersion}" does not exist on main. Cut the beta first with Cut beta (release.yml).`,
     };
   }
 
