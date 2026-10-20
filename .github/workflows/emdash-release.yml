@@ -228,4 +228,6 @@ jobs:
             echo "## Live journeys started for $BETA"
             echo
             echo "Its run is named \"Live journeys for $BETA\": https://github.com/saariuslystoned/SaariusSkills/actions/workflows/live-journeys.yml"
+            echo
+            echo "When it passes, promote with \`proof_ref\` set to that run's address followed by \`(${BETA##* } @running pass)\`."
           } >> "$GITHUB_STEP_SUMMARY"
