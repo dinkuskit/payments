@@ -130,7 +130,7 @@ node bin/dinkus-payments.mjs --endpoint https://payments.example.invalid \
 
 ## Authorize.net sandbox proof
 
-The credential-gated proof runs on Node 22.23.2 from `.nvmrc`:
+The credential-gated proof runs on Node 24.22.0 from `.nvmrc`:
 
 ```bash
 npm ci

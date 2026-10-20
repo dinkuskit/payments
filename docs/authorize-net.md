@@ -82,7 +82,7 @@ AUTHNET_SANDBOX_SIGNATURE_KEY
 The sandbox endpoint is
 `https://apitest.authorize.net/xml/v1/request.api`. No live endpoint,
 credentials, deployment, or live traffic is part of this change.
-The opt-in proof command runs on Node `22.23.2` from `.nvmrc`:
+The opt-in proof command runs on Node `24.22.0` from `.nvmrc`:
 
 ```bash
 npm ci

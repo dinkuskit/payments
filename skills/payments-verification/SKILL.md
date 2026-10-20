@@ -32,5 +32,5 @@ an installed release's compatibility beyond the profiles actually exercised.
 
 If Vitest or the sandbox bundler reports a missing platform-native binding,
 repeat the locked install with a compatible npm and `--include=optional`.
-This task was verified with Node 22.23.2 and npm 10 after the host npm 11
-install omitted native runtime dependencies. Preserve the lockfile and pins.
+Node 24.22.0 with its bundled npm 11.19.1 installs the native runtime
+dependencies from the lockfile. Preserve the lockfile and pins.
