@@ -33,6 +33,10 @@ function latestCharge(intent: Stripe.PaymentIntent): LatestCharge {
   return { state: "unknown" };
 }
 
+/** Shown on every TEST Checkout page; live sessions carry no custom text. */
+export const TEST_MODE_CARD_MESSAGE =
+  "Test mode, no real charge: pay with card 4242 4242 4242 4242, any future expiry date and any CVC.";
+
 export function createStripeCheckout(options: {
   apiKey: string;
   mode: Mode;
@@ -75,6 +79,8 @@ export function createStripeCheckout(options: {
         metadata: { dinkus_attempt: input.attemptId, dinkus_binding: input.bindingRef, dinkus_site: input.siteId },
         payment_intent_data: { metadata: { dinkus_attempt: input.attemptId, dinkus_binding: input.bindingRef, dinkus_site: input.siteId } },
         line_items: lineItems,
+        // Stripe shows this beside its Pay button, so a shopper on a test store knows which card works.
+        ...(options.mode === "test" ? { custom_text: { submit: { message: TEST_MODE_CARD_MESSAGE } } } : {}),
       };
       const session = await stripe.checkout.sessions.create(params, { ...accountOption(input.stripeAccountId), idempotencyKey: input.idempotencyKey });
       return asSession(session);

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import Stripe from "stripe";
 import { createCheckoutSessionService, requestFingerprint, STRIPE_MIN_EXPIRES_AT_SECONDS } from "../src/checkout/sessions.ts";
-import { createStripeCheckout } from "../src/stripe/checkout.ts";
+import { createStripeCheckout, TEST_MODE_CARD_MESSAGE } from "../src/stripe/checkout.ts";
 
 test("official Stripe checkout transport pins idempotency, connected account, card, and expires_at", async () => {
   const calls = [];
@@ -80,12 +80,41 @@ test("official Stripe checkout transport pins idempotency, connected account, ca
   assert.equal(params.has("promotion_code"), false);
   assert.equal(params.has("discounts[0][coupon]"), false);
   assert.equal(params.get("metadata[dinkus_attempt]"), "attempt-one");
+  assert.equal(params.get("custom_text[submit][message]"), TEST_MODE_CARD_MESSAGE);
   const retrieved = await provider.retrieveSession("cs_fixture", "acct_one");
   assert.equal(retrieved.url, null);
   assert.equal(calls[1].headers.get("stripe-account"), "acct_one");
   const intent = await provider.retrievePaymentIntent("pi_fixture", "acct_one");
   assert.equal(intent.status, "canceled");
   assert.deepEqual(intent.latestCharge, { state: "known", status: "failed" });
+});
+
+test("live Checkout sessions carry no test-card message", async () => {
+  const bodies = [];
+  const httpClient = Stripe.createFetchHttpClient(async (_url, init) => {
+    bodies.push(String(init?.body ?? ""));
+    return new Response(JSON.stringify({
+      object: "checkout.session", id: "cs_live_fixture", url: null, status: "open", payment_status: "unpaid",
+      amount_total: 1200, currency: "usd", created: 1800000000, expires_at: 1800001860, livemode: true,
+      payment_intent: null, metadata: {}, payment_method_types: ["card"],
+    }), { headers: { "content-type": "application/json" } });
+  });
+  const provider = createStripeCheckout({ apiKey: "sk_live_synthetic_fixture", mode: "live", httpClient });
+  await provider.createSession({
+    attemptId: "attempt-live",
+    bindingRef: "bind-live",
+    siteId: "store-live",
+    stripeAccountId: "acct_live",
+    lines: [{ catalogItemId: "sku-1", quantity: 1, name: "Hat", unitPrice: { currency: "USD", minor: "1200" } }],
+    total: { currency: "USD", minor: "1200" },
+    expiresAtSeconds: 1800001860,
+    successUrl: "https://store.example.invalid/checkout/return",
+    cancelUrl: "https://store.example.invalid/checkout/cancel",
+    idempotencyKey: "dinkus-checkout:attempt-live",
+  });
+  const params = new URLSearchParams(bodies[0]);
+  assert.equal(params.get("mode"), "payment");
+  assert.equal([...params.keys()].some(key => key.startsWith("custom_text")), false);
 });
 
 test("unexpanded latest_charge is unknown and is not treated as absent", async () => {
