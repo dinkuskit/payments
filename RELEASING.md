@@ -37,7 +37,7 @@ Before the first beta release can publish through the delegated release service,
    ```bash
    ./node_modules/.bin/emdash-plugin profile setup --dir /tmp/payments-beta-profile --yes
    ```
-3. In the [EmDash release-service publisher dashboard](https://releases.emdashcms.com/publisher), choose **Authorize publishing** for `dinkus-payments-beta` (and `dinkus-payments` if not already authorized), then approve the `dinkuskit/payments` `.github/workflows/release.yml` workflow connection when the dashboard first asks. Both buttons (Cut beta and Promote) live on `release.yml`, and `.github/workflows/emdash-release.yml` is only ever called from it, so one connection covers both listings. A connection made earlier through `emdash-release.yml` (from before Cut beta moved to `release.yml`) is no longer used.
+3. In the [EmDash release-service publisher dashboard](https://releases.emdashcms.com/publisher), choose **Authorize publishing** for `dinkus-payments-beta` (and `dinkus-payments` if not already authorized), then approve the `dinkuskit/payments` `.github/workflows/release.yml` workflow connection when the dashboard first asks. Both buttons (Cut beta and Promote) live on `release.yml`, and `.github/workflows/emdash-release.yml` is only ever called from it, so one connection covers both listings. A connection made earlier through `emdash-release.yml` (from before Cut beta moved to `release.yml`) is no longer used. The dashboard shows a pending connection only while a run's publish step is waiting for it, for up to 30 minutes. If that time runs out, press Cut beta again with the same `beta_version`: a re-run of the same run reuses its expired request and fails with `WORKFLOW_CONNECTION_CONFLICT`.
 
 ## Step 1: Every PR Includes a Changeset
 

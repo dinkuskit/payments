@@ -129,7 +129,9 @@ test('concurrent preparations commit once and a different operation cannot resta
   const f = fixture(), waiting = [];
   f.provider.creationScope = () => new Promise(resolve => { f.calls.scopes++; waiting.push(resolve); });
   const service = f.make(), a = service.prepareRejectedLegacyV2(owner), b = service.prepareRejectedLegacyV2(owner);
-  for (let i = 0; waiting.length < 2 && i < 100; i++) await new Promise(resolve => setImmediate(resolve));
+  // Each preparation hashes its record with crypto.subtle (the libuv thread pool) before asking for the
+  // platform, so a fixed number of event-loop turns is not enough on a busy runner; wait on a clock.
+  for (const deadline = Date.now() + 5000; waiting.length < 2 && Date.now() < deadline;) await new Promise(resolve => setImmediate(resolve));
   assert.equal(waiting.length, 2);
   waiting.forEach(resolve => resolve('acct_platform'));
   assert.deepEqual(await a, await b);
