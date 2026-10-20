@@ -106,6 +106,33 @@ test("lost creation response recovers the original session and window", async ()
   assert.equal(f.calls[0][1].expiresAtSeconds, recovered.session.expiresAt);
 });
 
+test("a TEST attempt pins the test-card message and its same-key retry resends it", async () => {
+  const f = await (async () => { const x = fixture(); await x.ready(); return x; })();
+  const first = f.provider.createSession;
+  f.provider.createSession = async input => { await first(input); throw Error("lost"); };
+  await f.checkout().ensureSessionFor(owner, request());
+  assert.equal(f.attempts.get("attempt-one").checkoutText, "test-card-v1");
+  f.provider.createSession = first;
+  assert.equal((await f.checkout().ensureSessionFor(owner, request())).outcome, "open");
+  const creates = f.calls.filter(call => call[0] === "create");
+  assert.equal(creates.length, 2);
+  assert.deepEqual(creates.map(call => call[1].testCardMessage), [true, true]);
+});
+
+test("an attempt claimed before the test-card message retries without it", async () => {
+  const f = await (async () => { const x = fixture(); await x.ready(); return x; })();
+  const first = f.provider.createSession;
+  f.provider.createSession = async input => { await first(input); throw Error("lost"); };
+  await f.checkout().ensureSessionFor(owner, request());
+  const older = f.attempts.get("attempt-one");
+  delete older.checkoutText;
+  f.attempts.set("attempt-one", older);
+  f.provider.createSession = first;
+  assert.equal((await f.checkout().ensureSessionFor(owner, request())).outcome, "open");
+  const retry = f.calls.filter(call => call[0] === "create")[1][1];
+  assert.equal(Object.hasOwn(retry, "testCardMessage"), false);
+});
+
 test("an aged unknown create does not mint a second session after Stripe key retention", async () => {
   const f = fixture(); await f.ready(); f.setCreateDown(true);
   assert.equal((await f.checkout().ensureSessionFor(owner, request())).outcome, "unknown");
