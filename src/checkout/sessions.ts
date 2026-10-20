@@ -59,6 +59,8 @@ export interface AttemptRecord {
   pricing?: CheckoutPricingSnapshot;
   mappingVersion?: "stripe-whole-line-v1";
   chargeLines?: CheckoutChargeLine[];
+  /** Pinned at claim so a same-key retry resends the exact original request; absent on older attempts. */
+  checkoutText?: "test-card-v1";
 }
 
 export interface AttemptStore {
@@ -105,6 +107,7 @@ export interface CheckoutProvider {
     successUrl: string;
     cancelUrl: string;
     idempotencyKey: string;
+    testCardMessage?: boolean;
   }): Promise<ProviderSession>;
   retrieveSession(sessionId: string, stripeAccountId: string): Promise<ProviderSession>;
   retrievePaymentIntent(paymentIntentId: string, stripeAccountId: string): Promise<ProviderPaymentIntent>;
@@ -563,6 +566,7 @@ export function createCheckoutSessionService(options: {
       stripeSessionId: null,
       redirectUrl: null,
       policyKind,
+      ...(options.mode === "test" ? { checkoutText: "test-card-v1" as const } : {}),
       ...(request.pricing ? {
         pricing: canonicalizePricing(request.pricing), mappingVersion: "stripe-whole-line-v1" as const,
         chargeLines: createPricedChargeLines(request.lines, request.pricing, request.total.minor),
@@ -672,6 +676,7 @@ export function createCheckoutSessionService(options: {
         successUrl: record.successUrl,
         cancelUrl: record.cancelUrl,
         idempotencyKey: record.idempotencyKey,
+        ...(record.checkoutText === "test-card-v1" ? { testCardMessage: true } : {}),
       });
     } catch { return unknown(); }
     try { return interpret(persistSession(record, session), session, options.provider); }

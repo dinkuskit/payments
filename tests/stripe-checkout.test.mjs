@@ -64,6 +64,7 @@ test("official Stripe checkout transport pins idempotency, connected account, ca
     successUrl: "https://store.example.invalid/checkout/return",
     cancelUrl: "https://store.example.invalid/checkout/cancel",
     idempotencyKey: "dinkus-checkout:attempt-one",
+    testCardMessage: true,
   });
   assert.equal(created.id, "cs_fixture");
   assert.equal(calls[0].headers.get("idempotency-key"), "dinkus-checkout:attempt-one");
@@ -111,9 +112,37 @@ test("live Checkout sessions carry no test-card message", async () => {
     successUrl: "https://store.example.invalid/checkout/return",
     cancelUrl: "https://store.example.invalid/checkout/cancel",
     idempotencyKey: "dinkus-checkout:attempt-live",
+    testCardMessage: true,
   });
   const params = new URLSearchParams(bodies[0]);
   assert.equal(params.get("mode"), "payment");
+  assert.equal([...params.keys()].some(key => key.startsWith("custom_text")), false);
+});
+
+test("a TEST session without the pinned message sends no custom text", async () => {
+  const bodies = [];
+  const httpClient = Stripe.createFetchHttpClient(async (_url, init) => {
+    bodies.push(String(init?.body ?? ""));
+    return new Response(JSON.stringify({
+      object: "checkout.session", id: "cs_test_fixture", url: null, status: "open", payment_status: "unpaid",
+      amount_total: 1200, currency: "usd", created: 1800000000, expires_at: 1800001860, livemode: false,
+      payment_intent: null, metadata: {}, payment_method_types: ["card"],
+    }), { headers: { "content-type": "application/json" } });
+  });
+  const provider = createStripeCheckout({ apiKey: "sk_test_synthetic_fixture", mode: "test", httpClient });
+  await provider.createSession({
+    attemptId: "attempt-older",
+    bindingRef: "bind-older",
+    siteId: "store-older",
+    stripeAccountId: "acct_older",
+    lines: [{ catalogItemId: "sku-1", quantity: 1, name: "Hat", unitPrice: { currency: "USD", minor: "1200" } }],
+    total: { currency: "USD", minor: "1200" },
+    expiresAtSeconds: 1800001860,
+    successUrl: "https://store.example.invalid/checkout/return",
+    cancelUrl: "https://store.example.invalid/checkout/cancel",
+    idempotencyKey: "dinkus-checkout:attempt-older",
+  });
+  const params = new URLSearchParams(bodies[0]);
   assert.equal([...params.keys()].some(key => key.startsWith("custom_text")), false);
 });
 
