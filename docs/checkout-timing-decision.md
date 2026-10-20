@@ -133,7 +133,7 @@ deployment or merge is part of this preparation.
 
 ## Synthetic evidence and next gate
 
-Run from the Payments worktree on Node 22.23.2:
+Run from the Payments worktree on Node 24.22.0:
 
 ```sh
 node --import tsx --test .grilltrack/proof/checkout-sessions/timing-feasibility.test.mjs
