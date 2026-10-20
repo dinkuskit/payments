@@ -66,7 +66,9 @@ When `main` has pending version-bumping `.changeset/*.md` files and you are read
 
 ## Step 3: Run Beta Store `@running` Journeys
 
-Install `dinkus-payments-beta@X.Y.Z-beta.N` in the EmDash beta store (`installedPluginId: r_sffx6l4z6mpqliki`) and run the `@running` verification journeys. Record the passing proof reference (CI run URL, proof artifact path, or signed verification summary naming `X.Y.Z-beta.N`).
+Cut beta starts them itself. Once the beta is published, its **Start the live journeys on the beta store** job presses **Live journeys** in [SaariusSkills](https://github.com/saariuslystoned/SaariusSkills/actions/workflows/live-journeys.yml) with `beta: dinkus-payments-beta X.Y.Z-beta.N`. That run waits for the Registry to offer the beta, updates the beta store (beta.sm0ky.dev, `installedPluginId: r_sffx6l4z6mpqliki`) to it in place, and runs the `@running` journeys there. Its run is named `Live journeys for dinkus-payments-beta X.Y.Z-beta.N`, and its page shows each journey's pass or fail and the plugin versions tested. A passing run's address is the proof reference for Step 4. If an update asks for new permissions the run stops and its page says what was asked; update the plugin by hand from the store's Plugins page, then press Run workflow again with the same `beta`.
+
+The press needs the `LIVE_JOURNEYS_TOKEN` repository secret: a fine-grained GitHub token whose only access is **Actions: Read and write** on `saariuslystoned/SaariusSkills`. Without it the job fails after the publish, and the journeys can be started by hand with the same `beta` input.
 
 ## Step 4: Promote Verified Beta to a `ci: release` PR
 
