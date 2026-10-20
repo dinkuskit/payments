@@ -631,7 +631,8 @@ test("publish-pkg-pr-new helper skips with ::notice:: and exit 0 on 404 App-not-
   assert.equal(success.exitCode, 0);
 });
 
-test("publish-merged-release resumes missing GitHub Release and triggers downstream Registry publish when tag already exists on HEAD", async () => {
+for (const listed of [false, true]) {
+test(`publish-merged-release resumes a missing GitHub Release and still hands off to the Registry job when the tag is on HEAD${listed ? " and the version is already listed" : ""}`, async () => {
   const tempRoot = await mkdtemp(join(tmpdir(), "payments-resume-test-"));
   try {
     await writePublisherManifest(tempRoot);
@@ -707,7 +708,7 @@ test("publish-merged-release resumes missing GitHub Release and triggers downstr
           }
           return "";
         },
-        fetchImpl: mockPdsFetch(jsonResponse({ records: [] })),
+        fetchImpl: mockPdsFetch(jsonResponse({ records: listed ? [releaseRecord("0.2.9", STABLE_REGISTRY_SLUG)] : [] })),
         log: () => {},
       },
     );
@@ -715,15 +716,29 @@ test("publish-merged-release resumes missing GitHub Release and triggers downstr
     assert.equal(result.resumedFromExistingTag, true);
     assert.equal(result.tagCreated, false);
     assert.equal(result.githubReleaseCreated, true);
+    // A listed version may be the record whose check failed on the first run, so the Registry
+    // job still runs: it skips the publish and verifies the record against the bundle.
     assert.equal(result.registryNeeded, true);
-    assert.equal(result.published, true);
+    assert.equal(result.registryAlreadyPublished, listed);
+    assert.equal(result.published, !listed);
 
     const ghOutputText = await readFile(outputFile, "utf8");
-    assert.match(ghOutputText, /^published=true$/m);
+    assert.match(ghOutputText, new RegExp(`^published=${!listed}$`, "m"));
     assert.match(ghOutputText, /^registry_needed=true$/m);
+    assert.match(ghOutputText, new RegExp(`^registry_already_published=${listed}$`, "m"));
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
+});
+}
+
+test("the Registry job verifies an already-listed version instead of skipping the check", async () => {
+  const workflow = await readFile(join(repositoryRoot, ".github/workflows/emdash-release.yml"), "utf8");
+  const verifyStep = workflow.split("      - name: Verify release is indexed in EmDash Registry\n")[1]?.split("      - name:")[0];
+  assert.ok(verifyStep, "missing verify step");
+  assert.doesNotMatch(verifyStep, /^\s+if:/m);
+  const release = await readFile(join(repositoryRoot, ".github/workflows/release.yml"), "utf8");
+  assert.match(release, /if: needs\.release\.outputs\.published == 'true' \|\| needs\.release\.outputs\.registry_needed == 'true'/);
 });
 
 test("prepareRegistryWorkspace stages isolated beta and stable manifests without mutating repo root", async () => {

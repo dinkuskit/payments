@@ -1265,9 +1265,12 @@ export async function runReleaseFlowCli(argv, deps = {}) {
       registryAlreadyPublished = stableRegistryVersions.includes(version);
     }
 
-    const registryNeeded = !registryAlreadyPublished;
+    // The Registry job runs for every tagged release commit. When the version is already listed it
+    // skips the publish but still checks the record against this commit's bundle, so re-running a
+    // release whose check failed can't go green without passing that check.
+    const registryNeeded = true;
     const published = {
-      published: registryNeeded,
+      published: !registryAlreadyPublished,
       registryNeeded,
       registryAlreadyPublished,
       tagCreated,
