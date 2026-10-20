@@ -102,10 +102,10 @@ for prerequisites, checks, and proof limits.
 Every pull request declares its bump in `.changeset/` (`patch` for fixes,
 `minor` for everything else during `0.x`, or `changeset --empty` for non-bumping
 changes). Ordinary pushes to `main` do not cut betas or open a release PR:
-operators manually run **Publish to EmDash Registry** (`emdash-release.yml`) from
-`main` to cut `vX.Y.Z-beta.N` to `dinkus-payments-beta`, record passing
-`@running` journeys on the shared beta store separately, and manually run
-**Release** (`release.yml`) to promote that verified beta and commit SHA into a
+operators run **Release** (`release.yml`) from `main` with `action: cut-beta` to
+cut `vX.Y.Z-beta.N` to `dinkus-payments-beta`, which also starts the `@running`
+journeys on the shared beta store, and then run **Release** with
+`action: promote` to turn that verified beta and commit SHA into a
 `ci: release vX.Y.Z` pull request. Human merge of the `ci: release` PR is the
 only stable publish path (`vX.Y.Z` tag, GitHub Release, and delegated
 `dinkus-payments` Registry publish). See [RELEASING.md](RELEASING.md) for the

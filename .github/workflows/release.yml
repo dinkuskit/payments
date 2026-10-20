@@ -3,15 +3,27 @@ name: Release
 on:
   push:
     branches: [main]
+  # Run workflow has two buttons in one: Cut beta publishes the next dinkus-payments-beta from main,
+  # and Promote turns a beta that passed the beta-store journeys into a "ci: release" PR.
   workflow_dispatch:
     inputs:
-      beta_version:
-        description: "Verified beta version to promote into a ci: release PR (e.g. 0.2.9-beta.1)"
+      action:
+        description: "Cut beta: publish the next beta from main. Promote: open the ci: release PR for a verified beta."
         required: true
+        default: cut-beta
+        type: choice
+        options:
+          - cut-beta
+          - promote
+      beta_version:
+        description: "Cut beta: leave blank for the next X.Y.Z-beta.N, or give one. Promote: the verified beta (e.g. 0.2.9-beta.1)."
+        required: false
+        default: ""
         type: string
       proof_ref:
-        description: "Recorded beta-store @running journey pass proof naming beta_version (run URL, artifact path, or summary)"
-        required: true
+        description: "Promote only: the passing Live journeys run's address followed by (X.Y.Z-beta.N @running pass)"
+        required: false
+        default: ""
         type: string
 
 permissions:
@@ -26,7 +38,7 @@ concurrency:
 jobs:
   release:
     name: Promote verified beta PR or tag merged stable release
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.action == 'promote')
     runs-on: ubuntu-latest
     outputs:
       published: ${{ steps.state.outputs.published }}
@@ -77,6 +89,10 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
+          if [ -z "$BETA_VERSION" ] || [ -z "$PROOF_REF" ]; then
+            echo "::error title=Promote needs a beta and its proof::Fill in beta_version (the verified X.Y.Z-beta.N) and proof_ref (the passing Live journeys run's address followed by (X.Y.Z-beta.N @running pass))."
+            exit 1
+          fi
           node scripts/release-flow.mjs promote \
             --beta-version "$BETA_VERSION" \
             --proof-ref "$PROOF_REF"
@@ -110,3 +126,50 @@ jobs:
     with:
       version: ${{ needs.release.outputs.version }}
       release_mode: stable
+
+  cut-beta:
+    name: Cut beta
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.action == 'cut-beta'
+    uses: ./.github/workflows/emdash-release.yml
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    with:
+      version: ${{ inputs.beta_version }}
+      release_mode: beta
+    secrets:
+      RELEASE_APP_ID: ${{ secrets.RELEASE_APP_ID }}
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+  # A beta that Cut beta just published is tested at once: this presses SaariusSkills' "Live
+  # journeys" button, which updates the beta store, beta.sm0ky.dev, to that beta once the Registry
+  # offers it and runs the @running journeys there. The run's name carries the beta, its page shows
+  # pass or fail and the plugin versions tested, and its address is the proof_ref for Promote
+  # (RELEASING.md, step 4). Stable releases never press it.
+  live-journeys:
+    name: Start the live journeys on the beta store
+    needs: cut-beta
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Press Live journeys in SaariusSkills
+        env:
+          # A fine-grained token that can only start workflow runs in saariuslystoned/SaariusSkills.
+          GH_TOKEN: ${{ secrets.LIVE_JOURNEYS_TOKEN }}
+          BETA: ${{ needs.cut-beta.outputs.slug }} ${{ needs.cut-beta.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error title=Live journeys not started::The LIVE_JOURNEYS_TOKEN secret is not set. The beta is published; press Run workflow on SaariusSkills' Live journeys with beta \"$BETA\"."
+            exit 1
+          fi
+          gh workflow run live-journeys.yml --repo saariuslystoned/SaariusSkills --ref main -f journeys=@running -f beta="$BETA"
+          {
+            echo "## Live journeys started for $BETA"
+            echo
+            echo "Its run is named \"Live journeys for $BETA\": https://github.com/saariuslystoned/SaariusSkills/actions/workflows/live-journeys.yml"
+            echo
+            echo "When it passes, promote with \`proof_ref\` set to that run's address followed by \`(${BETA##* } @running pass)\`."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -199,28 +199,35 @@ test("validateEmDashDispatchGate and .github/scripts/emdash-dispatch-gate.mjs ag
   assert.equal(binding.jobIfMatches, true);
   assert.equal(binding.gateScriptInvokedBeforeCredentials, true);
   assert.equal(binding.callerPassesStableReleaseMode, true);
+  assert.equal(binding.callerPassesBetaReleaseMode, true);
   assert.equal(binding.delegatedOidcReleaseConfigured, true);
 
   const testCases = [
     {
-      label: "manual workflow_dispatch auto beta on main",
-      input: { eventName: "workflow_dispatch", ref: "refs/heads/main", inputVersion: "", releaseMode: "" },
+      label: "Cut beta from release.yml, next beta on main",
+      input: { eventName: "workflow_dispatch", ref: "refs/heads/main", inputVersion: "", releaseMode: "beta" },
       expectedOk: true,
       expectedMode: "cut-beta",
       expectedSlug: BETA_REGISTRY_SLUG,
     },
     {
-      label: "manual workflow_dispatch explicit beta on main",
-      input: { eventName: "workflow_dispatch", ref: "refs/heads/main", inputVersion: "0.2.9-beta.2", releaseMode: "" },
+      label: "Cut beta from release.yml, explicit beta on main",
+      input: { eventName: "workflow_dispatch", ref: "refs/heads/main", inputVersion: "0.2.9-beta.2", releaseMode: "beta" },
       expectedOk: true,
       expectedMode: "cut-beta",
       expectedSlug: BETA_REGISTRY_SLUG,
     },
     {
-      label: "manual workflow_dispatch stable version rejected",
-      input: { eventName: "workflow_dispatch", ref: "refs/heads/main", inputVersion: "0.2.9", releaseMode: "" },
+      label: "Cut beta with a stable version rejected",
+      input: { eventName: "workflow_dispatch", ref: "refs/heads/main", inputVersion: "0.2.9", releaseMode: "beta" },
       expectedOk: false,
       expectedCode: "manual_stable_dispatch_forbidden",
+    },
+    {
+      label: "workflow_dispatch without release.yml's release_mode=beta rejected",
+      input: { eventName: "workflow_dispatch", ref: "refs/heads/main", inputVersion: "0.2.9-beta.2", releaseMode: "" },
+      expectedOk: false,
+      expectedCode: "missing_beta_caller_input",
     },
     {
       label: "manual workflow_dispatch spoofing release_mode=stable rejected",
@@ -229,8 +236,8 @@ test("validateEmDashDispatchGate and .github/scripts/emdash-dispatch-gate.mjs ag
       expectedCode: "manual_stable_dispatch_forbidden",
     },
     {
-      label: "manual workflow_dispatch on non-main ref rejected",
-      input: { eventName: "workflow_dispatch", ref: "refs/heads/feat/rogue-branch", inputVersion: "0.2.9-beta.1", releaseMode: "" },
+      label: "Cut beta on non-main ref rejected",
+      input: { eventName: "workflow_dispatch", ref: "refs/heads/feat/rogue-branch", inputVersion: "0.2.9-beta.1", releaseMode: "beta" },
       expectedOk: false,
       expectedCode: "forbidden_dispatch_ref",
     },
