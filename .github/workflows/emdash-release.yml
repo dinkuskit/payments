@@ -34,6 +34,9 @@ jobs:
       contents: read
       id-token: write # Required for the audience-bound GitHub OIDC token.
       attestations: write # Required to sign build provenance.
+    outputs:
+      slug: ${{ steps.meta.outputs.slug }}
+      version: ${{ steps.meta.outputs.version }}
     steps:
       - name: Check repository visibility
         if: ${{ github.event.repository.visibility != 'public' }}
@@ -194,4 +197,37 @@ jobs:
             echo "## Registry publish verified despite intent failure"
             echo
             echo "The release intent reported failure, but the publisher PDS record for this version carries exactly the prepared bundle bytes. See emdash-cms/emdash#4159."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # A beta that Cut beta (this workflow's manual dispatch) just published is tested at once: this
+  # presses SaariusSkills' "Live journeys" button, which updates the beta store, beta.sm0ky.dev, to
+  # that beta once the Registry offers it and runs the @running journeys there. The run's name
+  # carries the beta, its page shows pass or fail and the plugin versions tested, and its address is
+  # the proof_ref for promotion (RELEASING.md, step 4). Stable releases from release.yml never press it.
+  live-journeys:
+    name: Start the live journeys on the beta store
+    needs: publish
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Press Live journeys in SaariusSkills
+        env:
+          # A fine-grained token that can only start workflow runs in saariuslystoned/SaariusSkills.
+          GH_TOKEN: ${{ secrets.LIVE_JOURNEYS_TOKEN }}
+          BETA: ${{ needs.publish.outputs.slug }} ${{ needs.publish.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error title=Live journeys not started::The LIVE_JOURNEYS_TOKEN secret is not set. The beta is published; press Run workflow on SaariusSkills' Live journeys with beta \"$BETA\"."
+            exit 1
+          fi
+          gh workflow run live-journeys.yml --repo saariuslystoned/SaariusSkills --ref main -f journeys=@running -f beta="$BETA"
+          {
+            echo "## Live journeys started for $BETA"
+            echo
+            echo "Its run is named \"Live journeys for $BETA\": https://github.com/saariuslystoned/SaariusSkills/actions/workflows/live-journeys.yml"
+            echo
+            echo "When it passes, promote with \`proof_ref\` set to that run's address followed by \`(${BETA##* } @running pass)\`."
           } >> "$GITHUB_STEP_SUMMARY"
