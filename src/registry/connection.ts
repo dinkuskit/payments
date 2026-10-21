@@ -98,7 +98,7 @@ export type RegistryFlowResult =
   | { state: "legacy_recovery_prepared"; receipt: LegacyRecoveryReceipt }
   | { state: "legacy_recovery_unconfirmed" }
   | { state: "provider_identity"; providerIdentity: ProviderIdentityDiagnostic }
-  | { state: "unconfigured" | "disconnected" | "connecting" | "ready" | "checking" | "recovery_required"; receipt?: ProofReceipt; status?: unknown; diagnostics?: ConnectionDiagnostics; signIn?: true }
+  | { state: "unconfigured" | "disconnected" | "connecting" | "ready" | "checking" | "recovery_required"; receipt?: ProofReceipt; status?: unknown; diagnostics?: ConnectionDiagnostics; signIn?: true; detailSignIn?: true }
   | { state: "action_required" }
   | { state: "store_key_required"; lastChecked?: { at: number; status: unknown } }
   | { state: "pass_refused"; refusal: PassRefusal }
@@ -333,12 +333,12 @@ export function createRegistryConnection(options: {
       if (!url) return { state: "unconfigured" };
       stage = "read_key";
       const key = await options.settings.get<unknown>(STORE_KEY_SETTING);
-      const secret = typeof key === "string" ? key.trim() : "";
-      if (!secret) return keyRequired(c, user);
-      if (secret.length > 512 || !/^dk_store_[A-Za-z0-9_-]+$/.test(secret)) return { state: "pass_refused", refusal: "invalid_store_key" };
+      const storeKey = typeof key === "string" ? key.trim() : "";
+      if (!storeKey) return keyRequired(c, user);
+      if (storeKey.length > 512 || !/^dk_store_[A-Za-z0-9_-]+$/.test(storeKey)) return { state: "pass_refused", refusal: "invalid_store_key" };
       stage = "fetch_pass";
       const traded = await options.http.fetch(STORE_PASSES_URL, noRedirect({ method: "POST",
-        headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
+        headers: { Authorization: `Bearer ${storeKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ site_id: c.binding.siteId, scope: STORE_PASS_SCOPE, audience: REGISTRY_AUDIENCE }) }));
       if (!traded.ok) {
         const error = await traded.json().then(value => (value as { error?: unknown })?.error, () => undefined);
@@ -348,7 +348,13 @@ export function createRegistryConnection(options: {
       }
       stage = "decode_pass";
       const token = admitStorePass((await traded.json() as { access_token?: unknown })?.access_token, c.binding.siteId);
-      const checked = await readStatus(c, c.binding, token, url, { remember: true, storePass: true });
+      // Diagnostics stay admin-only: they use this admin's own live sign-in, or are skipped.
+      const adminToken = async () => {
+        if (c.adminId !== user?.id || c.phase !== "complete" || c.expiresAt <= now()) return null;
+        const stored = await secret(c).catch(() => null);
+        return stored?.parsed.kind === "session" ? stored.parsed.token : null;
+      };
+      const checked = await readStatus(c, c.binding, token, url, { remember: true, storePass: true, diagnosticsToken: adminToken });
       return checked.state === "action_required" ? { state: "pass_refused", refusal: "payments_refused" } : checked;
     } catch { return checkFailure(stage); }
   }
@@ -373,7 +379,7 @@ export function createRegistryConnection(options: {
   // Both callers have already verified this exact token and owner binding.
   // Setup reuses that proof within the same invocation; all control rechecks
   // remain in place before and after the provider request and returned status.
-  async function readStatus(c: Control, binding: Binding, token: string, url: URL, opts: { diagnostics?: boolean; remember?: boolean; storePass?: boolean } = {}): Promise<RegistryFlowResult> {
+  async function readStatus(c: Control, binding: Binding, token: string, url: URL, opts: { diagnostics?: boolean; remember?: boolean; storePass?: boolean; diagnosticsToken?: () => Promise<string | null> } = {}): Promise<RegistryFlowResult> {
     let stage: StatusCheckStage = "fetch_status";
     try {
       const result = await options.http!.fetch(url.href, noRedirect({ headers: { Authorization: `Bearer ${token}`, "X-Dinkus-Site": binding.siteId } }));
@@ -382,10 +388,13 @@ export function createRegistryConnection(options: {
       stage = "decode_status";
       const decoded = decodeStatus(await result.json());
       let diagnostics: ConnectionDiagnostics | undefined;
+      let detailSignIn = false;
       if (opts.diagnostics !== false && (decoded.state === "connecting" || decoded.state === "recovery_required")) {
         try {
-          const response = await options.http!.fetch(`${url.origin}/v1/connect/diagnostics`, noRedirect({ headers: { Authorization: `Bearer ${token}`, "X-Dinkus-Site": binding.siteId } }));
-          if (response.ok) {
+          const detailToken = opts.diagnosticsToken ? await opts.diagnosticsToken() : token;
+          detailSignIn = !detailToken;
+          const response = detailToken ? await options.http!.fetch(`${url.origin}/v1/connect/diagnostics`, noRedirect({ headers: { Authorization: `Bearer ${detailToken}`, "X-Dinkus-Site": binding.siteId } })) : null;
+          if (response?.ok) {
             const value = decodeDiagnostics(await response.json(), now());
             if (value.mode === decoded.mode && value.state === decoded.state) diagnostics = value;
           }
@@ -395,7 +404,7 @@ export function createRegistryConnection(options: {
         if ((await current())?.value.flowId !== c.flowId || !opts.storePass && c.expiresAt <= now()) return { state: "action_required" };
       }
       if (opts.remember) await rememberStatus(c, binding, decoded);
-      return { state: "ready", status: { availability: "available", status: decoded, message: "Payments status checked." }, ...(diagnostics ? { diagnostics } : {}) };
+      return { state: "ready", status: { availability: "available", status: decoded, message: "Payments status checked." }, ...(diagnostics ? { diagnostics } : {}), ...(detailSignIn ? { detailSignIn: true as const } : {}) };
     } catch { return checkFailure(stage); }
   }
   async function setupProcessor(user: UserInfo): Promise<RegistryFlowResult> {

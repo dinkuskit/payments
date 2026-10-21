@@ -326,6 +326,19 @@ test("a store that hasn't connected Payments on this page asks for Sign in again
   assert.match(JSON.stringify(renderSetupScreen({ state: "disconnected" })), /"title":"Not ready to sell".*"label":"Connect","action_id":"connect"/);
 });
 
+test("a connecting or recovery status still offers Sign in again when a sign-in is needed", () => {
+  for (const state of ["connecting", "recovery_required"]) {
+    const status = { availability: "available", status: { state, mode: "test", bindingRef: "b" } };
+    const action = JSON.stringify(renderSetupScreen({ state: "ready", signIn: true, status }));
+    assert.match(action, /Changing your Stripe setup needs a fresh DinkusKit sign-in/);
+    assert.match(action, /"label":"Sign in again","action_id":"connect"/);
+    const detail = JSON.stringify(renderSetupScreen({ state: "ready", detailSignIn: true, status }));
+    assert.match(detail, /What the last setup attempt recorded is shown only with a fresh DinkusKit sign-in/);
+    assert.match(detail, /"label":"Sign in again","action_id":"connect"/);
+    assert.doesNotMatch(JSON.stringify(renderSetupScreen({ state: "ready", status })), /"action_id":"connect"/);
+  }
+});
+
 test("store key problems are named, and only Payments being off asks for Sign in again", () => {
   const missing = JSON.stringify(renderSetupScreen({ state: "store_key_required" }));
   assert.match(missing, /"title":"Payment status not checked"/);

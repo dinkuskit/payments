@@ -243,7 +243,9 @@ one KV write; neither holds a token. Continue inside the poll interval reuses
 its first control read, so it also stays at ten bridge calls. Until a store key
 is pasted, the same admin sees that status with "Last checked <time>"; another
 admin sees "Payment status not checked". A store-key page load is six bridge
-calls (eight with diagnostics).
+calls. Diagnostics for a connecting or recovery status stay admin-only: they use
+the viewing admin's own live sign-in (nine calls in all), and without one the
+page asks for Sign in again to see the recorded failure detail.
 
 When `POST /v1/connect` refuses with `merchant_country_required` or
 `payments_service_unconfigured`, both of which create nothing, the page names

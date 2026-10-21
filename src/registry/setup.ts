@@ -354,6 +354,8 @@ export function renderSetupScreen(input: unknown) {
   const action = state === "pending" || state === "connecting" ? "continue" : keyProblem || state === "provider_identity" || state === "authorized" || state === "checking" || state === "check_failed" || state === "setup_unconfirmed" || state === "setup_refused" || state === "ready" || state === "processor_setup" ? "check" : "connect";
   // A Stripe change was asked for after this page's DinkusKit sign-in lapsed.
   const signIn = state === "ready" && input && typeof input === "object" && (input as { signIn?: unknown }).signIn === true;
+  // The setup failure detail is admin-only, so it needs this admin's own sign-in.
+  const detailSignIn = state === "ready" && input && typeof input === "object" && (input as { detailSignIn?: unknown }).detailSignIn === true;
   const statusValue = nested && typeof nested === "object" && "status" in nested ? nested.status : null;
   const processorPending = statusValue && typeof statusValue === "object" && "state" in statusValue && ["connecting", "recovery_required"].includes(statusValue.state as string);
   const needsRecovery = statusValue && typeof statusValue === "object" && "state" in statusValue && statusValue.state === "recovery_required";
@@ -404,6 +406,7 @@ export function renderSetupScreen(input: unknown) {
       }] : []),
       ...(recoveryText ? [{ type: "section", text: recoveryText }] : []),
       ...(signIn ? [{ type: "section", text: "Changing your Stripe setup needs a fresh DinkusKit sign-in on this page. Select Sign in again, then try it again." }] : []),
+      ...(detailSignIn && !signIn ? [{ type: "section", text: "What the last setup attempt recorded is shown only with a fresh DinkusKit sign-in on this page. Select Sign in again to see it." }] : []),
       {
         type: "actions",
         elements: [
@@ -414,7 +417,7 @@ export function renderSetupScreen(input: unknown) {
           ...(canSetup ? [{ type: "button", label: "Set up or resume Stripe", action_id: "setup_processor" }] : []),
           ...(state === "legacy_recovery_confirmation" ? [{ type: "button", label: "Confirm recovery preparation", action_id: "prepare_legacy_v2" }] : []),
           { type: "button", label: recoveryState ? "Check connection" : actionLabel, action_id: recoveryState ? "check" : action },
-          ...(action === "check" && !keyProblem && !processorPending ? [{ type: "button", label: signIn ? "Sign in again" : "Reconnect", action_id: "connect" }] : []),
+          ...(action === "check" && !keyProblem && (!processorPending || signIn || detailSignIn) ? [{ type: "button", label: signIn || detailSignIn ? "Sign in again" : "Reconnect", action_id: "connect" }] : []),
           ...(isConnected ? [{ type: "button", label: "Check provider identity", action_id: "check_provider_identity" }] : []),
           ...(needsRecovery && "mode" in statusValue && statusValue.mode === "test" ? [{ type: "button", label: "Review support-approved recovery", action_id: "review_legacy_v2" }] : []),
         ],

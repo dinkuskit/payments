@@ -36,8 +36,10 @@ test("compiled setup retains its verified link and diagnostics within ten bridge
     calls.length = 0; host.http.clear();
     await f.prepareDiagnostics("connecting", { state: "connecting", mode: "test", processorAccountPresent: false, evidence: "unobserved" });
     assert.match(JSON.stringify(await f.action("check")), /Your DinkusKit authorization is connected/);
-    // Check: control read twice, the store-key pass, status, diagnostics, control recheck.
-    assert.equal(calls.length, 6);
+    // Check: control read twice, the store-key pass, status, this admin's session, diagnostics, control recheck.
+    assert.deepEqual(calls, ["kvGetVersioned", "kvGetVersioned", "httpFetch", "httpFetch", "settingsGetVersioned", "httpFetch", "kvGetVersioned"]);
+    const detail = host.http.requests().find(r => r.url.endsWith("/v1/connect/diagnostics"))!;
+    assert.equal(JSON.parse(atob(detail.headers.authorization!.split(".")[1]!.replaceAll("-", "+").replaceAll("_", "/"))).scope, "payments:admin");
     assert.equal(host.http.requests().some(r => r.method !== "GET" && r.url !== PASSES), false);
   } finally { vi.restoreAllMocks(); await host.dispose(); }
 });
@@ -649,11 +651,12 @@ test("compiled Check exposes an exact support reference without extra requests o
   const page=await f.action("check");const ref=page.blocks.find((b:{text?:string})=>b.text?.startsWith("Setup support reference: "));
   assert.deepEqual(JSON.parse(ref.text.slice("Setup support reference: ".length)),{bindingRef:"stripe_support_fixture",failureAt:at,category:"unknown",httpStatus:400});
   assert.ok(host.http.requests().every(r=>r.method==="GET"||r.url===PASSES));assert.equal(host.http.requests().filter(r=>r.url===STATUS).length,1);assert.equal(host.http.requests().filter(r=>r.url.endsWith("/diagnostics")).length,1);assert.deepEqual(await snapshot(host),before);
-  // The status is the store's, read with the store key, so another admin sees the same reference.
+  // Another admin reads the store's status, but the admin-only failure detail needs their own sign-in.
   const other=await host.fixtures.user({email:"support-other@example.invalid",role:"admin"});host.http.clear();
   await f.prepareStatusResponse({state:"connecting",mode:"test",bindingRef:"stripe_support_fixture"});
-  await host.http.respond("https://payments.dinkuskit.com/v1/connect/diagnostics",Response.json({state:"connecting",mode:"test",processorAccountPresent:false,evidence:"observed",lastFailure:{category:"unknown",status:400,at}}));
-  assert.match(JSON.stringify(await host.admin.act("/status","check",{user:other})),/Setup support reference/);assert.deepEqual(await snapshot(host),before);
+  const otherPage=JSON.stringify(await host.admin.act("/status","check",{user:other}));
+  assert.doesNotMatch(otherPage,/Setup support reference/);assert.match(otherPage,/What the last setup attempt recorded.*"label":"Sign in again","action_id":"connect"/);
+  assert.deepEqual(host.http.requests().map(r=>r.url),[PASSES,STATUS]);assert.deepEqual(await snapshot(host),before);
  } finally {await host.dispose();}
 });
 

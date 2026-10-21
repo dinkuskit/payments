@@ -31,7 +31,7 @@ async function fixture({ testOnly, installedPluginId, pluginId, endpoint = { sta
   const expectedPluginId = installedPluginId === 'dinkus-payments-beta' || pluginId === 'dinkus-payments-beta'
     ? 'r_sffx6l4z6mpqliki'
     : (installedPluginId ?? (pluginId === 'dinkus-payments' ? 'r_3brsc2on3bu673rn' : pluginId) ?? 'r_3brsc2on3bu673rn');
-  const f = { now: 1_800_000_000_000, starts: 0, exchanges: 0, statuses: 0, approved: false, siteId: 'site', subject: 'org', error: null, calls: [], gate: null, claims: {}, setupReply: { state: 'setup_required', mode: 'test', bindingRef: 'synthetic-binding', url: 'https://connect.stripe.com/setup/synthetic', expiresAt: 1_800_000_300_000 }, setupStatus: 200, recoveryReply: { state: 'prepared', mode: 'test', bindingRef: 'stripe_synthetic', operationId: 'approved_operation', preparedAt: 1_800_000_000_000 }, recoveryStatus: 200, passes: 0, passError: null, passClaims: {}, slept: [], statusReply: { state: 'disconnected', mode: 'test', bindingRef: 'synthetic-binding' } };
+  const f = { now: 1_800_000_000_000, starts: 0, exchanges: 0, statuses: 0, approved: false, siteId: 'site', subject: 'org', error: null, calls: [], gate: null, claims: {}, setupReply: { state: 'setup_required', mode: 'test', bindingRef: 'synthetic-binding', url: 'https://connect.stripe.com/setup/synthetic', expiresAt: 1_800_000_300_000 }, setupStatus: 200, recoveryReply: { state: 'prepared', mode: 'test', bindingRef: 'stripe_synthetic', operationId: 'approved_operation', preparedAt: 1_800_000_000_000 }, recoveryStatus: 200, passes: 0, diagnosticScopes: [], passError: null, passClaims: {}, slept: [], statusReply: { state: 'disconnected', mode: 'test', bindingRef: 'synthetic-binding' } };
   const connection = createRegistryConnection({
     ...store,
     config: { endpoint, testOnly, ...(installedPluginId ? { installedPluginId } : {}) },
@@ -73,6 +73,11 @@ async function fixture({ testOnly, installedPluginId, pluginId, endpoint = { sta
       }
       if (url.endsWith('/reconcile-legacy-rejection')) { if (f.recoveryGate) await f.recoveryGate(); return json(f.recoveryReply, f.recoveryStatus); }
       if (url.endsWith('/v1/connect')) return json(f.setupReply, f.setupStatus);
+      if (url.endsWith('/v1/connect/diagnostics')) {
+        // The hosted route is admin-only: record which pass reached it.
+        f.diagnosticScopes.push(JSON.parse(Buffer.from(init.headers.Authorization.split('.')[1], 'base64url')).scope);
+        return json({ state: f.statusReply.state, mode: 'test', processorAccountPresent: false, evidence: 'observed', lastFailure: { category: 'unknown', status: 400, at: f.now - 1000 } });
+      }
       f.statuses++; assert.equal(init.headers['X-Dinkus-Site'], f.siteId); assert.match(init.headers.Authorization, /^Bearer /);
       if (f.statusCode) return json({ error: 'unauthorized' }, f.statusCode);
       return json(f.statusReply);
@@ -306,6 +311,20 @@ test('DinkusKit.com refusals of the store key are named, and the key goes only t
   const { f, connection } = await fixture(); await f.connect();
   await connection.status({ id: 'admin' });
   for (const call of f.calls) if (call.init.headers?.Authorization === 'Bearer dk_store_synthetic') assert.equal(call.url, STORE_PASSES_URL);
+});
+
+test('setup failure detail uses only this admin\'s live sign-in, never the store pass', async () => {
+  for (const state of ['connecting', 'recovery_required']) {
+    const { f, connection } = await fixture(); await f.connect();
+    f.statusReply = { state, mode: 'test', bindingRef: 'synthetic-binding' };
+    const live = await connection.status({ id: 'admin' });
+    assert.equal(live.state, 'ready'); assert.equal(live.diagnostics.lastFailure.category, 'unknown'); assert.equal(live.detailSignIn, undefined);
+    assert.deepEqual(f.diagnosticScopes, [REGISTRY_SCOPE]);
+    for (const shown of [await connection.status({ id: 'other' }), (f.now += 301000, await connection.status({ id: 'admin' }))]) {
+      assert.equal(shown.state, 'ready'); assert.equal(shown.diagnostics, undefined); assert.equal(shown.detailSignIn, true);
+    }
+    assert.deepEqual(f.diagnosticScopes, [REGISTRY_SCOPE]);
+  }
 });
 
 test('a refused setup carries only a known reason; any other refusal stays unconfirmed', async () => {
