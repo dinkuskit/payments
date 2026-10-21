@@ -3,7 +3,7 @@ import test from 'node:test';
 import { describeStatusCheckFailure, readStatusCheckFailure } from '../src/registry/check-failure.ts';
 
 test('status failure descriptions accept only closed stages and valid HTTP statuses', () => {
-  for (const stage of ['read_control', 'read_session', 'verify_session', 'fetch_status', 'decode_status', 'recheck_control']) {
+  for (const stage of ['read_control', 'read_key', 'fetch_pass', 'decode_pass', 'fetch_status', 'decode_status', 'recheck_control']) {
     assert.deepEqual(readStatusCheckFailure({ stage }), { stage });
     assert.match(describeStatusCheckFailure({ stage }), new RegExp(`Support code: status_${stage}`));
   }

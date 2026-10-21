@@ -250,8 +250,9 @@ test("the playground pass is checkout-only and cannot touch other tenants", asyn
   // A pass for another site cannot claim the playground header.
   const other = await issue({ site_id: "merchant-site" });
   expect((await call("/v1/checkout/session", { token: other, body: payment("pg-x") })).status).toBe(401);
-  // No admin: neither on admin routes nor a broader scope string.
-  expect((await call("/v1/status")).status).toBe(401);
+  // No admin: neither on admin routes nor a broader scope string. Status takes a
+  // checkout pass for store admins, but the playground's stays closed to it.
+  expect((await call("/v1/status")).status).toBe(403);
   expect((await call("/v1/connect", { method: "POST" })).status).toBe(401);
   expect((await call("/v1/checkout/session", { token: await issue({ scope: "payments:checkout payments:admin" }), body: payment("pg-x") })).status).toBe(401);
   // Binding routes are closed to it.

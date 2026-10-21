@@ -4,7 +4,9 @@ export const hostedHttpRoutes = {
   "/v1/connect/diagnostics": { method: "GET", scope: "payments:admin" },
   "/v1/connect/provider-identity": { method: "GET", scope: "payments:admin" },
   "/v1/connect/reconcile-legacy-rejection": { method: "POST", scope: "payments:admin" },
-  "/v1/status": { method: "GET", scope: "payments:admin" },
+  // The store admin's status page reads with the store's checkout pass
+  // (payments-status-store-pass-039); either pass shows the same status.
+  "/v1/status": { method: "GET", scope: ["payments:admin", "payments:checkout"] },
   "/v1/checkout-binding": { method: "GET", scope: "payments:checkout" },
   "/v1/existing-binding": { method: "GET", scope: "payments:checkout" },
   "/v1/checkout/session": { method: "POST", scope: "payments:checkout" },

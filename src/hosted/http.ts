@@ -101,7 +101,7 @@ function checkoutErrorStatus(error: unknown): number {
 }
 
 export function createHostedHandler(options: {
-  authenticate(request: Request, scope: "payments:admin" | "payments:checkout"): Promise<Principal>;
+  authenticate(request: Request, scope: "payments:admin" | "payments:checkout" | readonly ("payments:admin" | "payments:checkout")[]): Promise<Principal>;
   service(principal: Principal): ConnectionApi;
   checkout?(principal: Principal, context: CheckoutContext): CheckoutApi;
   wakes?(principal: Principal): WakeApi;

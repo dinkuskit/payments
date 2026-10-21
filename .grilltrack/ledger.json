@@ -2842,6 +2842,64 @@
       "superseded_by": null,
       "updated_at": "2026-10-19T19:56:35+00:00",
       "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
+    },
+    {
+      "baseline_ref": null,
+      "candidate_refs": [],
+      "choice": "The status page reads /v1/status with a fresh pass traded from the store key on every load, the way checkout does, so it always shows the current answer. (1) A Store key setting (secret) is added to the Payments plugin, pasted from DinkusKit.com's Set up Commerce box like Ship's; the Store ID comes from the existing Connect binding. (2) The pass is the existing payments:checkout / dinkus-payments pair at the fixed https://dinkuskit.com/api/store-passes; the Payments Worker accepts payments:admin or payments:checkout on GET /v1/status only, so there is no DinkusKit.com change. The key is never sent to Payments or shown on a page. (3) The DinkusKit sign-in (Connect / Sign in again) is needed only for actions that change Stripe (Set up or resume Stripe, provider identity, recovery); pressing one with a lapsed sign-in shows the current status and asks to Sign in again. Status never asks for it. (4) A fresh pass is traded each load; no pass is kept. (5) Real problems are named: no key pasted says to paste it (with the last checked status when this admin has one); DinkusKit.com refusals use Ship's wording (unknown key, another store's key, Payments not connected for the store, cut off, suspended, busy); only Payments not connected offers Sign in again. Supersedes the sign-in-pass part of payments-setup-status-wording-037 and the lapsed-sign-in Last checked view of payments-setup-return-check-038; their other parts stand.",
+      "context_ref": null,
+      "created_at": "2026-10-21T22:28:01+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-setup-status-wording-037",
+        "payments-setup-return-check-038"
+      ],
+      "domain": "Rejected legacy TEST account operation recovery",
+      "history": [
+        {
+          "at": "2026-10-21T22:28:01+00:00",
+          "choice": "The status page reads /v1/status with a fresh pass traded from the store key on every load, the way checkout does, so it always shows the current answer. (1) A Store key setting (secret) is added to the Payments plugin, pasted from DinkusKit.com's Set up Commerce box like Ship's; the Store ID comes from the existing Connect binding. (2) The pass is the existing payments:checkout / dinkus-payments pair at the fixed https://dinkuskit.com/api/store-passes; the Payments Worker accepts payments:admin or payments:checkout on GET /v1/status only, so there is no DinkusKit.com change. The key is never sent to Payments or shown on a page. (3) The DinkusKit sign-in (Connect / Sign in again) is needed only for actions that change Stripe (Set up or resume Stripe, provider identity, recovery); pressing one with a lapsed sign-in shows the current status and asks to Sign in again. Status never asks for it. (4) A fresh pass is traded each load; no pass is kept. (5) Real problems are named: no key pasted says to paste it (with the last checked status when this admin has one); DinkusKit.com refusals use Ship's wording (unknown key, another store's key, Payments not connected for the store, cut off, suspended, busy); only Payments not connected offers Sign in again. Supersedes the sign-in-pass part of payments-setup-status-wording-037 and the lapsed-sign-in Last checked view of payments-setup-return-check-038; their other parts stand.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-21T22:53:04+00:00",
+          "choice": "The status page reads /v1/status with a fresh pass traded from the store key on every load, the way checkout does, so it always shows the current answer. (1) A Store key setting (secret) is added to the Payments plugin, pasted from DinkusKit.com's Set up Commerce box like Ship's; the Store ID comes from the existing Connect binding. (2) The pass is the existing payments:checkout / dinkus-payments pair at the fixed https://dinkuskit.com/api/store-passes; the Payments Worker accepts payments:admin or payments:checkout on GET /v1/status only, so there is no DinkusKit.com change. The key is never sent to Payments or shown on a page. (3) The DinkusKit sign-in (Connect / Sign in again) is needed only for actions that change Stripe (Set up or resume Stripe, provider identity, recovery); pressing one with a lapsed sign-in shows the current status and asks to Sign in again. Status never asks for it. (4) A fresh pass is traded each load; no pass is kept. (5) Real problems are named: no key pasted says to paste it (with the last checked status when this admin has one); DinkusKit.com refusals use Ship's wording (unknown key, another store's key, Payments not connected for the store, cut off, suspended, busy); only Payments not connected offers Sign in again. Supersedes the sign-in-pass part of payments-setup-status-wording-037 and the lapsed-sign-in Last checked view of payments-setup-return-check-038; their other parts stand.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-status-store-pass-039",
+      "implementation_ref": "src/registry/connection.ts;src/registry/setup.ts;src/registry/check-failure.ts;src/hosted/auth.ts;src/hosted/manifest.ts;emdash-plugin.jsonc;docs/registry-status.md",
+      "question": "How does the Payments status page read the store's payment status once its own 5-minute DinkusKit sign-in has lapsed?",
+      "rationale": "Locked on Ronald's 'Agreed build it' in the Payments status page sign-in thread, 22:25 UTC 2026-10-21.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "implemented",
+      "superseded_by": null,
+      "updated_at": "2026-10-21T22:53:04+00:00",
+      "verification_ref": null
     }
   ],
   "last_activation": {
@@ -2864,5 +2922,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-19T19:56:35+00:00"
+  "updated_at": "2026-10-21T22:53:04+00:00"
 }

@@ -313,17 +313,53 @@ test("TEST-order step completes only once Commerce saved the provider-paid order
   assert.doesNotMatch(rendered, /Not ready to sell|Set up or resume Stripe/);
 });
 
-test("a lapsed setup-page sign-in reads as unchecked, not as a broken connection", () => {
+test("a store that hasn't connected Payments on this page asks for Sign in again, not a broken connection", () => {
   const screen = projectSetupScreen({ state: "action_required" });
   assert.equal(screen.overall, "Payment status not checked");
   assert.deepEqual(screen.steps.map(step => step.status), ["unchecked", "unchecked"]);
-  assert.match(screen.steps[0].description, /DinkusKit sign-in has expired or no longer matches this admin and store\. Select Sign in again to refresh it\. Checkout doesn't use this sign-in\./);
+  assert.match(screen.steps[0].description, /This page needs a fresh DinkusKit sign-in for this store\. Select Sign in again to connect Payments/);
   const rendered = JSON.stringify(renderSetupScreen({ state: "action_required" }));
   assert.match(rendered, /Connect payments: Not checked\./);
   assert.match(rendered, /Place a test order: Not checked\./);
   assert.match(rendered, /"label":"Sign in again","action_id":"connect"/);
   assert.doesNotMatch(rendered, /Not ready to sell|needs attention|Set up or resume Stripe|"variant":"alert"/);
   assert.match(JSON.stringify(renderSetupScreen({ state: "disconnected" })), /"title":"Not ready to sell".*"label":"Connect","action_id":"connect"/);
+});
+
+test("store key problems are named, and only Payments being off asks for Sign in again", () => {
+  const missing = JSON.stringify(renderSetupScreen({ state: "store_key_required" }));
+  assert.match(missing, /"title":"Payment status not checked"/);
+  assert.match(missing, /Paste the store key from the Set up Commerce box on DinkusKit\.com into this plugin's settings \(Store key\)/);
+  assert.match(missing, /"label":"Check connection","action_id":"check"/);
+  assert.doesNotMatch(missing, /Sign in again|Reconnect|"variant":"alert"/);
+  const wording = {
+    invalid_store_key: /DinkusKit\.com does not know this store key/,
+    site_mismatch: /This store key belongs to another store/,
+    service_cut_off: /cut Payments off for this store/,
+    store_suspended: /This store is suspended at DinkusKit\.com/,
+    rate_limited: /busy with this store's passes/,
+    payments_refused: /DinkusKit Payments didn't accept this store's pass/,
+  };
+  for (const [refusal, text] of Object.entries(wording)) {
+    const page = JSON.stringify(renderSetupScreen({ state: "pass_refused", refusal }));
+    assert.match(page, text);
+    assert.match(page, /"label":"Check connection","action_id":"check"/);
+    assert.doesNotMatch(page, /Sign in again|Reconnect/);
+  }
+  const off = JSON.stringify(renderSetupScreen({ state: "pass_refused", refusal: "service_not_enabled" }));
+  assert.match(off, /Payments isn't connected for this store at DinkusKit\.com\. Select Sign in again to connect it\./);
+  assert.match(off, /"label":"Sign in again","action_id":"connect"/);
+});
+
+test("a Stripe change pressed after the page's sign-in lapsed keeps the status and asks for Sign in again", () => {
+  const status = { state: "action_required", mode: "test", bindingRef: "b", connectionEvidence: { provider: "stripe", mode: "test", result: "action_required", accountRef: "acct_one" } };
+  const page = JSON.stringify(renderSetupScreen({ state: "ready", signIn: true, status: { availability: "available", status } }));
+  assert.match(page, /Changing your Stripe setup needs a fresh DinkusKit sign-in on this page\. Select Sign in again/);
+  assert.match(page, /"label":"Sign in again","action_id":"connect"/);
+  assert.doesNotMatch(page, /Reconnect/);
+  const plain = JSON.stringify(renderSetupScreen({ state: "ready", status: { availability: "available", status } }));
+  assert.match(plain, /"label":"Reconnect","action_id":"connect"/);
+  assert.doesNotMatch(plain, /fresh DinkusKit sign-in|Sign in again/);
 });
 
 test("TEST-order step says what comes first when there is no paid TEST order", () => {
@@ -386,17 +422,17 @@ test("a refused Stripe setup names its reason and that nothing was created", () 
   assert.doesNotMatch(unknown, /anything-else/);
 });
 
-test("a lapsed page sign-in shows the last checked connection with its time and Sign in again", () => {
+test("with no store key pasted, the page shows the last checked connection with its time", () => {
   const status = { state: "ready", mode: "test", bindingRef: "b", connectionEvidence: { provider: "stripe", mode: "test", result: "verified", accountRef: "acct_one" } };
-  const page = renderSetupScreen({ state: "action_required", lastChecked: { at: Date.UTC(2026, 9, 18, 17, 10), status } });
+  const page = renderSetupScreen({ state: "store_key_required", lastChecked: { at: Date.UTC(2026, 9, 18, 17, 10), status } });
   const banner = page.blocks.find(block => block.type === "banner");
   assert.equal(banner.title, "Connected: Stripe test mode");
-  assert.match(banner.description, /^Last checked Oct 18, 2026 at 5:10 PM UTC\. This page's DinkusKit sign-in lasts 5 minutes/);
+  assert.match(banner.description, /^Last checked Oct 18, 2026 at 5:10 PM UTC\. Paste the store key in this plugin's settings so this page can check it now\./);
   const text = JSON.stringify(page);
-  assert.match(text, /"label":"Sign in again","action_id":"connect"/);
-  assert.doesNotMatch(text, /setup_processor/);
+  assert.match(text, /"label":"Check connection","action_id":"check"/);
+  assert.doesNotMatch(text, /setup_processor|Sign in again|Reconnect/);
   for (const lastChecked of [undefined, { at: 1, status: { state: "bogus" } }, { at: "soon", status }]) {
-    assert.equal(renderSetupScreen({ state: "action_required", lastChecked }).blocks[1].title, "Payment status not checked");
+    assert.equal(renderSetupScreen({ state: "store_key_required", lastChecked }).blocks[1].title, "Payment status not checked");
   }
 });
 
