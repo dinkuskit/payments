@@ -142,7 +142,7 @@ jobs:
       RELEASE_APP_ID: ${{ secrets.RELEASE_APP_ID }}
       RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
-  # A beta that Cut beta just published is tested at once: this presses SaariusSkills' "Live
+  # A beta that Cut beta just published is tested at once: this presses dinkuskit/live-journeys' "Live
   # journeys" button, which updates the beta store, beta.sm0ky.dev, to that beta once the Registry
   # offers it and runs the @running journeys there. The run's name carries the beta, its page shows
   # pass or fail and the plugin versions tested, and its address is the proof_ref for Promote
@@ -154,22 +154,23 @@ jobs:
     timeout-minutes: 5
     permissions: {}
     steps:
-      - name: Press Live journeys in SaariusSkills
+      - name: Press Live journeys in dinkuskit/live-journeys
         env:
-          # A fine-grained token that can only start workflow runs in saariuslystoned/SaariusSkills.
-          GH_TOKEN: ${{ secrets.LIVE_JOURNEYS_TOKEN }}
+          # A dinkuskit org secret: a fine-grained token that can only start workflow runs in
+          # dinkuskit/live-journeys.
+          GH_TOKEN: ${{ secrets.DINKUS_LIVE_JOURNEYS_TOKEN }}
           BETA: ${{ needs.cut-beta.outputs.slug }} ${{ needs.cut-beta.outputs.version }}
         run: |
           set -euo pipefail
           if [ -z "$GH_TOKEN" ]; then
-            echo "::error title=Live journeys not started::The LIVE_JOURNEYS_TOKEN secret is not set. The beta is published; press Run workflow on SaariusSkills' Live journeys with beta \"$BETA\"."
+            echo "::error title=Live journeys not started::The DINKUS_LIVE_JOURNEYS_TOKEN org secret is not set. The beta is published; press Run workflow on dinkuskit/live-journeys' Live journeys with beta \"$BETA\"."
             exit 1
           fi
-          gh workflow run live-journeys.yml --repo saariuslystoned/SaariusSkills --ref main -f journeys=@running -f beta="$BETA"
+          gh workflow run live-journeys.yml --repo dinkuskit/live-journeys --ref main -f journeys=@running -f beta="$BETA"
           {
             echo "## Live journeys started for $BETA"
             echo
-            echo "Its run is named \"Live journeys for $BETA\": https://github.com/saariuslystoned/SaariusSkills/actions/workflows/live-journeys.yml"
+            echo "Its run is named \"Live journeys for $BETA\": https://github.com/dinkuskit/live-journeys/actions/workflows/live-journeys.yml"
             echo
             echo "When it passes, promote with \`proof_ref\` set to that run's address followed by \`(${BETA##* } @running pass)\`."
           } >> "$GITHUB_STEP_SUMMARY"
