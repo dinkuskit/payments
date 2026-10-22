@@ -57,7 +57,9 @@ export async function fixture(options: { installedId?: string; storeKey?: string
     host = await createPluginRuntimeTestHost({ site: { url: SITE } });
   } finally { bindings.EMDASH_PLUGIN_MANIFEST = originalManifest; }
   // DinkusKit.com hands the plugin its own store key at the end of Connect.
-  const issuedKey = options.storeKey === null ? {} : { store_key: options.storeKey ?? STORE_KEY };
+  let issuedKey: { store_key?: string } = options.storeKey === null ? {} : { store_key: options.storeKey ?? STORE_KEY };
+  // From the next exchange on, DinkusKit.com hands over this key (null: none).
+  const issueKey = (key: string | null) => { issuedKey = key === null ? {} : { store_key: key }; };
   const admin = await host.fixtures.user({ email: "connection-admin@example.invalid", role: "admin" });
   const { privateKey, publicKey } = await generateKeyPair("ES256");
   const jwk = { ...await exportJWK(publicKey), kid: "synthetic-connection-key", alg: "ES256" };
@@ -142,7 +144,7 @@ export async function fixture(options: { installedId?: string; storeKey?: string
     await host.http.respond(JWKS, Response.json({ keys: [jwk] }));
     await host.http.respond("https://payments.dinkuskit.com/v1/connect/provider-identity", Response.json(payload, { status }));
   }
-  return { preparePass, prepareSession, prepareIdentity, host, admin, action, page, receipt, prepareStart, pollDue, prepareExchange, prepareStatus, prepareProcessorStatus, prepareDiagnostics, prepareStatusResponse, prepareSetupDiagnostics, prepareSetupStatusResponse };
+  return { issueKey, preparePass, prepareSession, prepareIdentity, host, admin, action, page, receipt, prepareStart, pollDue, prepareExchange, prepareStatus, prepareProcessorStatus, prepareDiagnostics, prepareStatusResponse, prepareSetupDiagnostics, prepareSetupStatusResponse };
 }
 
 export async function snapshot(host: Host) {
