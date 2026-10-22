@@ -201,18 +201,23 @@ it contains no platform account ID or credential. See
 ## Setup status wording
 
 The page reads status the way checkout does (payments-status-store-pass-039):
-each page load or **Check connection** trades the store key, pasted into the
-plugin's **Store key** setting from DinkusKit.com's Set up Commerce box, at the
+each page load or **Check connection** trades this plugin's own store key at the
 fixed `https://dinkuskit.com/api/store-passes` for checkout's
-`payments:checkout` pass, then reads `GET /v1/status` with it. The key goes
-nowhere else and is never shown. No pass is kept between loads. Every store
+`payments:checkout` pass, then reads `GET /v1/status` with it. DinkusKit.com
+hands the key over at the end of Connect (store-connect-per-plugin-key-080), and
+the plugin keeps it inside its encrypted Connect setting (`registry_session`);
+there is no Store key setting to paste into. A new Connect keeps the current key
+until DinkusKit.com hands over the next one, which replaces it. The key goes
+nowhere else and is never shown. DinkusKit.com trades it only for
+`payments:checkout`. No pass is kept between loads. Every store
 admin sees the same current status, whether or not their own sign-in is live.
 
 | What the page knows | Banner | Connect payments | Place a test order |
 | --- | --- | --- | --- |
 | Payments verified a Stripe TEST connection | **Connected: Stripe test mode** (no alert) | Connected: Stripe test mode. Test card payments work; real payments need a live Stripe connection. | As in [test order check](test-order-check.md) |
-| No store key pasted yet | **Payment status not checked**, or the last status this admin read with "Last checked <time>" | Not checked. Paste the store key, then **Check connection**. | Not checked |
-| DinkusKit.com refused the key (unknown, another store's, cut off, suspended, busy) or Payments refused the pass | **Payment status not checked** (no alert) | Not checked, naming the reason. **Check connection**. | Not checked |
+| No store key from Connect yet, or DinkusKit.com no longer knows it (Disconnect) or says it is another store's | **Payment status not checked**, or the last status this admin read with "Last checked <time>" | Not checked, naming the reason. **Connect again**. | Not checked |
+| DinkusKit.com refused the pass (cut off, suspended, busy) or Payments refused it | **Payment status not checked** (no alert) | Not checked, naming the reason. **Check connection**. | Not checked |
+| The store's Commerce plugin is not connected yet | **Not ready to sell** (alert) | Connect the Commerce plugin first, then **Connect**. | Unchanged |
 | Payments isn't connected for the store at DinkusKit.com, or this page never connected it | **Payment status not checked** (no alert) | Not checked. **Sign in again**. | Not checked |
 | Anything else, including nothing connected | **Not ready to sell** (alert) | Unchanged | Unchanged |
 
@@ -228,8 +233,14 @@ A store's DinkusKit Payments connection must be set up by the store owner
 (payments-status-owner-rule-040). DinkusKit.com Connect admits only the owner,
 and the store pass is issued for the owner, so Payments refuses a connection
 filed under anyone else, for checkout as well as this page. A store upgrading
-from an earlier release shows the paste instructions (or that admin's last-read
-status) until the Store key is pasted once; there is no sign-in fallback.
+from an earlier release has no key from Connect yet, so it asks for **Connect
+again** (showing that admin's last-read status if any); a key pasted into the
+old Store key setting is no longer read.
+
+Commerce connects first and registers the store with DinkusKit.com
+(store-connect-flow-081). Once DinkusKit.com requires that, a Payments Connect
+for a store it does not know yet answers 409 `connect_commerce_first`, and the
+page says to connect the Commerce plugin first.
 
 ## Setup page after DinkusKit's Approve (0.2.9 preparation)
 
@@ -247,8 +258,8 @@ diagnostics when the status is connecting or recovery required.
 The status read with a new grant is saved on the grant itself (no extra bridge
 call), and each Check connection or page-load status read stores its status in
 one KV write; neither holds a token. Continue inside the poll interval reuses
-its first control read, so it also stays at ten bridge calls. Until a store key
-is pasted, the same admin sees that status with "Last checked <time>"; another
+its first control read, so it also stays at ten bridge calls. Until Connect has
+given this plugin its key, the same admin sees that status with "Last checked <time>"; another
 admin sees "Payment status not checked". A store-key page load is six bridge
 calls. Diagnostics for a connecting or recovery status stay admin-only: they use
 the viewing admin's own live sign-in (nine calls in all), and without one the

@@ -46,11 +46,13 @@ export const REGISTRY_PROOF_PATH = `/_emdash/api/plugins/${registryInstallationI
 export const REGISTRY_BETA_PROOF_PATH = `/_emdash/api/plugins/${betaRegistryInstallationIdentity.installedPluginId}/store-proof`;
 export const REGISTRY_AUDIENCE = "dinkus-payments";
 export const REGISTRY_SCOPE = "payments:admin";
-// The status read trades the store key here for the same pass checkout uses
-// (payments-status-store-pass-039). The key goes nowhere else.
+// The status read trades this plugin's own store key here for the same pass
+// checkout uses (payments-status-store-pass-039). DinkusKit.com hands the key
+// over at the end of Connect (store-connect-per-plugin-key-080); it is kept in
+// the encrypted Connect setting and goes nowhere else.
 export const STORE_PASSES_URL = `${REGISTRY_ORIGIN}/api/store-passes`;
 export const STORE_PASS_SCOPE = "payments:checkout";
-export const STORE_KEY_SETTING = "storeKey";
+const STORE_KEY_RE = /^dk_store_[A-Za-z0-9_-]{43}$/;
 // DinkusKit.com's named store-pass refusals, plus Payments refusing the pass.
 export const PASS_REFUSALS = ["invalid_store_key", "site_mismatch", "service_not_enabled", "service_cut_off", "store_suspended", "rate_limited", "payments_refused"] as const;
 export type PassRefusal = typeof PASS_REFUSALS[number];
@@ -78,8 +80,8 @@ export type ProofReceipt = Readonly<{
   site_origin: string; callback_uri: string; code_challenge: string; expires_at: number;
 }>;
 type Binding = { siteId: string; origin: string; issuer: string; subject: string };
-type FlowSecret = { kind: "flow"; flowId: string; verifier: string };
-type SessionSecret = { kind: "session"; flowId: string; token: string };
+type FlowSecret = { kind: "flow"; flowId: string; verifier: string; storeKey?: string };
+type SessionSecret = { kind: "session"; flowId: string; token: string; storeKey?: string };
 type LastStatus = { siteId: string; origin: string; adminId: string; checkedAt: number; status: unknown };
 // Closed vocabulary of /v1/connect refusals that are known to create nothing.
 // Never carry any other response text to the page.
@@ -103,6 +105,7 @@ export type RegistryFlowResult =
   | { state: "store_key_required"; lastChecked?: { at: number; status: unknown } }
   | { state: "pass_refused"; refusal: PassRefusal }
   | { state: "setup_refused"; refusal: SetupRefusal }
+  | { state: "commerce_required" }
   | { state: "check_failed"; checkFailure: StatusCheckFailure }
   | { state: "setup_unconfirmed"; checkFailure?: StatusCheckFailure }
   | { state: "processor_setup"; onboardingUrl: string; expiresAt: number; status?: unknown; diagnostics?: ConnectionDiagnostics }
@@ -132,6 +135,13 @@ function decodeJsonSegment<T>(value: string): T {
 async function sha256(value: string) { return base64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)))); }
 function safeString(value: unknown, max = 512): value is string { return typeof value === "string" && value.length > 0 && value.length <= max; }
 function noRedirect(init: RequestInit = {}): RequestInit { return { ...init, redirect: "manual" }; }
+// The store key in the Connect setting, whichever step it was saved at.
+function storeKeyIn(value: unknown): string | undefined {
+  try {
+    const key = typeof value === "string" ? (JSON.parse(value) as { storeKey?: unknown }).storeKey : undefined;
+    return typeof key === "string" && STORE_KEY_RE.test(key) ? key : undefined;
+  } catch { return undefined; }
+}
 function validTestOrigin(value: string): boolean {
   try { const url = new URL(value); return url.origin === value && url.protocol === "http:" && url.hostname === "127.0.0.1" && !!url.port; }
   catch { return false; }
@@ -161,8 +171,8 @@ export function createRegistryConnection(options: {
   function pending(c: Control, checked = false): RegistryFlowResult {
     return { state: "pending", verificationUri: c.verificationUri!, interval: c.interval!, expiresAt: c.expiresAt, ...(checked ? { checked: true as const } : {}) };
   }
-  // Last status this admin read for this store, shown only until a store key
-  // is pasted. Never a token, never used for checkout.
+  // Last status this admin read for this store, shown only until Connect has
+  // given this plugin its store key. Never a token, never used for checkout.
   async function keyRequired(c: Control, user?: UserInfo): Promise<RegistryFlowResult> {
     if (!c.binding || !user?.id || c.adminId !== user.id) return { state: "store_key_required" };
     // The newer of the status saved with the grant and the last Check.
@@ -210,7 +220,12 @@ export function createRegistryConnection(options: {
       const response = await options.http.fetch(REGISTRY_CONNECT_URL, noRedirect({ method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ protocol_version: 2, client_id: REGISTRY_CLIENT_ID, service: REGISTRY_SERVICE,
           site_origin: origin, callback_uri: exactCallback(origin), code_challenge: challenge, code_challenge_method: "S256" }) }));
-      if (!response.ok) return fail(reservation);
+      if (!response.ok) {
+        // Commerce connects first and registers the store (store-connect-flow-081).
+        const refusal = response.status === 409 ? await response.json().then(value => (value as { error?: unknown })?.error, () => undefined) : undefined;
+        await fail(reservation);
+        return refusal === "connect_commerce_first" ? { state: "commerce_required" } : failure();
+      }
       const body = await response.json() as Record<string, unknown>;
       const { site_id: siteId, connection_id: connectionId, expires_at: expiresAt, interval } = body;
       if (body.protocol_version !== 2 || !safeString(siteId, 200) || !SITE_ID_RE.test(siteId) ||
@@ -220,7 +235,9 @@ export function createRegistryConnection(options: {
           body.verification_uri !== `${verificationOrigin}/account/connect?connection_id=${encodeURIComponent(connectionId)}` ||
           c.binding && c.binding.siteId !== siteId) return fail(reservation);
       if (now() >= c.expiresAt) return fail(reservation);
-      const value = JSON.stringify({ kind: "flow", flowId: c.flowId, verifier } satisfies FlowSecret);
+      // A new Connect keeps the current key until DinkusKit.com hands over the next one.
+      const storeKey = storeKeyIn(stored?.value);
+      const value = JSON.stringify({ kind: "flow", flowId: c.flowId, verifier, ...(storeKey ? { storeKey } : {}) } satisfies FlowSecret);
       const fresh = await current();
       if (fresh?.revision !== reservation.revision) return failure();
       if (!(await options.settings.compareAndSet(STATE_SETTING, stored?.revision ?? null, value)).applied) return fail(reservation);
@@ -291,7 +308,9 @@ export function createRegistryConnection(options: {
         return (await options.kv.compareAndSet(CONTROL_KEY, reserved.revision, next)).applied ? pending(next, true) : failure();
       }
       if (!safeString(body.access_token, 4096) || body.token_type !== "Bearer" || body.site_id !== c.receipt!.site_id ||
-          typeof body.expires_in !== "number" || !Number.isInteger(body.expires_in) || body.expires_in < 1 || body.expires_in > 300) return fail(reserved);
+          typeof body.expires_in !== "number" || !Number.isInteger(body.expires_in) || body.expires_in < 1 || body.expires_in > 300 ||
+          body.store_key !== undefined && (typeof body.store_key !== "string" || !STORE_KEY_RE.test(body.store_key))) return fail(reserved);
+      const storeKey = (body.store_key as string | undefined) ?? stored.parsed.storeKey;
       const verified = await verifySessionToken(body.access_token, c.receipt!.site_id);
       const binding: Binding = { siteId: c.receipt!.site_id, origin, issuer: REGISTRY_ISSUER, subject: verified.subject };
       if (c.binding && (c.binding.siteId !== binding.siteId || c.binding.origin !== origin || c.binding.issuer !== binding.issuer || c.binding.subject !== binding.subject)) return fail(reserved);
@@ -302,7 +321,7 @@ export function createRegistryConnection(options: {
       const checked: RegistryFlowResult = url ? await readStatus({ ...c, binding }, binding, verified.token, url, { diagnostics: false }) : { state: "ready" };
       const shown = checked.state === "ready" && "status" in checked ? (checked.status as { status?: unknown } | undefined)?.status : undefined;
       if (c.expiresAt <= now() || (await current())?.revision !== reserved.revision) return failure();
-      const value = JSON.stringify({ kind: "session", flowId: c.flowId, token: verified.token } satisfies SessionSecret);
+      const value = JSON.stringify({ kind: "session", flowId: c.flowId, token: verified.token, ...(storeKey ? { storeKey } : {}) } satisfies SessionSecret);
       if (!(await options.settings.compareAndSet(STATE_SETTING, stored.revision, value)).applied) return fail(reserved);
       const next: Control = { ...c, phase: "complete", binding, secretHash: await sha256(value), expiresAt: verified.expiresAt,
         receipt: undefined, verificationUri: undefined, ...(shown ? { lastStatus: { checkedAt: now(), status: shown } } : {}) };
@@ -332,10 +351,8 @@ export function createRegistryConnection(options: {
       const url = statusUrl();
       if (!url) return { state: "unconfigured" };
       stage = "read_key";
-      const key = await options.settings.get<unknown>(STORE_KEY_SETTING);
-      const storeKey = typeof key === "string" ? key.trim() : "";
+      const storeKey = storeKeyIn(await options.settings.get<unknown>(STATE_SETTING));
       if (!storeKey) return keyRequired(c, user);
-      if (storeKey.length > 512 || !/^dk_store_[A-Za-z0-9_-]+$/.test(storeKey)) return { state: "pass_refused", refusal: "invalid_store_key" };
       stage = "fetch_pass";
       const traded = await options.http.fetch(STORE_PASSES_URL, noRedirect({ method: "POST",
         headers: { Authorization: `Bearer ${storeKey}`, "Content-Type": "application/json" },

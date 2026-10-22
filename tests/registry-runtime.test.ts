@@ -719,7 +719,7 @@ test("compiled Continue pressed inside the poll interval waits it out within ten
   } finally { vi.restoreAllMocks(); await host.dispose(); }
 });
 
-test("compiled Approve with no store key pasted shows the status read at approval, to that admin only", async () => {
+test("compiled Approve with no store key from DinkusKit.com shows the status read at approval, to that admin only", async () => {
   const f = await fixture({ storeKey: null }); const { host } = f;
   try {
     await f.prepareStart("approve-then-lapse"); await f.action("connect"); await f.pollDue();
@@ -728,8 +728,8 @@ test("compiled Approve with no store key pasted shows the status read at approva
     host.http.clear();
     const page = await f.page();
     assert.equal(page.blocks[1].title, "Connected: Stripe test mode");
-    assert.match(String(page.blocks[1].description), /^Last checked .* UTC\. Paste the store key in this plugin's settings so this page can check it now/);
-    assert.match(JSON.stringify(page), /"label":"Check connection","action_id":"check"/);
+    assert.match(String(page.blocks[1].description), /^Last checked .* UTC\. Select Connect again so this page can check it now/);
+    assert.match(JSON.stringify(page), /"label":"Connect again","action_id":"connect"/);
     assert.doesNotMatch(JSON.stringify(page), /Sign in again/);
     assert.deepEqual(host.http.requests(), []);
     const other = await host.fixtures.user({ email: "other-admin@example.invalid", role: "admin" });
@@ -743,7 +743,8 @@ test("compiled sessions saved by the previous release keep working with no remem
   try {
     await f.prepareStart("previous-release"); await f.action("connect"); await f.pollDue();
     await f.prepareExchange(); await f.action("continue");
-    // Exactly what 0.2.8 persisted: no lastStatus on control, no state:last-status.
+    // The control 0.2.8 persisted: no lastStatus, no state:last-status. The key itself
+    // comes from this release's Connect; the released 0.3.0 key setup is the next test.
     const { lastStatus: _dropped, ...previous } = await control(host) as Record<string, unknown>;
     await host.fixtures.plugin.kv(CONTROL, previous);
     assert.equal(await host.inspect.kv.get("state:last-status"), null);
@@ -764,6 +765,37 @@ test("compiled sessions saved by the previous release keep working with no remem
   } finally { await host.dispose(); }
 });
 
+
+test("a store set up with released 0.3.0 asks for Connect again, then reads status with its own key", async () => {
+  // Exactly what 0.3.0 saved: a session with no store key in it, and the pasted key
+  // in its own "storeKey" setting. This release retires the paste (store-connect-082).
+  const f = await fixture({ storeKey: null }); const { host } = f;
+  try {
+    await f.prepareStart("released-0-3-0"); await f.action("connect"); await f.pollDue();
+    await f.prepareExchange(); await f.action("continue");
+    await host.fixtures.plugin.setting("storeKey", STORE_KEY);
+    assert.equal("storeKey" in await session(host), false);
+    await host.fixtures.plugin.kv(CONTROL, { ...await control(host), expiresAt: Date.now() - 1 });
+    host.http.clear();
+    const page = await f.page();
+    assert.match(JSON.stringify(page), /"label":"Connect again","action_id":"connect"/);
+    assert.doesNotMatch(JSON.stringify(page), /Paste|Sign in again/);
+    assert.deepEqual(host.http.requests(), [], "the old pasted key is never sent anywhere");
+    // Connect again: DinkusKit.com hands over this plugin's own key, and status reads with it.
+    const fresh = `dk_store_${"F".repeat(43)}`;
+    f.issueKey(fresh);
+    await f.prepareStart("released-0-3-0-again"); await f.action("connect"); await f.pollDue();
+    await f.prepareExchange();
+    assert.match(JSON.stringify(await f.action("continue")), /Connected: Stripe test mode\. Test card payments work at checkout/);
+    assert.equal((await session(host)).storeKey, fresh);
+    host.http.clear(); await f.prepareStatus();
+    assert.match(JSON.stringify(await f.page()), /Connected: Stripe test mode\. Test card payments work at checkout/);
+    const passes = host.http.requests().filter(r => r.url === PASSES);
+    assert.equal(passes.length, 1);
+    assert.equal(passes[0].headers.authorization, `Bearer ${fresh}`);
+    assert.equal(host.http.requests().some(r => JSON.stringify(r.headers).includes(STORE_KEY)), false);
+  } finally { await host.dispose(); }
+});
 
 test("compiled operator preparation requires confirmation and keeps the held grant private", async () => {
   const f = await fixture(); const { host } = f;

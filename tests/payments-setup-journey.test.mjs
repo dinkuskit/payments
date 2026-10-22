@@ -145,10 +145,18 @@ test("runPaymentsSetupJourney completes Connect -> Authorize -> Continue -> Chec
               token_type: "Bearer",
               site_id: "beta-site",
               expires_in: 300,
+              store_key: `dk_store_${"J".repeat(43)}`,
             });
           }
           if (url.endsWith("/jwks.json")) {
             return Response.json({ keys: [jwk] });
+          }
+          if (url === "https://dinkuskit.com/api/store-passes") {
+            assert.equal(init.headers.Authorization, `Bearer dk_store_${"J".repeat(43)}`, "the status read uses the key Connect handed over");
+            const pass = await new SignJWT({ site_id: "beta-site", scope: "payments:checkout" })
+              .setProtectedHeader({ alg: "ES256", kid: "journey-key" }).setIssuer(REGISTRY_ISSUER).setAudience("dinkus-payments")
+              .setSubject("org-beta").setIssuedAt(Math.floor(Date.now() / 1000)).setExpirationTime(Math.floor(Date.now() / 1000) + 300).sign(privateKey);
+            return Response.json({ access_token: pass, token_type: "Bearer", expires_in: 300 });
           }
           if (url === "https://payments.dinkuskit.com/v1/status") {
             return Response.json({

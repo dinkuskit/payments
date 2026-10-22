@@ -20,12 +20,7 @@
     "settingsSchema": {
       "registry_session": {
         "label": "Payments Registry session",
-        "description": "Encrypted short-lived Payments Registry session. Managed by the connection flow.",
-        "type": "secret"
-      },
-      "storeKey": {
-        "label": "Store key",
-        "description": "Paste the store key from the Set up Commerce box on DinkusKit.com, the same one pasted into Commerce. The Payments status page trades it there for a short pass each time it checks; it is never sent to Payments itself.",
+        "description": "Encrypted Payments Connect session and this plugin's DinkusKit store key. Managed by Connect; don't change it here.",
         "type": "secret"
       }
     }
