@@ -143,5 +143,5 @@ test('a checkout sends shoppers back to the store address signed into its pass, 
   expect(await started.json()).toMatchObject({ outcome: 'open', session: { sessionId: 'cs_returnpages' } });
   expect(created).toHaveLength(1);
   expect(created[0].get('success_url')).toBe(`${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`);
-  expect(created[0].get('cancel_url')).toBe(`${origin}/cart`);
+  expect(created[0].get('cancel_url')).toBe(`${origin}/checkout`);
 });

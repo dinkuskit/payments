@@ -351,7 +351,7 @@ test("a port without the store's return pages cannot start a hosted payment but 
   await assert.rejects(port({}).ensureSession(payment), /invalid_return_url/);
   assert.equal(requests, 0);
   assert.equal(records.size, 0);
-  assert.equal((await port({ returnUrl: "https://store.example/checkout/success", cancelUrl: "https://store.example/cart" }).ensureSession(payment)).outcome, "open");
+  assert.equal((await port({ returnUrl: "https://store.example/checkout/success", cancelUrl: "https://store.example/checkout" }).ensureSession(payment)).outcome, "open");
   assert.equal((await port({}).ensureSession(payment)).outcome, "open");
   assert.equal(requests, 1);
 });
