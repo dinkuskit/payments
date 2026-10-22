@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -931,6 +932,58 @@ export async function runReleaseAuthorityProof() {
       name: "malformed_registry_200_responses_abort_cut_beta_before_branch_or_tag",
       status: "PASS",
       outcome: { ...errors, betaTagsCreated: 0 },
+      sideEffects: events,
+    });
+  });
+
+  // Scenario (m): a patch branch waits while another release is on test, and a fix whose changeset
+  // a newer main release already used still releases on its patch branch. Every beta and stable
+  // push sends the branch and its tag in one atomic push.
+  await withSeededRepo("backport-after-newer-release", async ({ events, root, gitExec }) => {
+    const env = createStubEnvironment({ events });
+    const first = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(first.version);
+    await runReleaseFlowCli(["promote", "--beta-version", first.version, "--proof-ref", `run-720 (${first.version} @running pass)`], cliDeps(root, gitExec, env));
+    squashMergeReleasePr(root);
+    await runReleaseFlowCli(["publish-merged-release"], cliDeps(root, gitExec, env));
+
+    const fixSha = await commitOnMain(root, { ".changeset/backport.md": FIX_CHANGESET, "src/backport.ts": "export const backport = 1;\n" }, "fix: backport");
+    await commitOnMain(root, { ".changeset/minor.md": FEATURE_CHANGESET, "src/minor.ts": "export const minor = 1;\n" }, "feat: minor");
+    const minor = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(minor.version);
+    const onTestError = await captureError(() =>
+      runReleaseFlowCli(["add-fix", "--release-version", "0.2.10", "--commit", fixSha], cliDeps(root, gitExec, env)),
+    );
+    await runReleaseFlowCli(["promote", "--beta-version", minor.version, "--proof-ref", `run-721 (${minor.version} @running pass)`], cliDeps(root, gitExec, env));
+    squashMergeReleasePr(root);
+    await runReleaseFlowCli(["publish-merged-release"], cliDeps(root, gitExec, env));
+    const mainHadChangeset = existsSync(join(root, ".changeset/backport.md"));
+
+    const patch = await runReleaseFlowCli(["add-fix", "--release-version", "0.2.10", "--commit", fixSha], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(patch.version);
+    await runReleaseFlowCli(["promote", "--beta-version", patch.version, "--proof-ref", `run-722 (${patch.version} @running pass)`], cliDeps(root, gitExec, env));
+    squashMergeReleasePr(root);
+    const done = await runReleaseFlowCli(["publish-merged-release"], cliDeps(root, gitExec, env));
+    const mainPkg = JSON.parse(git(["show", "main:package.json"], root));
+    const pushes = events.filter((e) => e.startsWith("git:push:") && !e.includes("changeset-release/main"));
+
+    if (
+      !onTestError?.includes(`release/${minor.version.replace(/-beta\.\d+$/, "")} is still on test`) ||
+      mainHadChangeset ||
+      patch.version !== "0.2.10-beta.1" ||
+      !done.tagPushed ||
+      !done.consumedChangesets.includes(".changeset/backport.md") ||
+      mainPkg.version !== minor.version.replace(/-beta\.\d+$/, "") ||
+      pushes.length === 0 ||
+      pushes.some((e) => !e.startsWith("git:push:--atomic origin "))
+    ) {
+      throw new Error(`Scenario (m) failed: ${JSON.stringify({ onTestError, mainHadChangeset, patch, done, mainVersion: mainPkg.version, pushes })}`);
+    }
+    scenarios.push({
+      id: "m",
+      name: "patch_branch_waits_for_release_on_test_and_backport_keeps_consumed_changesets",
+      status: "PASS",
+      outcome: { onTestError, stableTag: done.tag, consumedChangesets: done.consumedChangesets, mainVersion: mainPkg.version },
       sideEffects: events,
     });
   });

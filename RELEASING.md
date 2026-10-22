@@ -53,7 +53,7 @@ Every PR also runs `.github/workflows/preview.yml` (`.github/scripts/publish-pkg
 
 ## When to Cut a Beta
 
-(`release-beta-cadence-078`.) Press Cut beta when a batch is worth giving a store: a finished feature, or a fix a store owner would notice. There is no calendar. Ordinary PRs merge to `main` with their changesets and ship nothing on their own. Docs, tests and CI-only changes never get a beta, and Cut beta refuses when nothing version-bumping has merged since the last release. One release is on test at a time: Cut beta refuses while an earlier `release/X.Y.Z` has no `vX.Y.Z` tag yet. Every change, including a fix for a beta on test, is a normal PR to `main` that ClawSweeper reviews; no PR ever targets a release branch.
+(`release-beta-cadence-078`.) Press Cut beta when a batch is worth giving a store: a finished feature, or a fix a store owner would notice. There is no calendar. Ordinary PRs merge to `main` with their changesets and ship nothing on their own. Docs, tests and CI-only changes never get a beta, and Cut beta refuses when nothing version-bumping has merged since the last release. One release is on test at a time: Cut beta refuses while an earlier `release/X.Y.Z` has no `vX.Y.Z` tag yet, and so does Add fix to beta when it would start a patch branch. Every change, including a fix for a beta on test, is a normal PR to `main` that ClawSweeper reviews; no PR ever targets a release branch.
 
 ## Step 2: Cut Beta (`dinkus-payments-beta`)
 

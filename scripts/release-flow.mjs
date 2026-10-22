@@ -1122,8 +1122,9 @@ export async function runReleaseFlowCli(argv, deps = {}) {
       gitExec(["branch", releaseBranch, headSha], root);
       if (!existingTagSha) gitExec(["tag", tag, headSha], root);
       if (flags["no-push"] !== "true") {
-        gitExec(["push", "origin", `${headSha}:refs/heads/${releaseBranch}`], root);
-        gitExec(["push", "origin", `refs/tags/${tag}`], root);
+        // One atomic push: the branch and its beta tag land together or not at all, so a failed
+        // push leaves nothing behind and the button can simply be pressed again.
+        gitExec(["push", "--atomic", "origin", `${headSha}:refs/heads/${releaseBranch}`, `refs/tags/${tag}`], root);
       }
       result.betaSha = headSha;
     }
@@ -1172,6 +1173,15 @@ export async function runReleaseFlowCli(argv, deps = {}) {
       if (parsedTarget.patch === 0) {
         throw new Error(`${releaseBranch} is not cut. Cut beta makes it from main.`);
       }
+      // One release on test at a time, for a patch branch as for Cut beta.
+      const unreleased = listReleaseBranches(root, gitExec).filter(
+        (branch) => !resolveTagCommitSha(`v${branch.slice(RELEASE_BRANCH_PREFIX.length)}`, root, gitExec),
+      );
+      if (unreleased.length > 0) {
+        throw new Error(
+          `${unreleased.join(", ")} is still on test. Promote it (or delete the branch to drop it) before starting ${releaseBranch}.`,
+        );
+      }
       patchBase = `v${parsedTarget.major}.${parsedTarget.minor}.${parsedTarget.patch - 1}`;
       branchSha = resolveTagCommitSha(patchBase, root, gitExec);
       if (!branchSha) {
@@ -1208,8 +1218,7 @@ export async function runReleaseFlowCli(argv, deps = {}) {
     const tag = next.tag;
     gitExec(["tag", tag, headSha], root);
     if (flags["no-push"] !== "true") {
-      gitExec(["push", "origin", `${headSha}:refs/heads/${releaseBranch}`], root);
-      gitExec(["push", "origin", `refs/tags/${tag}`], root);
+      gitExec(["push", "--atomic", "origin", `${headSha}:refs/heads/${releaseBranch}`, `refs/tags/${tag}`], root);
     }
 
     const result = {
@@ -1420,10 +1429,9 @@ export async function runReleaseFlowCli(argv, deps = {}) {
     if (!notes) {
       throw new Error(`Refusing to tag ${tag}: the merged CHANGELOG.md has no ${version} section.`);
     }
-    const consumedChangesets = gitExec(
-      ["diff", "--name-only", "--diff-filter=D", `${headSha}^1`, headSha, "--", ".changeset"],
-      root,
-    )
+    // Promote's release:version used every changeset on the approved beta, so those are the ones
+    // the branch drops, whether or not main still had them to delete.
+    const consumedChangesets = (betaTagSha ? gitExec(["ls-tree", "--name-only", betaTagSha, ".changeset/"], root) : "")
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line && isChangesetMarkdownPath(line));
@@ -1480,8 +1488,7 @@ export async function runReleaseFlowCli(argv, deps = {}) {
 
     gitExec(["tag", tag, releaseSha], root);
     if (flags["no-push"] !== "true") {
-      gitExec(["push", "origin", `${releaseSha}:refs/heads/${releaseBranch}`], root);
-      gitExec(["push", "origin", `refs/tags/${tag}`], root);
+      gitExec(["push", "--atomic", "origin", `${releaseSha}:refs/heads/${releaseBranch}`, `refs/tags/${tag}`], root);
     }
 
     const result = {
