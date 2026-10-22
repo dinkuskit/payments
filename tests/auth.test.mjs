@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { generateKeyPair, SignJWT } from 'jose';
 import { createAccountAuthenticator } from '../src/hosted/auth.ts';
+import { hostedHttpRoutes } from '../src/hosted/manifest.ts';
 
 test('shared issuer identity is verified with audience, expiry, site, and separate permissions', async () => {
   const { publicKey, privateKey } = await generateKeyPair('ES256');
@@ -15,6 +16,17 @@ test('shared issuer identity is verified with audience, expiry, site, and separa
   assert.deepEqual(await verify(request(token), 'payments:admin'), { accountId: JSON.stringify([issuer, 'merchant-a']), siteId: 'site-a' });
   await assert.rejects(verify(request(token, 'site-b'), 'payments:admin'));
   await assert.rejects(verify(request(token), 'payments:checkout'));
+  // The status read takes either pass; each other route still names exactly one.
+  const both = ['payments:admin', 'payments:checkout'];
+  assert.equal((await verify(request(token), both)).siteId, 'site-a');
+  assert.equal((await verify(request(await issue({ scope: 'payments:checkout' })), both)).siteId, 'site-a');
+  await assert.rejects(verify(request(await issue({ scope: 'ship:admin' })), both));
+  // Composed with the hosted routes: the store's checkout pass reads status, never diagnostics.
+  const checkoutPass = await issue({ scope: 'payments:checkout' });
+  assert.equal((await verify(request(checkoutPass), hostedHttpRoutes['/v1/status'].scope)).siteId, 'site-a');
+  for (const path of ['/v1/connect', '/v1/connect/diagnostics', '/v1/connect/provider-identity', '/v1/connect/reconcile-legacy-rejection']) {
+    await assert.rejects(verify(request(checkoutPass), hostedHttpRoutes[path].scope));
+  }
   await assert.rejects(verify(request(await issue({ site_id: '' })), 'payments:admin'));
   const otherKey = await generateKeyPair('ES256');
   const wrong = await new SignJWT({ site_id: 'site-a', scope: 'payments:admin' }).setProtectedHeader({ alg: 'ES256' }).setIssuer(issuer).setAudience('dinkus-payments').setSubject('merchant-a').setIssuedAt().setExpirationTime('5m').sign(otherKey.privateKey);

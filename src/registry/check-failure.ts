@@ -1,7 +1,8 @@
 const STAGES = {
   read_control: "The saved connection could not be read.",
-  read_session: "The saved authorization could not be read or validated.",
-  verify_session: "The DinkusKit authorization could not be verified.",
+  read_key: "The saved store key could not be read.",
+  fetch_pass: "DinkusKit.com did not return a pass for this store.",
+  decode_pass: "DinkusKit.com returned a pass this page cannot use.",
   fetch_status: "The Payments service did not return a successful status response.",
   decode_status: "The Payments service returned an unrecognized status response.",
   recheck_control: "The saved connection could not be rechecked after receiving its status.",

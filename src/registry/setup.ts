@@ -1,7 +1,7 @@
 import { decodeDiagnostics, type ConnectionDiagnostics } from "../connection-diagnostics.js";
 import { decodeLegacyRecoveryReceipt } from "../hosted/legacy-recovery.js";
 import { describeStatusCheckFailure } from "./check-failure.js";
-import type { SetupRefusal } from "./connection.js";
+import type { PassRefusal, SetupRefusal } from "./connection.js";
 import {
   decodeStatus,
   type PaymentsStatus,
@@ -14,8 +14,8 @@ import {
 
 export type SetupStep = {
   title: string;
-  // test_mode: verified for TEST payments only. unchecked: this page's own
-  // DinkusKit sign-in could not read status, which says nothing about checkout.
+  // test_mode: verified for TEST payments only. unchecked: this page could not
+  // read status with the store key, which says nothing about checkout.
   status: "incomplete" | "complete" | "test_mode" | "unchecked";
   description: string;
 };
@@ -34,8 +34,23 @@ const STEP_LABELS: Record<SetupStep["status"], string> = {
   test_mode: "Connected: Stripe test mode",
   unchecked: "Not checked",
 };
-const signInLapsed =
-  "This page couldn't read your payment status because its DinkusKit sign-in has expired or no longer matches this admin and store. Select Sign in again to refresh it. Checkout doesn't use this sign-in.";
+const signInNeeded =
+  "This page needs a fresh DinkusKit sign-in for this store. Select Sign in again to connect Payments with your DinkusKit account. Checkout doesn't use this sign-in.";
+const storeKeyNeeded =
+  "Paste the store key from the Set up Commerce box on DinkusKit.com into this plugin's settings (Store key), the same key Commerce uses. This page trades it for a short pass each time it checks your payment status. Then select Check connection.";
+const PASS_REFUSAL_TEXT: Record<PassRefusal, string> = {
+  invalid_store_key: "DinkusKit.com does not know this store key. Paste the current one from the Set up Commerce box into this plugin's settings, or make a new key there.",
+  site_mismatch: "This store key belongs to another store. Paste the key from this store's Set up Commerce box into this plugin's settings.",
+  service_not_enabled: "Payments isn't connected for this store at DinkusKit.com. Select Sign in again to connect it.",
+  service_cut_off: "DinkusKit.com has cut Payments off for this store. Contact DinkusKit.",
+  store_suspended: "This store is suspended at DinkusKit.com. Contact DinkusKit.",
+  rate_limited: "DinkusKit.com is busy with this store's passes. Try again in a minute.",
+  payments_refused: "DinkusKit Payments didn't accept this store's pass. Select Check connection to try again, and contact DinkusKit if it keeps happening.",
+};
+function describePassRefusal(refusal: unknown): string {
+  return typeof refusal === "string" && Object.hasOwn(PASS_REFUSAL_TEXT, refusal)
+    ? PASS_REFUSAL_TEXT[refusal as PassRefusal] : PASS_REFUSAL_TEXT.payments_refused;
+}
 
 const unavailableConnection =
   "Your payment connection is unavailable, so it could not be checked.";
@@ -63,8 +78,8 @@ function utcTime(ms: number): string {
 
 function testOrderStep(status: PaymentsStatus | null, connectionState?: string): SetupStep {
   const title = "Place a test order";
-  if (connectionState === "action_required") {
-    return { title, status: "unchecked", description: "Your test orders can't be checked until you sign in again on this page." };
+  if (connectionState === "action_required" || connectionState === "store_key_required" || connectionState === "pass_refused") {
+    return { title, status: "unchecked", description: "Your test orders can't be checked until this page can read your payment status." };
   }
   if (connectionState === "authorized") {
     return { title, status: "incomplete", description: `${unconfirmedCommerceOrder} Check the payment connection before placing a test order.` };
@@ -160,7 +175,13 @@ function connectionStep(status: PaymentsStatus | null, connectionState?: string,
     return { title: "Connect payments", status: "incomplete", description: describeSetupRefusal(refusal) };
   }
   if (connectionState === "action_required") {
-    return { title: "Connect payments", status: "unchecked", description: signInLapsed };
+    return { title: "Connect payments", status: "unchecked", description: signInNeeded };
+  }
+  if (connectionState === "store_key_required") {
+    return { title: "Connect payments", status: "unchecked", description: storeKeyNeeded };
+  }
+  if (connectionState === "pass_refused") {
+    return { title: "Connect payments", status: "unchecked", description: describePassRefusal(refusal) };
   }
   if (connectionState === "checking") {
     return {
@@ -263,7 +284,7 @@ export function projectSetupScreen(input: unknown, diagnostics?: ConnectionDiagn
 const BANNERS: Record<SetupOverall, { description: string; variant: "default" | "alert" }> = {
   "Not ready to sell": { description: "Complete both steps before accepting regular customer payments.", variant: "alert" },
   "Connected: Stripe test mode": { description: "Shoppers can pay with Stripe test cards. Real customer payments need a live Stripe connection.", variant: "default" },
-  "Payment status not checked": { description: "Sign in again to refresh this page's payment status. Checkout doesn't use this sign-in.", variant: "default" },
+  "Payment status not checked": { description: "This page couldn't read your payment status. The first step says why. Checkout isn't affected.", variant: "default" },
 };
 
 export function describeProviderIdentity(diagnostic: ProviderIdentityDiagnostic): string {
@@ -307,10 +328,10 @@ function setupSupportReference(status: unknown, diagnostics: unknown): string | 
   } catch { return; }
 }
 
-// While the page's own sign-in has lapsed, show the last status this admin
-// read, labelled with when it was read, instead of an unknown connection.
+// Until the store key is pasted, show the last status this admin read,
+// labelled with when it was read, instead of an unknown connection.
 function lastCheckedProjection(input: unknown): { projection: SetupScreenProjection; at: number } | undefined {
-  if (!input || typeof input !== "object" || (input as { state?: unknown }).state !== "action_required") return;
+  if (!input || typeof input !== "object" || (input as { state?: unknown }).state !== "store_key_required") return;
   const last = (input as { lastChecked?: unknown }).lastChecked;
   if (!last || typeof last !== "object") return;
   const { at, status } = last as { at?: unknown; status?: unknown };
@@ -324,11 +345,17 @@ export function renderSetupScreen(input: unknown) {
   const lastChecked = lastCheckedProjection(input);
   const projection = lastChecked?.projection ?? projectSetupScreen(nested, input && typeof input === "object" && "diagnostics" in input ? input.diagnostics as ConnectionDiagnostics : undefined);
   const banner = lastChecked
-    ? { ...BANNERS[projection.overall], description: `Last checked ${utcTime(lastChecked.at)}. This page's DinkusKit sign-in lasts 5 minutes, so select Sign in again to check it now. Checkout doesn't use this sign-in.` }
+    ? { ...BANNERS[projection.overall], description: `Last checked ${utcTime(lastChecked.at)}. Paste the store key in this plugin's settings so this page can check it now. Checkout isn't affected.` }
     : BANNERS[projection.overall];
   const state = typeof input === "object" && input !== null && !Array.isArray(input) &&
     typeof (input as { state?: unknown }).state === "string" ? (input as { state: string }).state : "disconnected";
-  const action = state === "pending" || state === "connecting" ? "continue" : state === "provider_identity" || state === "authorized" || state === "checking" || state === "check_failed" || state === "setup_unconfirmed" || state === "setup_refused" || state === "ready" || state === "processor_setup" ? "check" : "connect";
+  const refusal = input && typeof input === "object" ? (input as { refusal?: unknown }).refusal : undefined;
+  const keyProblem = state === "store_key_required" || state === "pass_refused" && refusal !== "service_not_enabled";
+  const action = state === "pending" || state === "connecting" ? "continue" : keyProblem || state === "provider_identity" || state === "authorized" || state === "checking" || state === "check_failed" || state === "setup_unconfirmed" || state === "setup_refused" || state === "ready" || state === "processor_setup" ? "check" : "connect";
+  // A Stripe change was asked for after this page's DinkusKit sign-in lapsed.
+  const signIn = state === "ready" && input && typeof input === "object" && (input as { signIn?: unknown }).signIn === true;
+  // The setup failure detail is admin-only, so it needs this admin's own sign-in.
+  const detailSignIn = state === "ready" && input && typeof input === "object" && (input as { detailSignIn?: unknown }).detailSignIn === true;
   const statusValue = nested && typeof nested === "object" && "status" in nested ? nested.status : null;
   const processorPending = statusValue && typeof statusValue === "object" && "state" in statusValue && ["connecting", "recovery_required"].includes(statusValue.state as string);
   const needsRecovery = statusValue && typeof statusValue === "object" && "state" in statusValue && statusValue.state === "recovery_required";
@@ -348,7 +375,7 @@ export function renderSetupScreen(input: unknown) {
   const canSetup = !needsRecovery && (state === "ready" || state === "processor_setup") &&
     (!evidence || typeof evidence !== "object" || !("provider" in evidence) ||
       (evidence.provider === "stripe" && "result" in evidence && evidence.result !== "verified"));
-  const actionLabel = action === "continue" ? "Continue" : action === "check" ? "Check connection" : state === "action_required" ? "Sign in again" : "Connect";
+  const actionLabel = action === "continue" ? "Continue" : action === "check" ? "Check connection" : state === "action_required" || state === "pass_refused" ? "Sign in again" : "Connect";
   const isConnected = state === "ready" || state === "processor_setup" || state === "provider_identity";
   const supportReference = (state === "ready" || state === "processor_setup") && input && typeof input === "object" && "diagnostics" in input
     ? setupSupportReference(statusValue, input.diagnostics) : undefined;
@@ -378,6 +405,8 @@ export function renderSetupScreen(input: unknown) {
         text: `Provider identity: ${describeProviderIdentity(providerIdentity)}`,
       }] : []),
       ...(recoveryText ? [{ type: "section", text: recoveryText }] : []),
+      ...(signIn ? [{ type: "section", text: "Changing your Stripe setup needs a fresh DinkusKit sign-in on this page. Select Sign in again, then try it again." }] : []),
+      ...(detailSignIn && !signIn ? [{ type: "section", text: "What the last setup attempt recorded is shown only with a fresh DinkusKit sign-in on this page. Select Sign in again to see it." }] : []),
       {
         type: "actions",
         elements: [
@@ -388,7 +417,7 @@ export function renderSetupScreen(input: unknown) {
           ...(canSetup ? [{ type: "button", label: "Set up or resume Stripe", action_id: "setup_processor" }] : []),
           ...(state === "legacy_recovery_confirmation" ? [{ type: "button", label: "Confirm recovery preparation", action_id: "prepare_legacy_v2" }] : []),
           { type: "button", label: recoveryState ? "Check connection" : actionLabel, action_id: recoveryState ? "check" : action },
-          ...(action === "check" && !processorPending ? [{ type: "button", label: "Reconnect", action_id: "connect" }] : []),
+          ...(action === "check" && !keyProblem && (!processorPending || signIn || detailSignIn) ? [{ type: "button", label: signIn || detailSignIn ? "Sign in again" : "Reconnect", action_id: "connect" }] : []),
           ...(isConnected ? [{ type: "button", label: "Check provider identity", action_id: "check_provider_identity" }] : []),
           ...(needsRecovery && "mode" in statusValue && statusValue.mode === "test" ? [{ type: "button", label: "Review support-approved recovery", action_id: "review_legacy_v2" }] : []),
         ],

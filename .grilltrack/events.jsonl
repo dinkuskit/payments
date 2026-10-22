@@ -40,3 +40,9 @@
 {"action": "shared_understanding_confirmed", "at": "2026-10-19T19:55:02+00:00", "data": {"summary": "Implement only internal start validation and preservation, strict policy removal of expectedStartedAt, focused tests and documentation. Retain the existing confirmed Registry consumer and every other guard. No merge, release, deployment, configuration, credentials or live actions."}, "event_id": "aa7c6816-43dc-4a50-a9c9-511e028dbb21"}
 {"action": "decision_implemented", "at": "2026-10-19T19:55:15+00:00", "data": {"decision_id": "rejected-legacy-v2-preparation-038"}, "event_id": "044f4276-9b0d-40bc-b4e6-3f05a86c9ec7"}
 {"action": "decision_verified", "at": "2026-10-19T19:56:35+00:00", "data": {"decision_id": "rejected-legacy-v2-preparation-038"}, "event_id": "05ad7dbc-0792-49e6-ab25-f6a32c61ca1f"}
+{"action": "decision_proposed", "at": "2026-10-21T22:28:01+00:00", "data": {"decision_id": "payments-status-store-pass-039"}, "event_id": "1a5f61df-13fb-4599-bc20-3daec745ed89"}
+{"action": "decision_locked", "at": "2026-10-21T22:28:01+00:00", "data": {"decision_id": "payments-status-store-pass-039"}, "event_id": "09b7556e-9dd3-4ae6-8bbb-cc3ad202468c"}
+{"action": "decision_implemented", "at": "2026-10-21T22:53:04+00:00", "data": {"decision_id": "payments-status-store-pass-039"}, "event_id": "f85ce5b5-7679-42a1-96d4-500bcd52ce64"}
+{"action": "decision_proposed", "at": "2026-10-22T01:03:25+00:00", "data": {"decision_id": "payments-status-owner-rule-040"}, "event_id": "6196854d-0471-49b3-8245-714f7b809313"}
+{"action": "decision_locked", "at": "2026-10-22T01:03:25+00:00", "data": {"decision_id": "payments-status-owner-rule-040"}, "event_id": "a5baf513-dd9c-4e0e-b593-7a15051a0177"}
+{"action": "decision_implemented", "at": "2026-10-22T01:03:25+00:00", "data": {"decision_id": "payments-status-owner-rule-040"}, "event_id": "4b03d92b-7a86-4201-aade-ea11eed6f7f3"}

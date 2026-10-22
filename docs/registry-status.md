@@ -200,19 +200,36 @@ it contains no platform account ID or credential. See
 
 ## Setup status wording
 
-The page's own DinkusKit sign-in only reads status for this page. Checkout never
-uses it: Commerce trades its own store key. So the page separates three cases.
+The page reads status the way checkout does (payments-status-store-pass-039):
+each page load or **Check connection** trades the store key, pasted into the
+plugin's **Store key** setting from DinkusKit.com's Set up Commerce box, at the
+fixed `https://dinkuskit.com/api/store-passes` for checkout's
+`payments:checkout` pass, then reads `GET /v1/status` with it. The key goes
+nowhere else and is never shown. No pass is kept between loads. Every store
+admin sees the same current status, whether or not their own sign-in is live.
 
 | What the page knows | Banner | Connect payments | Place a test order |
 | --- | --- | --- | --- |
 | Payments verified a Stripe TEST connection | **Connected: Stripe test mode** (no alert) | Connected: Stripe test mode. Test card payments work; real payments need a live Stripe connection. | As in [test order check](test-order-check.md) |
-| This page's sign-in expired, belongs to another admin or store, or Payments refused it | **Payment status not checked** (no alert) | Not checked. Select **Sign in again**; checkout doesn't use this sign-in. | Not checked |
+| No store key pasted yet | **Payment status not checked**, or the last status this admin read with "Last checked <time>" | Not checked. Paste the store key, then **Check connection**. | Not checked |
+| DinkusKit.com refused the key (unknown, another store's, cut off, suspended, busy) or Payments refused the pass | **Payment status not checked** (no alert) | Not checked, naming the reason. **Check connection**. | Not checked |
+| Payments isn't connected for the store at DinkusKit.com, or this page never connected it | **Payment status not checked** (no alert) | Not checked. **Sign in again**. | Not checked |
 | Anything else, including nothing connected | **Not ready to sell** (alert) | Unchanged | Unchanged |
 
-**Sign in again** runs the same Connect flow with the same site binding. It
-never offers **Set up or resume Stripe**, which still appears only after a
-successful status read without verified Stripe evidence. Nothing here changes
-what a connection is or how it is verified (037).
+The page's own DinkusKit sign-in (**Connect** / **Sign in again**) is now
+needed only for actions that change Stripe: **Set up or resume Stripe**,
+**Check provider identity** and recovery. Pressed after it lapsed, or by another
+admin, they show the current status and ask for **Sign in again**; nothing is
+sent to Payments' setup routes. The hosted Worker answers `GET /v1/status` for
+either a `payments:admin` or a `payments:checkout` pass (the playground's pass
+stays refused there), so it must be deployed before this plugin is released.
+
+A store's DinkusKit Payments connection must be set up by the store owner
+(payments-status-owner-rule-040). DinkusKit.com Connect admits only the owner,
+and the store pass is issued for the owner, so Payments refuses a connection
+filed under anyone else, for checkout as well as this page. A store upgrading
+from an earlier release shows the paste instructions (or that admin's last-read
+status) until the Store key is pasted once; there is no sign-in fallback.
 
 ## Setup page after DinkusKit's Approve (0.2.9 preparation)
 
@@ -230,10 +247,12 @@ diagnostics when the status is connecting or recovery required.
 The status read with a new grant is saved on the grant itself (no extra bridge
 call), and each Check connection or page-load status read stores its status in
 one KV write; neither holds a token. Continue inside the poll interval reuses
-its first control read, so it also stays at ten bridge calls. When the page's own 5-minute sign-in has
-lapsed for that same admin and store, the page shows that status with
-"Last checked <time>" and Sign in again. Another admin still sees
-"Payment status not checked".
+its first control read, so it also stays at ten bridge calls. Until a store key
+is pasted, the same admin sees that status with "Last checked <time>"; another
+admin sees "Payment status not checked". A store-key page load is six bridge
+calls. Diagnostics for a connecting or recovery status stay admin-only: they use
+the viewing admin's own live sign-in (nine calls in all), and without one the
+page asks for Sign in again to see the recorded failure detail.
 
 When `POST /v1/connect` refuses with `merchant_country_required` or
 `payments_service_unconfigured`, both of which create nothing, the page names

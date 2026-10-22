@@ -98,9 +98,10 @@ test('confirmed plugin preparation reaches the signed Worker boundary and real D
     const replay = await runInDurableObject(stub, (_instance, state) => JSON.parse(state.storage.sql.exec<{ value: string }>('SELECT value FROM connection_state WHERE id=1').one().value));
     expect(replay).toEqual(first);
     requests.length = 0;
-    expect(JSON.stringify(await action('prepare_legacy_v2', 'another-admin'))).toContain('Sign in again'); expect(requests).toEqual([]);
+    // Without this admin's live sign-in nothing is prepared; with no store key pasted the page says to paste it.
+    expect(JSON.stringify(await action('prepare_legacy_v2', 'another-admin'))).toContain('Paste the store key'); expect(requests).toEqual([]);
     values.get(key)!.value.expiresAt = Date.now() - 1;
-    expect(JSON.stringify(await action('prepare_legacy_v2'))).toContain('Sign in again'); expect(requests).toEqual([]);
+    expect(JSON.stringify(await action('prepare_legacy_v2'))).toContain('Paste the store key'); expect(requests).toEqual([]);
   } finally {
     provider.mockRestore();
     await runInDurableObject(stub, instance => Object.assign((instance as any).env, previous!));

@@ -226,7 +226,8 @@ test('authenticated status adds evidence while connect retains its legacy payloa
   f.setReady(true);
   const handle = createHostedHandler({
     authenticate: async (request, scope) => {
-      assert.equal(scope, 'payments:admin');
+      // The store admin's status page reads with the store's checkout pass too.
+      assert.deepEqual(scope, new URL(request.url).pathname === '/v1/status' ? ['payments:admin', 'payments:checkout'] : 'payments:admin');
       if (request.headers.get('authorization') !== 'Bearer synthetic') throw Error('unauthorized');
       return owner;
     },
