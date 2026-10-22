@@ -46,3 +46,9 @@
 {"action": "decision_proposed", "at": "2026-10-22T01:03:25+00:00", "data": {"decision_id": "payments-status-owner-rule-040"}, "event_id": "6196854d-0471-49b3-8245-714f7b809313"}
 {"action": "decision_locked", "at": "2026-10-22T01:03:25+00:00", "data": {"decision_id": "payments-status-owner-rule-040"}, "event_id": "a5baf513-dd9c-4e0e-b593-7a15051a0177"}
 {"action": "decision_implemented", "at": "2026-10-22T01:03:25+00:00", "data": {"decision_id": "payments-status-owner-rule-040"}, "event_id": "4b03d92b-7a86-4201-aade-ea11eed6f7f3"}
+{"action": "focus_started", "at": "2026-10-22T01:24:48+00:00", "data": {"cadence": "sequential", "domain": "Checkout return pages"}, "event_id": "a66827cd-4923-44ed-8660-7a9abf0e93f3"}
+{"action": "shared_understanding_confirmed", "at": "2026-10-22T01:24:48+00:00", "data": {"summary": "storeReturnPages sets cancelUrl to ${principal.siteOrigin}/checkout across supported payment providers (stripe and authorize_net) so cancelled checkouts return to the dedicated /checkout route where the checkout form, order manifest, and guest-cart recovery controls live."}, "event_id": "9a533ab3-6a5d-4c37-b4b8-dea57d14a53e"}
+{"action": "decision_proposed", "at": "2026-10-22T01:24:48+00:00", "data": {"decision_id": "payments-checkout-cancel-url-041"}, "event_id": "e5ed4079-61af-444d-96d8-2f7506bb0cc2"}
+{"action": "decision_locked", "at": "2026-10-22T01:24:48+00:00", "data": {"decision_id": "payments-checkout-cancel-url-041"}, "event_id": "3e93fbcd-7f57-4646-aa9c-e6fdf371ab8d"}
+{"action": "decision_implemented", "at": "2026-10-22T01:24:48+00:00", "data": {"decision_id": "payments-checkout-cancel-url-041"}, "event_id": "187fd6dd-3ac0-42d2-9f3a-db40d0125837"}
+{"action": "decision_verified", "at": "2026-10-22T01:24:48+00:00", "data": {"decision_id": "payments-checkout-cancel-url-041"}, "event_id": "bf1cd298-1862-4243-b7c3-35a1a7fcfe9a"}

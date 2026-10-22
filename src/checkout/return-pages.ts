@@ -13,6 +13,6 @@ export function storeReturnPages(principal: Principal, provider: "stripe" | "aut
   return {
     // Stripe fills in the Checkout Session ID; Authorize.net has no such placeholder.
     successUrl: `${principal.siteOrigin}/checkout/success${provider === "stripe" ? "?session_id={CHECKOUT_SESSION_ID}" : ""}`,
-    cancelUrl: `${principal.siteOrigin}/cart`,
+    cancelUrl: `${principal.siteOrigin}/checkout`,
   };
 }

@@ -1,8 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import Stripe from "stripe";
+import { storeReturnPages } from "../src/checkout/return-pages.ts";
 import { createCheckoutSessionService, requestFingerprint, STRIPE_MIN_EXPIRES_AT_SECONDS } from "../src/checkout/sessions.ts";
 import { createStripeCheckout, TEST_MODE_CARD_MESSAGE } from "../src/stripe/checkout.ts";
+
+test("storeReturnPages builds /checkout/success and /checkout from principal.siteOrigin across providers", () => {
+  const principal = { accountId: "issuer:merchant-a", siteId: "store-a", siteOrigin: "https://store.example.invalid" };
+  assert.deepEqual(storeReturnPages(principal, "stripe"), {
+    successUrl: "https://store.example.invalid/checkout/success?session_id={CHECKOUT_SESSION_ID}",
+    cancelUrl: "https://store.example.invalid/checkout",
+  });
+  assert.deepEqual(storeReturnPages(principal, "authorize_net"), {
+    successUrl: "https://store.example.invalid/checkout/success",
+    cancelUrl: "https://store.example.invalid/checkout",
+  });
+  assert.throws(
+    () => storeReturnPages({ accountId: "issuer:merchant-a", siteId: "store-a" }, "stripe"),
+    /store_origin_missing/,
+  );
+});
 
 test("official Stripe checkout transport pins idempotency, connected account, card, and expires_at", async () => {
   const calls = [];
@@ -62,7 +79,7 @@ test("official Stripe checkout transport pins idempotency, connected account, ca
     total: { currency: "USD", minor: "1200" },
     expiresAtSeconds: 1800001860,
     successUrl: "https://store.example.invalid/checkout/return",
-    cancelUrl: "https://store.example.invalid/checkout/cancel",
+    cancelUrl: "https://store.example.invalid/checkout",
     idempotencyKey: "dinkus-checkout:attempt-one",
     testCardMessage: true,
   });
@@ -76,6 +93,7 @@ test("official Stripe checkout transport pins idempotency, connected account, ca
   assert.equal(params.get("payment_method_types[0]"), "card");
   assert.equal(params.get("line_items[0][price_data][currency]"), "usd");
   assert.equal(params.get("line_items[0][price_data][unit_amount]"), "1200");
+  assert.equal(params.get("cancel_url"), "https://store.example.invalid/checkout");
   assert.equal(params.has("allow_promotion_codes"), false);
   assert.equal(params.has("coupon"), false);
   assert.equal(params.has("promotion_code"), false);
@@ -110,7 +128,7 @@ test("live Checkout sessions carry no test-card message", async () => {
     total: { currency: "USD", minor: "1200" },
     expiresAtSeconds: 1800001860,
     successUrl: "https://store.example.invalid/checkout/return",
-    cancelUrl: "https://store.example.invalid/checkout/cancel",
+    cancelUrl: "https://store.example.invalid/checkout",
     idempotencyKey: "dinkus-checkout:attempt-live",
     testCardMessage: true,
   });
@@ -139,7 +157,7 @@ test("a TEST session without the pinned message sends no custom text", async () 
     total: { currency: "USD", minor: "1200" },
     expiresAtSeconds: 1800001860,
     successUrl: "https://store.example.invalid/checkout/return",
-    cancelUrl: "https://store.example.invalid/checkout/cancel",
+    cancelUrl: "https://store.example.invalid/checkout",
     idempotencyKey: "dinkus-checkout:attempt-older",
   });
   const params = new URLSearchParams(bodies[0]);
@@ -262,7 +280,7 @@ test("stored 1799-second remaining expiry is replayed on the official Stripe wir
   };
   const owner = { accountId: "issuer:merchant-a", siteId: "store-a" };
   const successUrl = "https://store.example.invalid/checkout/return";
-  const cancelUrl = "https://store.example.invalid/checkout/cancel";
+  const cancelUrl = "https://store.example.invalid/checkout";
   const attempts = new Map();
   attempts.set(payment.attemptId, {
     attemptId: payment.attemptId,
