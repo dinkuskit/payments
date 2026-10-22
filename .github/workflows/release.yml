@@ -234,3 +234,41 @@ jobs:
             echo
             echo "When it passes, promote with \`proof_ref\` set to that run's address followed by \`(${BETA##* } @running pass)\`."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # A stable release that a tag run just published moves the playground too: this presses
+  # dinkuskit/template-store's "Update playground plugins" button, which opens a PR moving the
+  # playground (playground.dinkuskit.com) to each plugin's latest stable release. That PR gets its
+  # own playground preview and review; merging it puts the new version in front of prospects.
+  # Betas never press it.
+  playground-plugins:
+    name: Move the playground to this release
+    needs: [release-tag, publish-emdash]
+    if: needs.release-tag.outputs.release_mode == 'stable'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Mint release GitHub App token for template-store
+        id: app-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: dinkuskit
+          repositories: template-store
+          permission-actions: write
+
+      - name: Press Update playground plugins in dinkuskit/template-store
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE: ${{ needs.publish-emdash.outputs.slug }} ${{ needs.publish-emdash.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The release is already published; a missed press only means pressing the button by hand.
+          if [ -z "$GH_TOKEN" ] || ! gh workflow run update-playground-plugins.yml --repo dinkuskit/template-store --ref main; then
+            echo "::warning title=Playground not moved::$RELEASE is published, but the release app could not press dinkuskit/template-store's Update playground plugins button. Press it by hand, and allow the release app on template-store."
+            exit 0
+          fi
+          echo "## Playground update started for $RELEASE" >> "$GITHUB_STEP_SUMMARY"
+          echo "A PR moving the playground to the latest stable releases opens in dinkuskit/template-store: https://github.com/dinkuskit/template-store/actions/workflows/update-playground-plugins.yml" >> "$GITHUB_STEP_SUMMARY"
