@@ -224,6 +224,13 @@ sent to Payments' setup routes. The hosted Worker answers `GET /v1/status` for
 either a `payments:admin` or a `payments:checkout` pass (the playground's pass
 stays refused there), so it must be deployed before this plugin is released.
 
+A store's DinkusKit Payments connection must be set up by the store owner
+(payments-status-owner-rule-040). DinkusKit.com Connect admits only the owner,
+and the store pass is issued for the owner, so Payments refuses a connection
+filed under anyone else, for checkout as well as this page. A store upgrading
+from an earlier release shows the paste instructions (or that admin's last-read
+status) until the Store key is pasted once; there is no sign-in fallback.
+
 ## Setup page after DinkusKit's Approve (0.2.9 preparation)
 
 DinkusKit's Approve sends the owner back to the status page, so a page load with

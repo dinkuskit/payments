@@ -2900,6 +2900,63 @@
       "superseded_by": null,
       "updated_at": "2026-10-21T22:53:04+00:00",
       "verification_ref": null
+    },
+    {
+      "baseline_ref": null,
+      "candidate_refs": [],
+      "choice": "Accepted as-is. (1) A store that already has Payments installed shows Payment status not checked with paste instructions (or that admin's last-read status) until the Store key is pasted once; there is no admin-sign-in status fallback. (2) Rule: a store's DinkusKit Payments connection must be set up by the store owner. DinkusKit.com Connect already admits only the owning organization's owner (src/account/connect.ts: role owner and authority subject), so Payments records the owner's account and the owner-issued store pass reads it; a connection filed under anyone else is refused by Payments, as checkout already is.",
+      "context_ref": null,
+      "created_at": "2026-10-22T01:03:25+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-status-store-pass-039"
+      ],
+      "domain": "Rejected legacy TEST account operation recovery",
+      "history": [
+        {
+          "at": "2026-10-22T01:03:25+00:00",
+          "choice": "Accepted as-is. (1) A store that already has Payments installed shows Payment status not checked with paste instructions (or that admin's last-read status) until the Store key is pasted once; there is no admin-sign-in status fallback. (2) Rule: a store's DinkusKit Payments connection must be set up by the store owner. DinkusKit.com Connect already admits only the owning organization's owner (src/account/connect.ts: role owner and authority subject), so Payments records the owner's account and the owner-issued store pass reads it; a connection filed under anyone else is refused by Payments, as checkout already is.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-22T01:03:25+00:00",
+          "choice": "Accepted as-is. (1) A store that already has Payments installed shows Payment status not checked with paste instructions (or that admin's last-read status) until the Store key is pasted once; there is no admin-sign-in status fallback. (2) Rule: a store's DinkusKit Payments connection must be set up by the store owner. DinkusKit.com Connect already admits only the owning organization's owner (src/account/connect.ts: role owner and authority subject), so Payments records the owner's account and the owner-issued store pass reads it; a connection filed under anyone else is refused by Payments, as checkout already is.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-status-owner-rule-040",
+      "implementation_ref": "docs/registry-status.md",
+      "question": "Which upgrade limits of the store-key status read are accepted, and who may set up a store's DinkusKit Payments connection?",
+      "rationale": "Locked on Ronald's words, 01:03 UTC 2026-10-22.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "implemented",
+      "superseded_by": null,
+      "updated_at": "2026-10-22T01:03:25+00:00",
+      "verification_ref": null
     }
   ],
   "last_activation": {
@@ -2922,5 +2979,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-21T22:53:04+00:00"
+  "updated_at": "2026-10-22T01:03:25+00:00"
 }
