@@ -13,7 +13,7 @@ belongs in source, Wrangler vars, Commerce requests, or storefront code.
      destination in step 4.
 2. Configure the non-secret Worker vars from `wrangler.jsonc`. Return pages are
    not configured here: each checkout returns to the store's own
-   `/checkout/success` or `/cart`, at the address signed into its pass (see
+   `/checkout/success` or `/checkout`, at the address signed into its pass (see
    `DEPLOY.md`).
 3. Authenticate as the store owner and call `POST /v1/connect` with no query
    parameters and no body. For a new binding, Payments creates a merchant
@@ -114,7 +114,7 @@ The template-store owner still needs to:
 - call Commerce's guest prepare/start flow from the cart checkout action and
   redirect only to the validated Payments Checkout Session URL;
 - keep `src/pages/checkout/success.astro` as the return page after paying
-  (cancelling returns to `/cart`). The success page must
+  (cancelling returns to `/checkout`). The success page must
   display a pending/verification state until Commerce reconciliation reports
   paid; it must not infer payment from query parameters or a browser return;
 - add repeatable browser coverage for cart → hosted test Checkout → return →

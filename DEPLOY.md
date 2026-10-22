@@ -38,7 +38,7 @@ The onboarding return values currently land on `https://dinkuskit.com/account`.
 Checkout returns go to each store's own pages: after paying,
 `https://<store>/checkout/success?session_id={CHECKOUT_SESSION_ID}` (Authorize.net
 returns to `https://<store>/checkout/success`), and after cancelling,
-`https://<store>/cart`. `<store>` is the web address DinkusKit.com checked when
+`https://<store>/checkout`. `<store>` is the web address DinkusKit.com checked when
 the store connected and signs into the store's pass as `site_origin`; nothing in
 a request can change it. A pass without it cannot start a checkout
 (`409 store_origin_missing`), so DinkusKit.com must be deployed with that claim

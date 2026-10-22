@@ -110,7 +110,7 @@ test.each(["historical-unpriced", "priced-v1"])("SQLite mapping survives evictio
   expect((await stub.ensureSession(principal, payment)).outcome).toBe("unknown");
   const sent = new URLSearchParams([...operations.values()][0].params);
   expect(sent.get("success_url")).toBe("https://store.example.invalid/checkout/success?session_id={CHECKOUT_SESSION_ID}");
-  expect(sent.get("cancel_url")).toBe("https://store.example.invalid/cart");
+  expect(sent.get("cancel_url")).toBe("https://store.example.invalid/checkout");
   if (kind === "priced-v1") {
     await runInDurableObject(stub, instance => {
       const row=instance.ctx.storage.sql.exec<{value:string}>("SELECT value FROM checkout_attempts WHERE attempt_id=?",payment.attemptId).one();
