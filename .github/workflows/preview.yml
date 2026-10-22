@@ -7,6 +7,12 @@ on:
 permissions:
   contents: read
 
+# A new push to a PR cancels that PR's older run, which no one waits on any more.
+# Pushes to main each get their own group and are never cancelled.
+concurrency:
+  group: preview-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   preview:
     name: Build and publish pkg.pr.new preview
