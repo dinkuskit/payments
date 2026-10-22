@@ -1,6 +1,6 @@
 # Releasing `@dinkuskit/payments`
 
-`@dinkuskit/payments` uses a locked two-stage release contract (`.grilltrack` milestone `release-beta-cut-071`) with Changesets and a dedicated beta EmDash Registry slug so every release is proven in a real EmDash beta store before stable publication.
+`@dinkuskit/payments` uses a locked release contract (GrillTrack `release-beta-cadence-078` and `release-branches-079` in dinkuskit/dinkuskit) with Changesets and a dedicated beta EmDash Registry slug so every release is proven in a real EmDash beta store before stable publication. The model is OpenClaw's release process: betas and stable releases come from a `release/X.Y.Z` branch, so `main` never waits for a beta.
 
 ## Release Identity
 
@@ -12,7 +12,7 @@
 - Every release builds the Cloudflare sandbox artifact (`dist/sandbox/plugin.mjs`) and verifies that its size stays strictly under `128 KB` (`131,072` bytes).
 - Historical git tags before `v0.2.8` are never backfilled; the stable tag baseline is `v0.2.8`.
 - Every GitHub Actions `uses:` reference in `.github/workflows/*.yml` is pinned to a full 40-character commit SHA (enforced by `npm run audit:repo`).
-- Both release buttons are on **Release** (`.github/workflows/release.yml`): `action: cut-beta` and `action: promote`. `.github/workflows/emdash-release.yml` is a `workflow_call`-only helper. DinkusKit Commerce and Ship are to copy these files, so all three plugins release the same way.
+- All release buttons are on **Release** (`.github/workflows/release.yml`), pressed on `main`: `action: cut-beta`, `add-fix` and `promote`. A button run never publishes; it pushes a version tag, and that tag's run publishes (`vX.Y.Z-beta.N` to `dinkus-payments-beta`, `vX.Y.Z` to `dinkus-payments`). `.github/workflows/emdash-release.yml` is a `workflow_call`-only helper that only the tag run calls. DinkusKit Commerce and Ship run the same files, so all three plugins release the same way.
 
 ## Delegated Registry Publishing (No Stored PDS Credentials)
 
@@ -37,7 +37,7 @@ Before the first beta release can publish through the delegated release service,
    ```bash
    ./node_modules/.bin/emdash-plugin profile setup --dir /tmp/payments-beta-profile --yes
    ```
-3. In the [EmDash release-service publisher dashboard](https://releases.emdashcms.com/publisher), choose **Authorize publishing** for `dinkus-payments-beta` (and `dinkus-payments` if not already authorized), then approve the `dinkuskit/payments` `.github/workflows/release.yml` workflow connection when the dashboard first asks. Both buttons (Cut beta and Promote) live on `release.yml`, and `.github/workflows/emdash-release.yml` is only ever called from it, so one connection covers both listings. A connection made earlier through `emdash-release.yml` (from before Cut beta moved to `release.yml`) is no longer used. The dashboard shows a pending connection only while a run's publish step is waiting for it, for up to 30 minutes. If that time runs out, press Cut beta again with the same `beta_version`: a re-run of the same run reuses its expired request and fails with `WORKFLOW_CONNECTION_CONFLICT`.
+3. In the [EmDash release-service publisher dashboard](https://releases.emdashcms.com/publisher), choose **Authorize publishing** for `dinkus-payments-beta` (and `dinkus-payments` if not already authorized), then approve the `dinkuskit/payments` `.github/workflows/release.yml` workflow connection when the dashboard first asks. Both buttons (Cut beta and Promote) live on `release.yml`, and `.github/workflows/emdash-release.yml` is only ever called from it, so one connection covers both listings. A connection made earlier through `emdash-release.yml` (from before Cut beta moved to `release.yml`) is no longer used. The dashboard shows a pending connection only while a run's publish step is waiting for it, for up to 30 minutes. If that time runs out, press **Run workflow** with **Use workflow from** set to the version tag and `action: retry-publish`; don't re-run the old run, which reuses its expired request and fails with `WORKFLOW_CONNECTION_CONFLICT`. The connection was first approved for runs on `refs/heads/main`; publishes now run from version tags, so the first tag run asks again. Approve it for version tags (`refs/tags/*`). Also add a repository ruleset on `release/*` branches and `v*` tags that lets only the release GitHub App push, create or delete them.
 
 ## Step 1: Every PR Includes a Changeset
 
@@ -51,44 +51,38 @@ Choose `patch` for fixes or `minor` for new features. For documentation, CI, or 
 
 Every PR also runs `.github/workflows/preview.yml` (`.github/scripts/publish-pkg-pr-new.mjs`) to publish an ephemeral tarball preview for that commit (or emit a `::notice::` and exit 0 if the `pkg-pr-new` GitHub App is not installed on the repository).
 
+## When to Cut a Beta
+
+(`release-beta-cadence-078`.) Press Cut beta when a batch is worth giving a store: a finished feature, or a fix a store owner would notice. There is no calendar. Ordinary PRs merge to `main` with their changesets and ship nothing on their own. Docs, tests and CI-only changes never get a beta, and Cut beta refuses when nothing version-bumping has merged since the last release. One release is on test at a time: Cut beta refuses while an earlier `release/X.Y.Z` has no `vX.Y.Z` tag yet, and so does Add fix to beta when it would start a patch branch. Every change, including a fix for a beta on test, is a normal PR to `main` that ClawSweeper reviews; no PR ever targets a release branch.
+
 ## Step 2: Cut Beta (`dinkus-payments-beta`)
 
-Merging normal PRs to `main` does **not** automatically publish a beta or open a release PR.
+Press **Run workflow** on **Release** with `action: cut-beta` (leave `beta_version` blank to auto-compute the next `X.Y.Z-beta.N`, or supply an explicit one).
 
-When `main` has pending version-bumping `.changeset/*.md` files and you are ready to cut a beta:
-
-1. Press **Run workflow** on **Release** (`.github/workflows/release.yml`) on `main` with `action: cut-beta` (leave `beta_version` blank to auto-compute the next `X.Y.Z-beta.N`, or supply an explicit `X.Y.Z-beta.N` override).
-   - Its **Cut beta** job calls `.github/workflows/emdash-release.yml` through `workflow_call` with `release_mode: beta`. That workflow has no button of its own. Its gate, `.github/scripts/emdash-dispatch-gate.mjs` (`validateEmDashDispatchGate`), allows only `refs/heads/main`, `release_mode: beta` and `-beta.N` versions before minting any GitHub App token or performing Registry I/O. Stable versions, a missing `release_mode` and non-`main` dispatches are rejected immediately.
-2. The workflow:
-   - Computes the target `X.Y.Z` from pending changesets on `main` and determines the next `X.Y.Z-beta.N` across existing git tags and all `dinkus-payments-beta` release records on the manifest publisher’s PDS. This reads every page of the public `com.atproto.repo.listRecords` inventory, including versions not yet visible in the discovery catalog, and fails closed on lookup, identity, schema, or pagination errors. The retired aggregator host and discovery listing policy are not used to allocate version numbers.
-   - Tags the `main` commit `vX.Y.Z-beta.N` using the release GitHub App token (`RELEASE_APP_ID` / `RELEASE_APP_PRIVATE_KEY`).
-   - Prepares `.emdash-release/dinkus-payments-beta-X.Y.Z-beta.N.tar.gz` via `emdash-plugin release prepare` with `slug: "dinkus-payments-beta"`, `name: "DinkusKit Payments (Beta)"`, and `version: "X.Y.Z-beta.N"`, while keeping the repository root `emdash-plugin.jsonc` at `dinkus-payments`.
-   - Signs build provenance with `actions/attest-build-provenance`, submits the release to `https://releases.emdashcms.com` via `emdash-cms/emdash/apps/release-action`, and verifies the publisher PDS release record (`verify-registry-release.mjs`).
+- `X.Y.Z` is the version `main`'s pending changesets would release; `N` is one more than the highest `vX.Y.Z-beta.*` git tag or `dinkus-payments-beta` release record on the manifest publisher's PDS. This reads every page of the public `com.atproto.repo.listRecords` inventory, including versions not yet visible in the discovery catalog, and fails closed on lookup, identity, schema, or pagination errors.
+- It runs the unit tests, typecheck and build, creates `release/X.Y.Z` at `main`'s newest commit, and tags `vX.Y.Z-beta.N` there with the release GitHub App token (`RELEASE_APP_ID` / `RELEASE_APP_PRIVATE_KEY`). `main` keeps taking merges from here on; they wait for the next release.
+- The tag's run checks that the tag sits on `release/X.Y.Z`, then calls `.github/workflows/emdash-release.yml` with `release_mode: beta`. Its gate (`.github/scripts/emdash-dispatch-gate.mjs`, `validateEmDashDispatchGate`) allows only a `refs/tags/vX.Y.Z[-beta.N]` ref whose version and mode match, before any Registry I/O. It prepares `.emdash-release/dinkus-payments-beta-X.Y.Z-beta.N.tar.gz` via `emdash-plugin release prepare` with `slug: "dinkus-payments-beta"`, `name: "DinkusKit Payments (Beta)"` and `version: "X.Y.Z-beta.N"`, signs build provenance, submits the release to `https://releases.emdashcms.com`, and verifies the publisher PDS release record (`verify-registry-release.mjs`).
 
 ## Step 3: Run Beta Store `@running` Journeys
 
-Cut beta starts them itself. Once the beta is published, Release's **Start the live journeys on the beta store** job presses **Live journeys** in [dinkuskit/live-journeys](https://github.com/dinkuskit/live-journeys/actions/workflows/live-journeys.yml) with `beta: dinkus-payments-beta X.Y.Z-beta.N`. That run waits for the Registry to offer the beta, updates the beta store (beta.sm0ky.dev, `installedPluginId: r_sffx6l4z6mpqliki`) to it in place, and runs the `@running` journeys there. Its run is named `Live journeys for dinkus-payments-beta X.Y.Z-beta.N`, and its page shows each journey's pass or fail and the plugin versions tested. When it passes, Step 4's `proof_ref` is that run's address followed by the beta version, for example `https://github.com/dinkuskit/live-journeys/actions/runs/<run id> (X.Y.Z-beta.N @running pass)`; the address alone has no version in it, and the promotion gate refuses a proof that doesn't name the beta. If an update asks for new permissions the run stops and its page says what was asked; update the plugin by hand from the store's Plugins page, then press Run workflow again with the same `beta`.
+The beta tag's run starts them itself. Once the beta is published, its **Start the live journeys on the beta store** job presses **Live journeys** in [dinkuskit/live-journeys](https://github.com/dinkuskit/live-journeys/actions/workflows/live-journeys.yml) with `beta: dinkus-payments-beta X.Y.Z-beta.N`. That run waits for the Registry to offer the beta, updates the beta store (beta.sm0ky.dev, `installedPluginId: r_sffx6l4z6mpqliki`) to it in place, and runs the `@running` journeys there. Its run is named `Live journeys for dinkus-payments-beta X.Y.Z-beta.N`, and its page shows each journey's pass or fail and the plugin versions tested. When it passes, Step 5's `proof_ref` is that run's address followed by the beta version, for example `https://github.com/dinkuskit/live-journeys/actions/runs/<run id> (X.Y.Z-beta.N @running pass)`; the address alone has no version in it, and the promotion gate refuses a proof that doesn't name the beta. If an update asks for new permissions the run stops and its page says what was asked; update the plugin by hand from the store's Plugins page, then press Run workflow again with the same `beta`.
 
 The press needs the `DINKUS_LIVE_JOURNEYS_TOKEN` org secret, shared by every dinkuskit plugin repo: a fine-grained GitHub token owned by dinkuskit whose only access is **Actions: Read and write** on `dinkuskit/live-journeys`. Without it the job fails after the publish, and the journeys can be started by hand with the same `beta` input.
 
-## Step 4: Promote Verified Beta to a `ci: release` PR
+## Step 4: A Fix Found on the Beta (Add Fix to Beta)
 
-Once `dinkus-payments-beta@X.Y.Z-beta.N` has passed the beta-store `@running` journeys:
+Merge the fix to `main` through its normal reviewed PR. Then press **Run workflow** with `action: add-fix`, `release_version: X.Y.Z`, and `fix_commit` set to the fix's merge commit on `main`. It copies that exact commit onto `release/X.Y.Z` (`git cherry-pick -x`, so the copy names its source) and tags the next `vX.Y.Z-beta.N`, whose run publishes it and starts the journeys again. It refuses a commit that isn't on `main`, one already on the branch, and one that doesn't copy cleanly; then nothing is pushed. A release-file fix is copied the same way, so the branch runs it too.
 
-1. Press **Run workflow** on **Release** (`.github/workflows/release.yml`) on `main` with `action: promote` and:
-   - `beta_version`: `X.Y.Z-beta.N` (e.g. `0.2.9-beta.1`)
-   - `proof_ref`: the recorded `@running` pass proof reference naming `X.Y.Z-beta.N`
-2. The promotion gate verifies that:
-   - `vX.Y.Z-beta.N` exists and points to the current `main` HEAD (no new changesets or commits landed on `main` after the beta was cut; if `main` advanced, cut and verify `beta.(N+1)` first).
-   - `dinkus-payments-beta@X.Y.Z-beta.N` is published in the EmDash Registry (failing closed on Registry HTTP/network/malformed errors).
-   - `proof_ref` names `X.Y.Z-beta.N`.
-3. The workflow runs `npm run release:version` (`changeset version` + `npm install --package-lock-only --ignore-scripts`) and opens/updates the `ci: release vX.Y.Z` pull request from `changeset-release/main` with a `Release-Beta-Proof:` trailer binding the beta version, commit SHA, and proof reference.
+## Step 5: Promote Verified Beta to a `ci: release` PR
 
-## Step 5: Review and Merge `ci: release` PR to Publish Stable
+Once the newest beta on `release/X.Y.Z` has passed the beta-store `@running` journeys, press **Run workflow** with `action: promote`, `beta_version: X.Y.Z-beta.N` and `proof_ref` (the recorded `@running` pass naming `X.Y.Z-beta.N`). The gate verifies that `vX.Y.Z-beta.N` is the tip of `release/X.Y.Z` (if a fix was added since, promote that newer beta once it passes), that `vX.Y.Z` is not released yet, and that `dinkus-payments-beta@X.Y.Z-beta.N` is in the EmDash Registry (failing closed on Registry errors). It then runs `npm run release:version` (`changeset version`, then `scripts/sync-lock-version.mjs` copies the new version into `package-lock.json` and changes nothing else) on the branch, refuses if the branch's changesets make a different version, and opens or updates the one `ci: release vX.Y.Z` pull request to `main` from `changeset-release/main`. That PR carries only the version, the `X.Y.Z` CHANGELOG section and the removal of the changesets that release used, with a `Release-Beta-Proof:` trailer binding the beta version, commit SHA and proof. Changesets merged to `main` after the cut stay pending for the next release.
+
+## Step 6: Review and Merge `ci: release` PR to Publish Stable
 
 1. Run `@clawsweeper review` on the `ci: release vX.Y.Z` PR.
-2. When Ryan merges the `ci: release vX.Y.Z` PR into `main`, `.github/workflows/release.yml` runs on the `push` to `main`:
-   - Verifies the `Release-Beta-Proof:` record, enforces that `git diff --name-only v<betaVersion> HEAD` contains only `package.json`, `package-lock.json`, `CHANGELOG.md`, and `.changeset/*.md`, and semantically verifies that `package.json` and `package-lock.json` only updated the package's own `version` field (`X.Y.Z`). Any source, workflow, dependency, script, or lockfile resolution modification since the approved beta tag aborts before tagging or publishing.
-   - Creates and pushes git tag `vX.Y.Z` (or resumes cleanly if `vX.Y.Z` already exists on `HEAD` from a prior partial run).
-   - Creates the GitHub Release for `vX.Y.Z` from the matching `CHANGELOG.md` section if not yet created.
-   - Delegates to `.github/workflows/emdash-release.yml` via `workflow_call` (which retains caller `github.event_name == 'push'` on `refs/heads/main` and passes `release_mode: stable` plus `version`) to prepare the bundle, attest and publish `dinkus-payments@X.Y.Z` (`r_3brsc2on3bu673rn`) through the EmDash delegated release service when the Registry does not index it yet, and verify the Registry record against the bundle either way, so a re-run after a failed check cannot pass without it.
+2. When Ronald merges it into `main` (squash or merge commit), Release runs on the `push` to `main`. It writes the same version, CHANGELOG section and changeset removals onto `release/X.Y.Z` and refuses to tag unless the branch then differs from the approved beta tag only in `package.json`, `package-lock.json`, `CHANGELOG.md` and `.changeset/*.md`, with `package.json` and `package-lock.json` changing only the package's own `version`. Then it tags `vX.Y.Z` on the branch. If the run stops after committing onto the branch but before the tag, re-run it: it resumes from that commit.
+3. The `vX.Y.Z` tag's run checks the same thing again, creates the GitHub Release from the matching `CHANGELOG.md` section if missing, and calls `.github/workflows/emdash-release.yml` with `release_mode: stable` to prepare, attest and publish `dinkus-payments@X.Y.Z` (`r_3brsc2on3bu673rn`) when the Registry does not index it yet, and verify the Registry record against the bundle either way. If a tag run fails, re-run it or press **Run workflow** with **Use workflow from** set to the tag and `action: retry-publish`.
+
+## A Bug in a Released Version
+
+Merge the fix to `main`, then press **Run workflow** with `action: add-fix`, `release_version` set to the next patch (`X.Y.(Z+1)`) and `fix_commit` set to the fix's merge commit. With no `release/X.Y.(Z+1)` yet, it makes that patch branch from the `vX.Y.Z` tag, copies the fix and tags `X.Y.(Z+1)-beta.1`. Journeys, then Promote and the release PR as above. A patch branch takes only patch changesets; Promote refuses one whose changesets make a minor release. Patch branches work for versions released through release branches; a fix for an earlier release ships in the next release from `main`.

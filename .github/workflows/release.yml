@@ -1,22 +1,40 @@
+# Release flow for GrillTrack release-branches-079 (dinkuskit/dinkuskit), the same release files as
+# dinkuskit/commerce with Payments' names. Run workflow has three buttons in one, all pressed on
+# main: Cut beta makes release/X.Y.Z from main and tags its first beta, Add fix to beta copies one
+# merged main commit onto release/X.Y.Z and tags the next beta, and Promote turns a beta that passed
+# the journeys into the one "ci: release" PR to main. Merging that PR is the stable publish yes: the
+# push writes the same version files onto release/X.Y.Z and tags vX.Y.Z there. Every publish runs
+# from its version tag (push: tags), never from a button run. See RELEASING.md.
 name: Release
 
 on:
   push:
     branches: [main]
-  # Run workflow has two buttons in one: Cut beta publishes the next dinkus-payments-beta from main,
-  # and Promote turns a beta that passed the beta-store journeys into a "ci: release" PR.
+    tags: ["v*.*.*"]
   workflow_dispatch:
     inputs:
       action:
-        description: "Cut beta: publish the next beta from main. Promote: open the ci: release PR for a verified beta."
+        description: "On main: Cut beta starts release/X.Y.Z, Add fix to beta copies a merged main commit onto it, Promote opens the ci: release PR. On a version tag: Retry the publish."
         required: true
         default: cut-beta
         type: choice
         options:
           - cut-beta
+          - add-fix
           - promote
+          - retry-publish
       beta_version:
         description: "Cut beta: leave blank for the next X.Y.Z-beta.N, or give one. Promote: the verified beta (e.g. 0.2.9-beta.1)."
+        required: false
+        default: ""
+        type: string
+      release_version:
+        description: "Add fix to beta only: the X.Y.Z whose release/X.Y.Z gets the fix (a released version's next patch makes a patch branch)."
+        required: false
+        default: ""
+        type: string
+      fix_commit:
+        description: "Add fix to beta only: the commit on main to copy (the fix PR's merge commit)."
         required: false
         default: ""
         type: string
@@ -37,13 +55,9 @@ concurrency:
 
 jobs:
   release:
-    name: Promote verified beta PR or tag merged stable release
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.action == 'promote')
+    name: Cut beta, add a fix, promote, or tag a merged release on its branch
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    outputs:
-      published: ${{ steps.state.outputs.published }}
-      registry_needed: ${{ steps.state.outputs.registry_needed }}
-      version: ${{ steps.state.outputs.version }}
     steps:
       - name: Mint release GitHub App token
         id: app-token
@@ -81,8 +95,35 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      - name: Cut beta (manual workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'cut-beta'
+        env:
+          BETA_VERSION: ${{ inputs.beta_version }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BETA_VERSION" ]; then
+            node scripts/release-flow.mjs cut-beta --github-output "$GITHUB_OUTPUT"
+          else
+            node scripts/release-flow.mjs cut-beta --version "$BETA_VERSION" --github-output "$GITHUB_OUTPUT"
+          fi
+
+      - name: Add fix to beta (manual workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'add-fix'
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          FIX_COMMIT: ${{ inputs.fix_commit }}
+        run: |
+          if [ -z "$RELEASE_VERSION" ] || [ -z "$FIX_COMMIT" ]; then
+            echo "::error title=Add fix to beta needs a version and a commit::Fill in release_version (the X.Y.Z of release/X.Y.Z) and fix_commit (the fix's merge commit on main)."
+            exit 1
+          fi
+          node scripts/release-flow.mjs add-fix \
+            --release-version "$RELEASE_VERSION" \
+            --commit "$FIX_COMMIT" \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Promote verified beta to release PR (manual workflow_dispatch)
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'promote'
         env:
           BETA_VERSION: ${{ inputs.beta_version }}
           PROOF_REF: ${{ inputs.proof_ref }}
@@ -97,59 +138,78 @@ jobs:
             --beta-version "$BETA_VERSION" \
             --proof-ref "$PROOF_REF"
 
-      - name: "Tag and create GitHub Release on merged ci: release PR"
-        id: state
+      - name: "Tag a merged ci: release PR on its release branch"
+        if: github.event_name == 'push'
         env:
-          EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            {
-              echo "published=false"
-              echo "registry_needed=false"
-              echo "version="
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          node scripts/release-flow.mjs publish-merged-release --github-output "$GITHUB_OUTPUT"
+        run: node scripts/release-flow.mjs publish-merged-release --github-output "$GITHUB_OUTPUT"
+
+  # A version tag's run: the tag's push, or retry-publish pressed with "Use workflow from" set to the
+  # tag (a re-run of a failed run reuses its expired dashboard request, a fresh run asks again). The
+  # tag must be on its release/X.Y.Z branch; a stable tag is checked
+  # against its approved beta again and gets its GitHub Release. Then the Registry job publishes
+  # from this tag.
+  release-tag:
+    name: Check the version tag and create its GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || inputs.action == 'retry-publish')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      release_mode: ${{ steps.tag.outputs.release_mode }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Mint release GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      - name: Check the tag is on its release branch
+        id: tag
+        env:
+          TAG_REF: ${{ github.ref }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: node scripts/release-flow.mjs verify-release-tag --ref "$TAG_REF" --github-output "$GITHUB_OUTPUT"
 
   publish-emdash:
-    name: Publish stable release to EmDash Registry
-    needs: release
-    if: needs.release.outputs.published == 'true' || needs.release.outputs.registry_needed == 'true'
+    name: Publish to EmDash Registry from the version tag
+    needs: release-tag
     uses: ./.github/workflows/emdash-release.yml
     permissions:
       contents: read
       id-token: write
       attestations: write
     with:
-      version: ${{ needs.release.outputs.version }}
-      release_mode: stable
+      version: ${{ needs.release-tag.outputs.version }}
+      # release_mode: stable for a vX.Y.Z tag, release_mode: beta for a vX.Y.Z-beta.N tag.
+      release_mode: ${{ needs.release-tag.outputs.release_mode }}
 
-  cut-beta:
-    name: Cut beta
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.action == 'cut-beta'
-    uses: ./.github/workflows/emdash-release.yml
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-    with:
-      version: ${{ inputs.beta_version }}
-      release_mode: beta
-    secrets:
-      RELEASE_APP_ID: ${{ secrets.RELEASE_APP_ID }}
-      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-
-  # A beta that Cut beta just published is tested at once: this presses dinkuskit/live-journeys' "Live
+  # A beta that a tag run just published is tested at once: this presses dinkuskit/live-journeys' "Live
   # journeys" button, which updates the beta store, beta.sm0ky.dev, to that beta once the Registry
   # offers it and runs the @running journeys there. The run's name carries the beta, its page shows
   # pass or fail and the plugin versions tested, and its address is the proof_ref for Promote
-  # (RELEASING.md, step 4). Stable releases never press it.
+  # (RELEASING.md). Stable releases never press it.
   live-journeys:
     name: Start the live journeys on the beta store
-    needs: cut-beta
+    needs: [release-tag, publish-emdash]
+    if: needs.release-tag.outputs.release_mode == 'beta'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
@@ -159,7 +219,7 @@ jobs:
           # A dinkuskit org secret: a fine-grained token that can only start workflow runs in
           # dinkuskit/live-journeys.
           GH_TOKEN: ${{ secrets.DINKUS_LIVE_JOURNEYS_TOKEN }}
-          BETA: ${{ needs.cut-beta.outputs.slug }} ${{ needs.cut-beta.outputs.version }}
+          BETA: ${{ needs.publish-emdash.outputs.slug }} ${{ needs.publish-emdash.outputs.version }}
         run: |
           set -euo pipefail
           if [ -z "$GH_TOKEN" ]; then
