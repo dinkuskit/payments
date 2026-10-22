@@ -1,27 +1,21 @@
 name: Publish to EmDash Registry
 
-# Only release.yml calls this: its Cut beta (a workflow_dispatch) with release_mode 'beta', and a
-# merged "ci: release" PR (a push to main) with release_mode 'stable'. It has no button of its own,
-# so the release service sees release.yml as the workflow behind both Registry listings.
+# Only release.yml's version-tag run (the tag's push, or Retry the publish pressed on the tag) calls
+# this: a vX.Y.Z-beta.N tag with release_mode 'beta', a vX.Y.Z tag with release_mode 'stable'. Both
+# tags sit on a release/X.Y.Z branch, so the Registry record names the tested commit. It has no
+# button of its own, so the release service sees release.yml as the workflow behind both Registry
+# listings.
 on:
   workflow_call:
     inputs:
       version:
-        description: "Stable: the release version (e.g. 0.2.9). Beta: blank for the next X.Y.Z-beta.N from pending changesets on main, or an explicit X.Y.Z-beta.N"
-        required: false
-        default: ""
+        description: "The pushed tag's version: X.Y.Z (stable) or X.Y.Z-beta.N (beta)"
+        required: true
         type: string
       release_mode:
         description: "Delegated release mode from release.yml ('beta' or 'stable')"
         required: true
         type: string
-    secrets:
-      RELEASE_APP_ID:
-        description: "Release GitHub App id, for Cut beta's tag push"
-        required: false
-      RELEASE_APP_PRIVATE_KEY:
-        description: "Release GitHub App private key, for Cut beta's tag push"
-        required: false
     outputs:
       slug:
         description: "The Registry listing published (dinkus-payments-beta or dinkus-payments)"
@@ -39,7 +33,7 @@ concurrency:
 jobs:
   publish:
     name: Bundle and publish plugin to EmDash Registry
-    if: github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.release_mode == 'beta') || (github.event_name == 'push' && inputs.release_mode == 'stable' && inputs.version != ''))
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && inputs.version != '' && github.ref == format('refs/tags/v{0}', inputs.version) && ((inputs.release_mode == 'beta' && contains(inputs.version, '-beta.')) || (inputs.release_mode == 'stable' && !contains(inputs.version, '-beta.')))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -76,21 +70,6 @@ jobs:
           INPUT_RELEASE_MODE: ${{ inputs.release_mode }}
         run: node .github/scripts/emdash-dispatch-gate.mjs --github-output "$GITHUB_OUTPUT"
 
-      - name: Mint release GitHub App token
-        id: app-token
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-
-      - name: Configure git push authentication for beta tag
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          APP_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          git config --local "http.https://github.com/.extraheader" "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 | tr -d '\n')"
-
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
@@ -103,15 +82,13 @@ jobs:
       - name: Build plugin
         run: npm run build
 
-      - name: Resolve release version (and cut beta tag when dispatched for beta)
+      - name: Resolve release version
         id: meta
         env:
           INPUT_VERSION: ${{ inputs.version }}
           INPUT_RELEASE_MODE: ${{ inputs.release_mode }}
           EVENT_NAME: ${{ github.event_name }}
           GITHUB_REF: ${{ github.ref }}
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
           node scripts/release-flow.mjs validate-emdash-dispatch \
@@ -119,18 +96,10 @@ jobs:
             --ref "$GITHUB_REF" \
             --version "$INPUT_VERSION" \
             --release-mode "$INPUT_RELEASE_MODE"
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            if [ -z "$INPUT_VERSION" ]; then
-              node scripts/release-flow.mjs cut-beta --github-output "$GITHUB_OUTPUT"
-            else
-              node scripts/release-flow.mjs cut-beta --version "$INPUT_VERSION" --github-output "$GITHUB_OUTPUT"
-            fi
-          else
-            VERSION="$INPUT_VERSION"
-            SLUG="dinkus-payments"
-            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-            echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
-          fi
+          SLUG="dinkus-payments"
+          case "$INPUT_VERSION" in *-beta.*) SLUG="dinkus-payments-beta" ;; esac
+          echo "version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
 
       - name: Check whether release version is already indexed in EmDash Registry
         id: registry-check
