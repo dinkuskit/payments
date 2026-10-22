@@ -339,15 +339,22 @@ test("a connecting or recovery status still offers Sign in again when a sign-in 
   }
 });
 
-test("store key problems are named, and only Payments being off asks for Sign in again", () => {
+test("store key problems are named: a missing or unknown key asks for Connect again, Payments being off for Sign in again", () => {
   const missing = JSON.stringify(renderSetupScreen({ state: "store_key_required" }));
   assert.match(missing, /"title":"Payment status not checked"/);
-  assert.match(missing, /Paste the store key from the Set up Commerce box on DinkusKit\.com into this plugin's settings \(Store key\)/);
-  assert.match(missing, /"label":"Check connection","action_id":"check"/);
-  assert.doesNotMatch(missing, /Sign in again|Reconnect|"variant":"alert"/);
+  assert.match(missing, /This plugin doesn't have its DinkusKit store key yet\. Select Connect again and approve at DinkusKit\.com/);
+  assert.match(missing, /"label":"Connect again","action_id":"connect"/);
+  assert.doesNotMatch(missing, /Paste|Sign in again|Reconnect|"variant":"alert"/);
+  for (const [refusal, text] of Object.entries({
+    invalid_store_key: /DinkusKit\.com no longer knows this plugin's store key/,
+    site_mismatch: /This plugin's store key belongs to another store\. Select Connect again/,
+  })) {
+    const page = JSON.stringify(renderSetupScreen({ state: "pass_refused", refusal }));
+    assert.match(page, text);
+    assert.match(page, /"label":"Connect again","action_id":"connect"/);
+    assert.doesNotMatch(page, /Paste|Sign in again|Reconnect/);
+  }
   const wording = {
-    invalid_store_key: /DinkusKit\.com does not know this store key/,
-    site_mismatch: /This store key belongs to another store/,
     service_cut_off: /cut Payments off for this store/,
     store_suspended: /This store is suspended at DinkusKit\.com/,
     rate_limited: /busy with this store's passes/,
@@ -362,6 +369,9 @@ test("store key problems are named, and only Payments being off asks for Sign in
   const off = JSON.stringify(renderSetupScreen({ state: "pass_refused", refusal: "service_not_enabled" }));
   assert.match(off, /Payments isn't connected for this store at DinkusKit\.com\. Select Sign in again to connect it\./);
   assert.match(off, /"label":"Sign in again","action_id":"connect"/);
+  const commerce = JSON.stringify(renderSetupScreen({ state: "commerce_required" }));
+  assert.match(commerce, /Connect the Commerce plugin first/);
+  assert.match(commerce, /"label":"Connect","action_id":"connect"/);
 });
 
 test("a Stripe change pressed after the page's sign-in lapsed keeps the status and asks for Sign in again", () => {
@@ -435,14 +445,14 @@ test("a refused Stripe setup names its reason and that nothing was created", () 
   assert.doesNotMatch(unknown, /anything-else/);
 });
 
-test("with no store key pasted, the page shows the last checked connection with its time", () => {
+test("with no store key from Connect, the page shows the last checked connection with its time", () => {
   const status = { state: "ready", mode: "test", bindingRef: "b", connectionEvidence: { provider: "stripe", mode: "test", result: "verified", accountRef: "acct_one" } };
   const page = renderSetupScreen({ state: "store_key_required", lastChecked: { at: Date.UTC(2026, 9, 18, 17, 10), status } });
   const banner = page.blocks.find(block => block.type === "banner");
   assert.equal(banner.title, "Connected: Stripe test mode");
-  assert.match(banner.description, /^Last checked Oct 18, 2026 at 5:10 PM UTC\. Paste the store key in this plugin's settings so this page can check it now\./);
+  assert.match(banner.description, /^Last checked Oct 18, 2026 at 5:10 PM UTC\. Select Connect again so this page can check it now\./);
   const text = JSON.stringify(page);
-  assert.match(text, /"label":"Check connection","action_id":"check"/);
+  assert.match(text, /"label":"Connect again","action_id":"connect"/);
   assert.doesNotMatch(text, /setup_processor|Sign in again|Reconnect/);
   for (const lastChecked of [undefined, { at: 1, status: { state: "bogus" } }, { at: "soon", status }]) {
     assert.equal(renderSetupScreen({ state: "store_key_required", lastChecked }).blocks[1].title, "Payment status not checked");

@@ -10,7 +10,7 @@ export const CONNECT = "https://dinkuskit.com/api/store-connections";
 export const JWKS = "https://dinkuskit.com/account/.well-known/jwks.json";
 export const STATUS = "https://payments.dinkuskit.com/v1/status";
 export const PASSES = "https://dinkuskit.com/api/store-passes";
-export const STORE_KEY = "dk_store_synthetic-runtime-key";
+export const STORE_KEY = `dk_store_${"R".repeat(43)}`;
 export const CONTROL = "state:registry-v2-control";
 export const SETTING = "registry_session";
 export const SITE = "https://shop.example";
@@ -56,8 +56,8 @@ export async function fixture(options: { installedId?: string; storeKey?: string
     }
     host = await createPluginRuntimeTestHost({ site: { url: SITE } });
   } finally { bindings.EMDASH_PLUGIN_MANIFEST = originalManifest; }
-  // The owner pasted the store key from Set up Commerce, as for Ship.
-  if (options.storeKey !== null) await host.fixtures.plugin.setting("storeKey", options.storeKey ?? STORE_KEY);
+  // DinkusKit.com hands the plugin its own store key at the end of Connect.
+  const issuedKey = options.storeKey === null ? {} : { store_key: options.storeKey ?? STORE_KEY };
   const admin = await host.fixtures.user({ email: "connection-admin@example.invalid", role: "admin" });
   const { privateKey, publicKey } = await generateKeyPair("ES256");
   const jwk = { ...await exportJWK(publicKey), kid: "synthetic-connection-key", alg: "ES256" };
@@ -85,7 +85,7 @@ export async function fixture(options: { installedId?: string; storeKey?: string
       .setIssuer("https://dinkuskit.com/account").setAudience("dinkus-payments")
       .setSubject("synthetic-organization").setIssuedAt(now).setExpirationTime(now + 300).sign(privateKey);
     await host.http.respond(`${CONNECT}/token`, Response.json({
-      access_token: token, token_type: "Bearer", site_id: "synthetic-site", expires_in: 300,
+      access_token: token, token_type: "Bearer", site_id: "synthetic-site", expires_in: 300, ...issuedKey,
     }));
     // Continue validates and saves the exchange token, then reads status once
     // with it in the same request.

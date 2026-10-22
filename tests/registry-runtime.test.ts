@@ -719,7 +719,7 @@ test("compiled Continue pressed inside the poll interval waits it out within ten
   } finally { vi.restoreAllMocks(); await host.dispose(); }
 });
 
-test("compiled Approve with no store key pasted shows the status read at approval, to that admin only", async () => {
+test("compiled Approve with no store key from DinkusKit.com shows the status read at approval, to that admin only", async () => {
   const f = await fixture({ storeKey: null }); const { host } = f;
   try {
     await f.prepareStart("approve-then-lapse"); await f.action("connect"); await f.pollDue();
@@ -728,8 +728,8 @@ test("compiled Approve with no store key pasted shows the status read at approva
     host.http.clear();
     const page = await f.page();
     assert.equal(page.blocks[1].title, "Connected: Stripe test mode");
-    assert.match(String(page.blocks[1].description), /^Last checked .* UTC\. Paste the store key in this plugin's settings so this page can check it now/);
-    assert.match(JSON.stringify(page), /"label":"Check connection","action_id":"check"/);
+    assert.match(String(page.blocks[1].description), /^Last checked .* UTC\. Select Connect again so this page can check it now/);
+    assert.match(JSON.stringify(page), /"label":"Connect again","action_id":"connect"/);
     assert.doesNotMatch(JSON.stringify(page), /Sign in again/);
     assert.deepEqual(host.http.requests(), []);
     const other = await host.fixtures.user({ email: "other-admin@example.invalid", role: "admin" });

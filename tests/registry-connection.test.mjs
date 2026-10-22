@@ -24,14 +24,17 @@ function memory() {
   return { kv: access('kv:'), settings: access('secret:'), values };
 }
 const json = (body, status = 200) => Response.json(body, { status });
-async function fixture({ testOnly, installedPluginId, pluginId, endpoint = { status: 'https://payments-proof.invalid/v1/status' }, storeKey = 'dk_store_synthetic' } = {}) {
+const KEY = `dk_store_${'S'.repeat(43)}`;
+// The plugin's own store key, as the Connect setting holds it.
+const sessionKey = async store => { const raw = await store.settings.get('registry_session'); return raw ? JSON.parse(raw).storeKey : undefined; };
+async function fixture({ testOnly, installedPluginId, pluginId, endpoint = { status: 'https://payments-proof.invalid/v1/status' }, storeKey = KEY } = {}) {
   const store = memory();
-  if (storeKey !== null) await store.settings.set('storeKey', storeKey); const { privateKey, publicKey } = await generateKeyPair('ES256');
+  const { privateKey, publicKey } = await generateKeyPair('ES256');
   const jwk = { ...await exportJWK(publicKey), kid: 'test-key', alg: 'ES256' };
   const expectedPluginId = installedPluginId === 'dinkus-payments-beta' || pluginId === 'dinkus-payments-beta'
     ? 'r_sffx6l4z6mpqliki'
     : (installedPluginId ?? (pluginId === 'dinkus-payments' ? 'r_3brsc2on3bu673rn' : pluginId) ?? 'r_3brsc2on3bu673rn');
-  const f = { now: 1_800_000_000_000, starts: 0, exchanges: 0, statuses: 0, approved: false, siteId: 'site', subject: 'org', error: null, calls: [], gate: null, claims: {}, setupReply: { state: 'setup_required', mode: 'test', bindingRef: 'synthetic-binding', url: 'https://connect.stripe.com/setup/synthetic', expiresAt: 1_800_000_300_000 }, setupStatus: 200, recoveryReply: { state: 'prepared', mode: 'test', bindingRef: 'stripe_synthetic', operationId: 'approved_operation', preparedAt: 1_800_000_000_000 }, recoveryStatus: 200, passes: 0, diagnosticScopes: [], passError: null, passClaims: {}, slept: [], statusReply: { state: 'disconnected', mode: 'test', bindingRef: 'synthetic-binding' } };
+  const f = { storeKey, connectRefusal: null, now: 1_800_000_000_000, starts: 0, exchanges: 0, statuses: 0, approved: false, siteId: 'site', subject: 'org', error: null, calls: [], gate: null, claims: {}, setupReply: { state: 'setup_required', mode: 'test', bindingRef: 'synthetic-binding', url: 'https://connect.stripe.com/setup/synthetic', expiresAt: 1_800_000_300_000 }, setupStatus: 200, recoveryReply: { state: 'prepared', mode: 'test', bindingRef: 'stripe_synthetic', operationId: 'approved_operation', preparedAt: 1_800_000_000_000 }, recoveryStatus: 200, passes: 0, diagnosticScopes: [], passError: null, passClaims: {}, slept: [], statusReply: { state: 'disconnected', mode: 'test', bindingRef: 'synthetic-binding' } };
   const connection = createRegistryConnection({
     ...store,
     config: { endpoint, testOnly, ...(installedPluginId ? { installedPluginId } : {}) },
@@ -43,6 +46,7 @@ async function fixture({ testOnly, installedPluginId, pluginId, endpoint = { sta
       assert.equal(init.redirect, 'manual'); f.calls.push({ url, init });
       if (url === REGISTRY_CONNECT_URL) {
         f.starts++; const body = JSON.parse(init.body);
+        if (f.connectRefusal) return json({ error: f.connectRefusal }, 409);
         assert.equal(body.protocol_version, 2); assert.equal(body.service, 'payments'); assert.equal('site_id' in body, false);
         assert.equal(body.callback_uri, `${testOnly?.storeOrigin ?? 'https://shop.example'}/_emdash/admin/plugins/${expectedPluginId}/status`);
         f.challenge = body.code_challenge;
@@ -59,11 +63,11 @@ async function fixture({ testOnly, installedPluginId, pluginId, endpoint = { sta
         const token = await new SignJWT({ site_id: f.siteId, scope: REGISTRY_SCOPE, ...f.claims })
           .setProtectedHeader({ alg: 'ES256', kid: 'test-key' }).setIssuer(REGISTRY_ISSUER).setAudience('dinkus-payments')
           .setSubject(f.subject).setIssuedAt(Math.floor(f.now / 1000)).setExpirationTime(Math.floor(f.now / 1000) + 300).sign(privateKey);
-        return json({ access_token: token, token_type: 'Bearer', site_id: f.siteId, expires_in: 300 });
+        return json({ access_token: token, token_type: 'Bearer', site_id: f.siteId, expires_in: 300, ...(f.storeKey === null ? {} : { store_key: f.storeKey }) });
       }
       if (url.endsWith('/jwks.json')) return json({ keys: [jwk] });
       if (url === STORE_PASSES_URL) {
-        f.passes++; assert.equal(init.method, 'POST'); assert.equal(init.headers.Authorization, `Bearer ${await store.settings.get('storeKey')}`.trim());
+        f.passes++; assert.equal(init.method, 'POST'); assert.equal(init.headers.Authorization, `Bearer ${await sessionKey(store)}`);
         assert.deepEqual(JSON.parse(init.body), { site_id: f.siteId, scope: 'payments:checkout', audience: 'dinkus-payments' });
         if (f.passError) return json({ error: f.passError.error }, f.passError.status);
         const pass = await new SignJWT({ site_id: f.siteId, scope: 'payments:checkout', ...f.passClaims })
@@ -273,7 +277,7 @@ test('a new grant reads status with its verified token, without diagnostics or a
   assert.equal(f.calls.some(c => c.url.endsWith('/diagnostics')), false);
 });
 
-test('with no store key pasted, the page shows the last status this admin read, never another admin', async () => {
+test('with no store key from Connect, the page shows the last status this admin read, never another admin', async () => {
   const { f, connection } = await fixture({ storeKey: null });
   f.statusReply = { state: 'ready', mode: 'test', bindingRef: 'synthetic-binding', connectionEvidence: { provider: 'stripe', mode: 'test', result: 'verified', accountRef: 'acct_one' } };
   // Approve, then nothing else: the status shown right after approval is kept.
@@ -294,9 +298,10 @@ test('DinkusKit.com refusals of the store key are named, and the key goes only t
   }
   const unknown = await fixture(); await unknown.f.connect(); unknown.f.passError = { status: 503, error: 'raw-detail' };
   assert.deepEqual(await unknown.connection.status({ id: 'admin' }), { state: 'check_failed', checkFailure: { stage: 'fetch_pass', httpStatus: 503 } });
-  const malformed = await fixture({ storeKey: 'not-a-key' }); await malformed.f.connect();
-  assert.deepEqual(await malformed.connection.status({ id: 'admin' }), { state: 'pass_refused', refusal: 'invalid_store_key' });
-  assert.equal(malformed.f.passes, 0);
+  // A malformed key from DinkusKit.com fails the Connect itself; nothing is saved.
+  const malformed = await fixture({ storeKey: 'not-a-key' });
+  assert.deepEqual(await malformed.f.connect(), { state: 'failed', message: 'restart_required' });
+  assert.equal(await sessionKey(malformed.store), undefined); assert.equal(malformed.f.passes, 0);
   for (const claims of [{ scope: 'payments:admin' }, { site_id: 'other' }]) {
     const wrong = await fixture(); await wrong.f.connect(); wrong.f.passClaims = claims; const before = wrong.f.statuses;
     assert.deepEqual(await wrong.connection.status({ id: 'admin' }), { state: 'check_failed', checkFailure: { stage: 'decode_pass' } });
@@ -310,7 +315,7 @@ test('DinkusKit.com refusals of the store key are named, and the key goes only t
   assert.deepEqual(await never.connection.status({ id: 'admin' }), { state: 'action_required' }); assert.equal(never.f.passes, 0);
   const { f, connection } = await fixture(); await f.connect();
   await connection.status({ id: 'admin' });
-  for (const call of f.calls) if (call.init.headers?.Authorization === 'Bearer dk_store_synthetic') assert.equal(call.url, STORE_PASSES_URL);
+  for (const call of f.calls) if (call.init.headers?.Authorization === `Bearer ${KEY}`) assert.equal(call.url, STORE_PASSES_URL);
 });
 
 test('setup failure detail uses only this admin\'s live sign-in, never the store pass', async () => {
@@ -337,16 +342,17 @@ test('a refused setup carries only a known reason; any other refusal stays uncon
   }
 });
 
-test('the newest of the approval-time status and a later Check is shown while no store key is pasted', async () => {
+test('the newest of the approval-time status and a later Check is shown while the plugin has no store key', async () => {
   const { f, connection, store } = await fixture();
   await f.connect();
   f.now += 60000; f.statusReply = { state: 'ready', mode: 'test', bindingRef: 'synthetic-binding', connectionEvidence: { provider: 'stripe', mode: 'test', result: 'verified', accountRef: 'acct_one' } };
   assert.equal((await connection.status({ id: 'admin' })).state, 'ready'); const checkedAt = f.now;
-  // The store key is removed later: the newer Check is what the page shows.
-  await store.settings.set('storeKey', ''); f.now += 301000;
+  // The store key is lost later: the newer Check is what the page shows.
+  const session = JSON.parse(await store.settings.get('registry_session')); delete session.storeKey;
+  await store.settings.set('registry_session', JSON.stringify(session)); f.now += 301000;
   assert.deepEqual((await connection.status({ id: 'admin' })).lastChecked, { at: checkedAt, status: f.statusReply });
   // A fresh approval is newer than the earlier Check.
-  f.statusReply = { state: 'disconnected', mode: 'test', bindingRef: 'synthetic-binding' };
+  f.statusReply = { state: 'disconnected', mode: 'test', bindingRef: 'synthetic-binding' }; f.storeKey = null;
   await f.connect(); const approvedAt = f.now; f.now += 301000;
   assert.deepEqual((await connection.status({ id: 'admin' })).lastChecked, { at: approvedAt, status: f.statusReply });
 });
@@ -380,4 +386,29 @@ test('legacy preparation refuses another admin, expired session, changed flow an
   const result = await connection.prepareLegacyV2({ id: 'admin' }, true);
   assert.equal(result.state, 'legacy_recovery_unconfirmed');
   assert.equal(JSON.stringify(result).includes('PRIVATE_CANARY'), false);
+});
+
+test('Connect saves the plugin\'s own store key in the encrypted Connect setting and keeps it across a new Connect', async () => {
+  const { f, connection, store } = await fixture();
+  f.statusReply = { state: 'ready', mode: 'test', bindingRef: 'synthetic-binding', connectionEvidence: { provider: 'stripe', mode: 'test', result: 'verified', accountRef: 'acct_one' } };
+  await f.connect();
+  assert.equal(await sessionKey(store), KEY);
+  assert.equal(await store.settings.get('storeKey'), null, 'there is no store key box to paste into');
+  f.now += 301000;
+  assert.equal((await connection.status({ id: 'admin' })).state, 'ready', 'the status page reads with the key after the sign-in lapses');
+  // Starting a new Connect keeps the key until DinkusKit.com hands over the next one.
+  assert.equal((await connection.start({ id: 'admin' })).state, 'pending');
+  assert.equal(await sessionKey(store), KEY);
+  const next = `dk_store_${'N'.repeat(43)}`; f.storeKey = next; f.now += 5000;
+  await connection.exchange({ id: 'admin' });
+  assert.equal(await sessionKey(store), next, 'Connect again replaces the key');
+  // An older DinkusKit.com that sends no key leaves the current one in place.
+  f.storeKey = null; assert.equal((await f.connect()).state, 'ready'); assert.equal(await sessionKey(store), next);
+});
+
+test('a store whose Commerce is not connected yet is told to connect Commerce first', async () => {
+  const { f, connection } = await fixture(); f.connectRefusal = 'connect_commerce_first';
+  assert.deepEqual(await connection.start({ id: 'admin' }), { state: 'commerce_required' });
+  f.connectRefusal = 'something_else';
+  assert.deepEqual(await connection.start({ id: 'admin' }), { state: 'failed', message: 'restart_required' });
 });
