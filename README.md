@@ -103,11 +103,12 @@ Every pull request declares its bump in `.changeset/` (`patch` for fixes,
 `minor` for everything else during `0.x`, or `changeset --empty` for non-bumping
 changes). Ordinary pushes to `main` do not cut betas or open a release PR:
 operators run **Release** (`release.yml`) from `main` with `action: cut-beta` to
-cut `vX.Y.Z-beta.N` to `dinkus-payments-beta`, which also starts the `@running`
-journeys on the shared beta store, and then run **Release** with
-`action: promote` to turn that verified beta and commit SHA into a
-`ci: release vX.Y.Z` pull request. Human merge of the `ci: release` PR is the
-only stable publish path (`vX.Y.Z` tag, GitHub Release, and delegated
+start `release/X.Y.Z` and its `vX.Y.Z-beta.N` tag, whose run publishes
+`dinkus-payments-beta` and starts the `@running` journeys on the shared beta
+store. `action: add-fix` copies a merged fix onto that branch as the next beta,
+and `action: promote` turns a verified beta into a `ci: release vX.Y.Z` pull
+request to `main`. Human merge of the `ci: release` PR is the only stable
+publish path (`vX.Y.Z` tag on the release branch, GitHub Release, and delegated
 `dinkus-payments` Registry publish). See [RELEASING.md](RELEASING.md) for the
 full release flow and required repository secrets/variables.
 

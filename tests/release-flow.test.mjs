@@ -33,6 +33,8 @@ import {
   STABLE_INSTALLED_PLUGIN_ID,
   STABLE_PLUGIN_NAME,
   STABLE_REGISTRY_SLUG,
+  bumpPatch,
+  compareSemver,
   computeNextBetaVersion,
   computeTargetVersion,
   extractChangelogSection,
@@ -40,6 +42,7 @@ import {
   findMissingChangesets,
   formatBetaProofRecord,
   highestBumpType,
+  insertChangelogSection,
   isAllowedReleaseTreePath,
   parseBetaProofRecord,
   parseChangesetFrontmatter,
@@ -54,7 +57,7 @@ import {
   verifyVersionOnlyPackageMetadata,
 } from "../scripts/release-flow.mjs";
 
-test("locked stable and beta EmDash Registry identities match release-beta-cut-071", () => {
+test("locked stable and beta EmDash Registry identities match release-branches-079", () => {
   assert.equal(STABLE_REGISTRY_SLUG, "dinkus-payments");
   assert.equal(BETA_REGISTRY_SLUG, "dinkus-payments-beta");
   assert.equal(STABLE_INSTALLED_PLUGIN_ID, "r_3brsc2on3bu673rn");
@@ -204,77 +207,89 @@ test("validateEmDashDispatchGate and .github/scripts/emdash-dispatch-gate.mjs ag
 
   const testCases = [
     {
-      label: "Cut beta from release.yml, next beta on main",
-      input: { eventName: "workflow_dispatch", ref: "refs/heads/main", inputVersion: "", releaseMode: "beta" },
+      label: "beta tag run with release_mode=beta publishes the beta package",
+      input: { eventName: "push", ref: "refs/tags/v0.2.9-beta.2", inputVersion: "0.2.9-beta.2", releaseMode: "beta" },
       expectedOk: true,
-      expectedMode: "cut-beta",
+      expectedMode: "beta-tag",
       expectedSlug: BETA_REGISTRY_SLUG,
     },
     {
-      label: "Cut beta from release.yml, explicit beta on main",
+      label: "stable tag run with release_mode=stable publishes the stable package",
+      input: { eventName: "push", ref: "refs/tags/v0.2.9", inputVersion: "0.2.9", releaseMode: "stable" },
+      expectedOk: true,
+      expectedMode: "stable-tag",
+      expectedSlug: STABLE_REGISTRY_SLUG,
+    },
+    {
+      label: "a Run workflow press never publishes, even naming a beta",
       input: { eventName: "workflow_dispatch", ref: "refs/heads/main", inputVersion: "0.2.9-beta.2", releaseMode: "beta" },
-      expectedOk: true,
-      expectedMode: "cut-beta",
-      expectedSlug: BETA_REGISTRY_SLUG,
-    },
-    {
-      label: "Cut beta with a stable version rejected",
-      input: { eventName: "workflow_dispatch", ref: "refs/heads/main", inputVersion: "0.2.9", releaseMode: "beta" },
       expectedOk: false,
-      expectedCode: "manual_stable_dispatch_forbidden",
+      expectedCode: "dispatch_publish_forbidden",
     },
     {
-      label: "workflow_dispatch without release.yml's release_mode=beta rejected",
-      input: { eventName: "workflow_dispatch", ref: "refs/heads/main", inputVersion: "0.2.9-beta.2", releaseMode: "" },
+      label: "a Run workflow press on main spoofing release_mode=stable is rejected",
+      input: { eventName: "workflow_dispatch", ref: "refs/heads/main", inputVersion: "0.2.9", releaseMode: "stable" },
+      expectedOk: false,
+      expectedCode: "dispatch_publish_forbidden",
+    },
+    {
+      label: "Retry the publish pressed on a stable tag runs that tag's publish",
+      input: { eventName: "workflow_dispatch", ref: "refs/tags/v0.2.9", inputVersion: "0.2.9", releaseMode: "stable" },
+      expectedOk: true,
+      expectedMode: "stable-tag",
+      expectedSlug: STABLE_REGISTRY_SLUG,
+    },
+    {
+      label: "Retry the publish on a beta tag cannot switch to release_mode=stable",
+      input: { eventName: "workflow_dispatch", ref: "refs/tags/v0.2.9-beta.1", inputVersion: "0.2.9-beta.1", releaseMode: "stable" },
       expectedOk: false,
       expectedCode: "missing_beta_caller_input",
     },
     {
-      label: "manual workflow_dispatch spoofing release_mode=stable rejected",
-      input: { eventName: "workflow_dispatch", ref: "refs/heads/main", inputVersion: "0.2.9-beta.1", releaseMode: "stable" },
-      expectedOk: false,
-      expectedCode: "manual_stable_dispatch_forbidden",
-    },
-    {
-      label: "Cut beta on non-main ref rejected",
-      input: { eventName: "workflow_dispatch", ref: "refs/heads/feat/rogue-branch", inputVersion: "0.2.9-beta.1", releaseMode: "beta" },
-      expectedOk: false,
-      expectedCode: "forbidden_dispatch_ref",
-    },
-    {
-      label: "delegated push from release.yml on main with release_mode=stable succeeds",
+      label: "push to main never publishes",
       input: { eventName: "push", ref: "refs/heads/main", inputVersion: "0.2.9", releaseMode: "stable" },
-      expectedOk: true,
-      expectedMode: "stable-call",
-      expectedSlug: STABLE_REGISTRY_SLUG,
-    },
-    {
-      label: "push without release_mode=stable rejected",
-      input: { eventName: "push", ref: "refs/heads/main", inputVersion: "0.2.9", releaseMode: "" },
-      expectedOk: false,
-      expectedCode: "missing_stable_caller_input",
-    },
-    {
-      label: "push on non-main ref rejected even with release_mode=stable",
-      input: { eventName: "push", ref: "refs/heads/feat/rogue", inputVersion: "0.2.9", releaseMode: "stable" },
       expectedOk: false,
       expectedCode: "forbidden_caller_ref",
     },
     {
-      label: "push with release_mode=stable but missing version rejected",
-      input: { eventName: "push", ref: "refs/heads/main", inputVersion: "", releaseMode: "stable" },
+      label: "push to a release branch never publishes",
+      input: { eventName: "push", ref: "refs/heads/release/0.2.9", inputVersion: "0.2.9-beta.1", releaseMode: "beta" },
       expectedOk: false,
-      expectedCode: "missing_workflow_call_version",
+      expectedCode: "forbidden_caller_ref",
     },
     {
-      label: "push with release_mode=stable and beta version rejected",
-      input: { eventName: "push", ref: "refs/heads/main", inputVersion: "0.2.9-beta.1", releaseMode: "stable" },
+      label: "a tag that is not a version is rejected",
+      input: { eventName: "push", ref: "refs/tags/release-0.2.9", inputVersion: "0.2.9", releaseMode: "stable" },
       expectedOk: false,
-      expectedCode: "invalid_stable_caller_version",
+      expectedCode: "forbidden_caller_ref",
+    },
+    {
+      label: "version input must equal the tag's version",
+      input: { eventName: "push", ref: "refs/tags/v0.2.9", inputVersion: "0.2.10", releaseMode: "stable" },
+      expectedOk: false,
+      expectedCode: "version_tag_mismatch",
+    },
+    {
+      label: "missing version input is rejected",
+      input: { eventName: "push", ref: "refs/tags/v0.2.9", inputVersion: "", releaseMode: "stable" },
+      expectedOk: false,
+      expectedCode: "version_tag_mismatch",
+    },
+    {
+      label: "beta tag with release_mode=stable is rejected",
+      input: { eventName: "push", ref: "refs/tags/v0.2.9-beta.1", inputVersion: "0.2.9-beta.1", releaseMode: "stable" },
+      expectedOk: false,
+      expectedCode: "missing_beta_caller_input",
+    },
+    {
+      label: "stable tag with release_mode=beta is rejected",
+      input: { eventName: "push", ref: "refs/tags/v0.2.9", inputVersion: "0.2.9", releaseMode: "beta" },
+      expectedOk: false,
+      expectedCode: "missing_stable_caller_input",
     },
     {
       label: "unsupported event rejected",
-      input: { eventName: "pull_request", ref: "refs/heads/main", inputVersion: "0.2.9", releaseMode: "stable" },
+      input: { eventName: "pull_request", ref: "refs/tags/v0.2.9", inputVersion: "0.2.9", releaseMode: "stable" },
       expectedOk: false,
       expectedCode: "unsupported_event",
     },
@@ -413,49 +428,46 @@ test("release inventory failures abort beta tagging and release checks", async (
   }
 });
 
-test("validateBetaPromotionGate enforces beta tag, no new changesets after beta, registry presence, and @running proof", () => {
+test("validateBetaPromotionGate enforces the beta at its release branch tip, not yet released, in the Registry, with @running proof", () => {
   const betaSha = "1234567890abcdef1234567890abcdef12345678";
-
-  const staleBeta = validateBetaPromotionGate({
+  const proofRef = "https://github.com/dinkuskit/live-journeys/actions/runs/100 (0.2.9-beta.1 @running pass)";
+  const base = {
     targetVersion: "0.2.9",
     betaVersion: "0.2.9-beta.1",
     betaTagSha: betaSha,
-    currentMainSha: "fedcba0987654321fedcba0987654321fedcba09",
-    changedFilesSinceBeta: [".changeset/extra-fix.md"],
+    branchTipSha: betaSha,
     registryHasBetaVersion: true,
-    proofRef: "https://github.com/dinkuskit/payments/actions/runs/100 (0.2.9-beta.1 @running pass)",
-  });
-  assert.equal(staleBeta.ok, false);
-  assert.equal(staleBeta.code, "main_advanced_since_beta");
+    proofRef,
+  };
 
-  const missingProof = validateBetaPromotionGate({
-    targetVersion: "0.2.9",
-    betaVersion: "0.2.9-beta.1",
-    betaTagSha: betaSha,
-    currentMainSha: betaSha,
-    changedFilesSinceBeta: [],
-    registryHasBetaVersion: true,
-    proofRef: "",
-  });
+  const moved = validateBetaPromotionGate({ ...base, branchTipSha: "fedcba0987654321fedcba0987654321fedcba09" });
+  assert.equal(moved.ok, false);
+  assert.equal(moved.code, "release_branch_advanced_since_beta");
+
+  assert.equal(validateBetaPromotionGate({ ...base, branchTipSha: "" }).code, "missing_release_branch");
+  assert.equal(validateBetaPromotionGate({ ...base, betaTagSha: "" }).code, "missing_beta_tag");
+  assert.equal(validateBetaPromotionGate({ ...base, stableTagSha: betaSha }).code, "already_released");
+  assert.equal(validateBetaPromotionGate({ ...base, registryHasBetaVersion: false }).code, "beta_not_in_registry");
+  assert.equal(validateBetaPromotionGate({ ...base, betaVersion: "0.2.10-beta.1" }).code, "beta_version_mismatch");
+
+  const missingProof = validateBetaPromotionGate({ ...base, proofRef: "" });
   assert.equal(missingProof.ok, false);
   assert.equal(missingProof.code, "missing_beta_proof");
 
-  const valid = validateBetaPromotionGate({
-    targetVersion: "0.2.9",
-    betaVersion: "0.2.9-beta.1",
-    betaTagSha: betaSha,
-    currentMainSha: betaSha,
-    changedFilesSinceBeta: [],
-    registryHasBetaVersion: true,
-    proofRef: "https://github.com/dinkuskit/payments/actions/runs/100 (0.2.9-beta.1 @running pass)",
-  });
+  const valid = validateBetaPromotionGate(base);
   assert.equal(valid.ok, true);
-  const parsedProof = parseBetaProofRecord(valid.trailer);
-  assert.deepEqual(parsedProof, {
-    betaVersion: "0.2.9-beta.1",
-    betaSha,
-    proofRef: "https://github.com/dinkuskit/payments/actions/runs/100 (0.2.9-beta.1 @running pass)",
-  });
+  assert.equal(valid.releaseBranch, "release/0.2.9");
+  assert.deepEqual(parseBetaProofRecord(valid.trailer), { betaVersion: "0.2.9-beta.1", betaSha, proofRef });
+});
+
+test("insertChangelogSection puts a version above the newest section once", () => {
+  const changelog = "# @dinkuskit/payments\n\n## 0.2.8\n\n- Baseline.\n";
+  const once = insertChangelogSection(changelog, "0.2.9", "### Patch Changes\n\n- Fix.");
+  assert.equal(once, "# @dinkuskit/payments\n\n## 0.2.9\n\n### Patch Changes\n\n- Fix.\n\n## 0.2.8\n\n- Baseline.\n");
+  assert.equal(insertChangelogSection(once, "0.2.9", "- Other."), once);
+  assert.equal(compareSemver("0.2.10", "0.3.10"), -1);
+  assert.equal(compareSemver("0.3.0", "0.3.0-beta.3"), 1);
+  assert.equal(bumpPatch("0.3.0"), "0.3.1");
 });
 
 test("verifyApprovedBetaSourceTree and verifyVersionOnlyPackageMetadata enforce version-only package.json and package-lock.json diffs", () => {
@@ -631,9 +643,9 @@ test("publish-pkg-pr-new helper skips with ::notice:: and exit 0 on 404 App-not-
   assert.equal(success.exitCode, 0);
 });
 
-for (const listed of [false, true]) {
-test(`publish-merged-release resumes a missing GitHub Release and still hands off to the Registry job when the tag is on HEAD${listed ? " and the version is already listed" : ""}`, async () => {
-  const tempRoot = await mkdtemp(join(tmpdir(), "payments-resume-test-"));
+for (const released of [false, true]) {
+test(`verify-release-tag accepts a stable tag on its release branch and ${released ? "keeps" : "creates"} its GitHub Release`, async () => {
+  const tempRoot = await mkdtemp(join(tmpdir(), "payments-tag-run-test-"));
   try {
     await writePublisherManifest(tempRoot);
     await mkdir(join(tempRoot, ".changeset"), { recursive: true });
@@ -648,18 +660,14 @@ test(`publish-merged-release resumes a missing GitHub Release and still hands of
       `${JSON.stringify({ name: PACKAGE_NAME, version: "0.2.8", packages: { "": { name: PACKAGE_NAME, version: "0.2.8" } } }, null, 2)}\n`,
       "utf8",
     );
-    await writeFile(
-      join(tempRoot, "CHANGELOG.md"),
-      "# @dinkuskit/payments\n\n## 0.2.8\n\n- Baseline.\n",
-      "utf8",
-    );
+    await writeFile(join(tempRoot, "CHANGELOG.md"), "# @dinkuskit/payments\n\n## 0.2.8\n\n- Baseline.\n", "utf8");
     await writeFile(join(tempRoot, "src/plugin.ts"), "export const x = 1;\n", "utf8");
     await writeFile(join(tempRoot, ".changeset/README.md"), "# Changesets\n", "utf8");
 
     const git = (args) =>
       execFileSync("git", args, { cwd: tempRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 
-    git(["init", "-b", "main"]);
+    git(["init", "-b", "release/0.2.9"]);
     git(["config", "user.name", "Test"]);
     git(["config", "user.email", "test@example.invalid"]);
     git(["add", "-A"]);
@@ -677,55 +685,34 @@ test(`publish-merged-release resumes a missing GitHub Release and still hands of
       `${JSON.stringify({ name: PACKAGE_NAME, version: "0.2.9", packages: { "": { name: PACKAGE_NAME, version: "0.2.9" } } }, null, 2)}\n`,
       "utf8",
     );
-    await writeFile(
-      join(tempRoot, "CHANGELOG.md"),
-      "# @dinkuskit/payments\n\n## 0.2.9\n\n- Patch fix.\n\n## 0.2.8\n\n- Baseline.\n",
-      "utf8",
-    );
-    git(["add", "package.json", "package-lock.json", "CHANGELOG.md"]);
-    const trailer = formatBetaProofRecord({
-      betaVersion: "0.2.9-beta.1",
-      betaSha,
-      proofRef: "run-123 0.2.9-beta.1 @running pass",
-    });
+    await writeFile(join(tempRoot, "CHANGELOG.md"), "# @dinkuskit/payments\n\n## 0.2.9\n\n- Patch fix.\n\n## 0.2.8\n\n- Baseline.\n", "utf8");
+    await writePublisherManifest(tempRoot, "0.2.9");
+    git(["add", "package.json", "package-lock.json", "emdash-plugin.jsonc", "CHANGELOG.md"]);
+    const trailer = formatBetaProofRecord({ betaVersion: "0.2.9-beta.1", betaSha, proofRef: "run-123 (0.2.9-beta.1 @running pass)" });
     git(["commit", "-m", `ci: release v0.2.9\n\n${trailer}`]);
     git(["tag", "v0.2.9", "HEAD"]);
 
     const ghCalls = [];
     const outputFile = join(tempRoot, "github-output.txt");
-    const result = await runReleaseFlowCli(
-      ["publish-merged-release", "--github-output", outputFile],
-      {
-        root: tempRoot,
-        gitExec: (args, cwd = tempRoot) => {
-          if (args[0] === "push") return "";
-          return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
-        },
-        ghExec: (args) => {
-          ghCalls.push(args);
-          if (args[0] === "release" && args[1] === "view") {
-            throw new Error("release not found");
-          }
-          return "";
-        },
-        fetchImpl: mockPdsFetch(jsonResponse({ records: listed ? [releaseRecord("0.2.9", STABLE_REGISTRY_SLUG)] : [] })),
-        log: () => {},
+    const result = await runReleaseFlowCli(["verify-release-tag", "--ref", "refs/tags/v0.2.9", "--github-output", outputFile], {
+      root: tempRoot,
+      gitExec: (args, cwd = tempRoot) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim(),
+      ghExec: (args) => {
+        ghCalls.push(args);
+        if (args[0] === "release" && args[1] === "view" && !released) throw new Error("release not found");
+        return "";
       },
-    );
+      log: () => {},
+    });
 
-    assert.equal(result.resumedFromExistingTag, true);
-    assert.equal(result.tagCreated, false);
-    assert.equal(result.githubReleaseCreated, true);
-    // A listed version may be the record whose check failed on the first run, so the Registry
-    // job still runs: it skips the publish and verifies the record against the bundle.
-    assert.equal(result.registryNeeded, true);
-    assert.equal(result.registryAlreadyPublished, listed);
-    assert.equal(result.published, !listed);
-
+    assert.equal(result.releaseMode, "stable");
+    assert.equal(result.slug, STABLE_REGISTRY_SLUG);
+    assert.equal(result.betaVersion, "0.2.9-beta.1");
+    assert.equal(result.githubReleaseCreated, !released);
+    assert.equal(ghCalls.some((args) => args[0] === "release" && args[1] === "create"), !released);
     const ghOutputText = await readFile(outputFile, "utf8");
-    assert.match(ghOutputText, new RegExp(`^published=${!listed}$`, "m"));
-    assert.match(ghOutputText, /^registry_needed=true$/m);
-    assert.match(ghOutputText, new RegExp(`^registry_already_published=${listed}$`, "m"));
+    assert.match(ghOutputText, /^release_mode=stable$/m);
+    assert.match(ghOutputText, /^version=0\.2\.9$/m);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -738,7 +725,9 @@ test("the Registry job verifies an already-listed version instead of skipping th
   assert.ok(verifyStep, "missing verify step");
   assert.doesNotMatch(verifyStep, /^\s+if:/m);
   const release = await readFile(join(repositoryRoot, ".github/workflows/release.yml"), "utf8");
-  assert.match(release, /if: needs\.release\.outputs\.published == 'true' \|\| needs\.release\.outputs\.registry_needed == 'true'/);
+  const job = release.split("\n  publish-emdash:\n")[1]?.split("\n  # A beta that")[0];
+  assert.match(job, /needs: release-tag\n/);
+  assert.doesNotMatch(job, /^ {4}if:/m);
 });
 
 test("prepareRegistryWorkspace stages isolated beta and stable manifests without mutating repo root", async () => {

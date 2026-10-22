@@ -19,6 +19,7 @@ export const BASELINE_VERSION = "0.2.8";
 export const BASELINE_TAG = "v0.2.8";
 export const MAX_PLUGIN_BUNDLE_BYTES = 131_072;
 export const RELEASE_PR_BRANCH = "changeset-release/main";
+export const RELEASE_BRANCH_PREFIX = "release/";
 export const RELEASE_PR_TITLE_PREFIX = "ci: release";
 export const BETA_PROOF_TRAILER = "Release-Beta-Proof";
 const RELEASE_COLLECTION = "com.emdashcms.experimental.package.release";
@@ -30,7 +31,7 @@ export const ALLOWED_RELEASE_TREE_PATHS = Object.freeze([
 ]);
 
 export const EMDASH_PUBLISH_JOB_IF =
-  "github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.release_mode == 'beta') || (github.event_name == 'push' && inputs.release_mode == 'stable' && inputs.version != ''))";
+  "(github.event_name == 'push' || github.event_name == 'workflow_dispatch') && inputs.version != '' && github.ref == format('refs/tags/v{0}', inputs.version) && ((inputs.release_mode == 'beta' && contains(inputs.version, '-beta.')) || (inputs.release_mode == 'stable' && !contains(inputs.version, '-beta.')))";
 
 const BUMP_RANK = Object.freeze({
   patch: 1,
@@ -51,6 +52,21 @@ export function parseSemver(version) {
   };
 }
 
+export function releaseBranchFor(version) {
+  const parsed = parseSemver(version);
+  return `${RELEASE_BRANCH_PREFIX}${parsed.major}.${parsed.minor}.${parsed.patch}`;
+}
+
+export function parseReleaseTagRef(ref) {
+  const match = /^refs\/tags\/v(\d+\.\d+\.\d+(?:-beta\.\d+)?)$/.exec(String(ref).trim());
+  return match ? match[1] : null;
+}
+
+// emdash-release.yml publishes only from a version tag that release.yml's tag run hands it: a
+// vX.Y.Z-beta.N tag with release_mode beta, or a vX.Y.Z tag with release_mode stable. Both tags sit
+// on a release/X.Y.Z branch (GrillTrack release-branches-079, dinkuskit/dinkuskit). The tag run
+// starts when the tag is pushed, or from "Retry the publish" pressed on the tag itself; the buttons
+// on main never publish, they only push the tag.
 export function validateEmDashDispatchGate({
   eventName = process.env.EVENT_NAME || process.env.GITHUB_EVENT_NAME || "",
   ref = process.env.TARGET_REF || process.env.GITHUB_REF || "",
@@ -62,115 +78,55 @@ export function validateEmDashDispatchGate({
   const normalizedVersion = String(inputVersion).trim();
   const normalizedMode = String(releaseMode).trim();
 
-  if (normalizedEvent === "workflow_dispatch") {
-    if (normalizedRef !== "refs/heads/main") {
-      return {
-        ok: false,
-        code: "forbidden_dispatch_ref",
-        message: `Cut beta (a release.yml workflow_dispatch) is only allowed on refs/heads/main (got "${normalizedRef || "(empty)"}").`,
-      };
-    }
-
-    if (normalizedMode !== "" && normalizedMode !== "beta") {
-      return {
-        ok: false,
-        code: "manual_stable_dispatch_forbidden",
-        message: `Manual workflow_dispatch cannot set release_mode="${normalizedMode}"; only beta cuts on refs/heads/main are allowed via workflow_dispatch.`,
-      };
-    }
-
-    if (normalizedMode !== "beta") {
-      return {
-        ok: false,
-        code: "missing_beta_caller_input",
-        message: `Cut beta reaches emdash-release.yml only through release.yml's workflow_call with release_mode="beta" (got "${normalizedMode || "(empty)"}").`,
-      };
-    }
-
-    if (normalizedVersion !== "") {
-      let parsed;
-      try {
-        parsed = parseSemver(normalizedVersion);
-      } catch {
-        return {
-          ok: false,
-          code: "invalid_dispatch_version",
-          message: `Invalid manual workflow_dispatch version "${normalizedVersion}": expected blank or X.Y.Z-beta.N.`,
-        };
-      }
-      if (parsed.beta === null) {
-        return {
-          ok: false,
-          code: "manual_stable_dispatch_forbidden",
-          message: `Manual workflow_dispatch cannot publish stable version "${normalizedVersion}" (${STABLE_REGISTRY_SLUG}); stable releases may only publish via a merged "${RELEASE_PR_TITLE_PREFIX}" PR.`,
-        };
-      }
-    }
-
+  if (normalizedEvent === "workflow_dispatch" && !parseReleaseTagRef(normalizedRef)) {
     return {
-      ok: true,
-      mode: "cut-beta",
-      slug: BETA_REGISTRY_SLUG,
-      requestedVersion: normalizedVersion || null,
+      ok: false,
+      code: "dispatch_publish_forbidden",
+      message:
+        "A Run workflow press on a branch never publishes. Cut beta, Add fix to beta and a merged release PR push a version tag, and that tag's run publishes; Retry the publish is pressed on the tag itself.",
     };
   }
 
-  if (normalizedEvent === "push") {
-    if (normalizedRef !== "refs/heads/main") {
-      return {
-        ok: false,
-        code: "forbidden_caller_ref",
-        message: `Delegated push call to emdash-release.yml is only allowed on refs/heads/main (got "${normalizedRef || "(empty)"}").`,
-      };
-    }
-
-    if (normalizedMode !== "stable") {
-      return {
-        ok: false,
-        code: "missing_stable_caller_input",
-        message: `Push event on emdash-release.yml requires workflow_call input release_mode="stable" from release.yml (got "${normalizedMode || "(empty)"}").`,
-      };
-    }
-
-    if (!normalizedVersion) {
-      return {
-        ok: false,
-        code: "missing_workflow_call_version",
-        message: "Delegated stable workflow_call to emdash-release.yml requires a non-empty inputs.version.",
-      };
-    }
-
-    let parsed;
-    try {
-      parsed = parseSemver(normalizedVersion);
-    } catch {
-      return {
-        ok: false,
-        code: "invalid_workflow_call_version",
-        message: `Invalid delegated stable workflow_call version "${normalizedVersion}".`,
-      };
-    }
-
-    if (parsed.beta !== null) {
-      return {
-        ok: false,
-        code: "invalid_stable_caller_version",
-        message: `Delegated stable workflow_call cannot publish beta version "${normalizedVersion}"; expected stable X.Y.Z.`,
-      };
-    }
-
+  if (normalizedEvent !== "push" && normalizedEvent !== "workflow_dispatch") {
     return {
-      ok: true,
-      mode: "stable-call",
-      slug: STABLE_REGISTRY_SLUG,
-      requestedVersion: normalizedVersion,
+      ok: false,
+      code: "unsupported_event",
+      message: `Unsupported event "${normalizedEvent || "(empty)"}" for emdash-release.yml.`,
+    };
+  }
+
+  const tagVersion = parseReleaseTagRef(normalizedRef);
+  if (!tagVersion) {
+    return {
+      ok: false,
+      code: "forbidden_caller_ref",
+      message: `emdash-release.yml publishes only from a vX.Y.Z or vX.Y.Z-beta.N tag (got "${normalizedRef || "(empty)"}").`,
+    };
+  }
+
+  if (normalizedVersion !== tagVersion) {
+    return {
+      ok: false,
+      code: "version_tag_mismatch",
+      message: `emdash-release.yml version "${normalizedVersion || "(empty)"}" must equal the pushed tag's version "${tagVersion}".`,
+    };
+  }
+
+  const isBeta = parseSemver(tagVersion).beta !== null;
+  const expectedMode = isBeta ? "beta" : "stable";
+  if (normalizedMode !== expectedMode) {
+    return {
+      ok: false,
+      code: isBeta ? "missing_beta_caller_input" : "missing_stable_caller_input",
+      message: `Tag v${tagVersion} publishes with release_mode="${expectedMode}" (got "${normalizedMode || "(empty)"}").`,
     };
   }
 
   return {
-    ok: false,
-    code: "unsupported_event",
-    message: `Unsupported event "${normalizedEvent || "(empty)"}" for emdash-release.yml.`,
+    ok: true,
+    mode: isBeta ? "beta-tag" : "stable-tag",
+    slug: isBeta ? BETA_REGISTRY_SLUG : STABLE_REGISTRY_SLUG,
+    requestedVersion: tagVersion,
   };
 }
 
@@ -610,16 +566,16 @@ export function validateBetaPromotionGate({
   targetVersion,
   betaVersion,
   betaTagSha,
-  currentMainSha,
-  changedFilesSinceBeta = [],
+  branchTipSha,
+  stableTagSha = "",
   registryHasBetaVersion = true,
   proofRef = "",
 }) {
   if (!targetVersion) {
     return {
       ok: false,
-      code: "no_pending_changesets",
-      message: "Cannot promote a release PR when no pending `.changeset/*.md` files exist on `main`.",
+      code: "missing_beta_version",
+      message: "Promote needs beta_version, the X.Y.Z-beta.N whose journeys passed.",
     };
   }
 
@@ -628,7 +584,16 @@ export function validateBetaPromotionGate({
     return {
       ok: false,
       code: "beta_version_mismatch",
-      message: `Beta version "${betaVersion}" does not match pending changesets target "${targetVersion}-beta.<N>".`,
+      message: `Beta version "${betaVersion}" does not match release/${targetVersion}'s "${targetVersion}-beta.<N>".`,
+    };
+  }
+
+  const branch = releaseBranchFor(targetVersion);
+  if (!branchTipSha) {
+    return {
+      ok: false,
+      code: "missing_release_branch",
+      message: `${branch} does not exist. Cut beta creates it.`,
     };
   }
 
@@ -636,19 +601,23 @@ export function validateBetaPromotionGate({
     return {
       ok: false,
       code: "missing_beta_tag",
-      message: `Git tag "v${betaVersion}" does not exist on main. Cut the beta first with Cut beta (release.yml).`,
+      message: `Git tag "v${betaVersion}" does not exist. Cut beta or Add fix to beta makes it.`,
     };
   }
 
-  const newChangesets = changedFilesSinceBeta.filter(isChangesetMarkdownPath);
-  if (newChangesets.length > 0 || (currentMainSha && betaTagSha !== currentMainSha)) {
+  if (stableTagSha) {
     return {
       ok: false,
-      code: "main_advanced_since_beta",
-      message:
-        newChangesets.length > 0
-          ? `main gained new changeset(s) (${newChangesets.join(", ")}) after v${betaVersion}; cut and verify the next beta before promoting.`
-          : `main (${currentMainSha}) has advanced since v${betaVersion} (${betaTagSha}); cut and verify the next beta before promoting.`,
+      code: "already_released",
+      message: `v${targetVersion} is already released. A fix for it goes on ${releaseBranchFor(bumpPatch(targetVersion))} with Add fix to beta.`,
+    };
+  }
+
+  if (betaTagSha !== branchTipSha) {
+    return {
+      ok: false,
+      code: "release_branch_advanced_since_beta",
+      message: `${branch} (${branchTipSha}) has moved past v${betaVersion} (${betaTagSha}); promote the newest beta on it once its journeys pass.`,
     };
   }
 
@@ -675,6 +644,7 @@ export function validateBetaPromotionGate({
     betaVersion,
     betaTag: `v${betaVersion}`,
     betaTagSha,
+    releaseBranch: branch,
     proofRef: trimmedProof,
     trailer: formatBetaProofRecord({
       betaVersion,
@@ -682,6 +652,36 @@ export function validateBetaPromotionGate({
       proofRef: trimmedProof,
     }),
   };
+}
+
+export function compareSemver(a, b) {
+  const left = parseSemver(a);
+  const right = parseSemver(b);
+  for (const key of ["major", "minor", "patch"]) {
+    if (left[key] !== right[key]) return left[key] < right[key] ? -1 : 1;
+  }
+  if (left.beta === right.beta) return 0;
+  if (left.beta === null) return 1;
+  if (right.beta === null) return -1;
+  return left.beta < right.beta ? -1 : 1;
+}
+
+export function bumpPatch(version) {
+  const parsed = parseSemver(version);
+  return `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`;
+}
+
+// Puts one version's notes into a CHANGELOG.md above its newest section, the way Changesets writes
+// them. A CHANGELOG that already carries the version is returned unchanged.
+export function insertChangelogSection(changelogMarkdown, version, section) {
+  const normalized = String(changelogMarkdown).replace(/\r\n/g, "\n");
+  if (extractChangelogSection(normalized, version) !== null) return normalized;
+  const block = `## ${version}\n\n${String(section).trim()}\n\n`;
+  const firstSection = /^##\s+/m.exec(normalized);
+  if (firstSection) {
+    return `${normalized.slice(0, firstSection.index)}${block}${normalized.slice(firstSection.index)}`;
+  }
+  return `${normalized.replace(/\n*$/, "\n\n")}${block}`.replace(/\n+$/, "\n");
 }
 
 export function extractChangelogSection(changelogMarkdown, version) {
@@ -788,6 +788,117 @@ function listGitTags(pattern, root = repositoryRoot, gitExec = defaultGit) {
 function resolveTagCommitSha(tag, root = repositoryRoot, gitExec = defaultGit) {
   if (listGitTags(tag, root, gitExec).length === 0) return "";
   return gitExec(["rev-list", "-n", "1", tag], root);
+}
+
+function resolveCommitSha(ref, root = repositoryRoot, gitExec = defaultGit) {
+  try {
+    return gitExec(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], root);
+  } catch {
+    return "";
+  }
+}
+
+// In a workflow checkout branches are origin's remote-tracking refs; in a local repository (the
+// release-authority proof) they are plain branches.
+function resolveBranchSha(branch, root = repositoryRoot, gitExec = defaultGit) {
+  return (
+    resolveCommitSha(`refs/remotes/origin/${branch}`, root, gitExec) ||
+    resolveCommitSha(`refs/heads/${branch}`, root, gitExec)
+  );
+}
+
+function listReleaseBranches(root = repositoryRoot, gitExec = defaultGit) {
+  const out = gitExec(
+    ["for-each-ref", "--format=%(refname)", `refs/remotes/origin/${RELEASE_BRANCH_PREFIX}`, `refs/heads/${RELEASE_BRANCH_PREFIX}`],
+    root,
+  );
+  const names = new Set();
+  for (const line of out.split("\n").map((entry) => entry.trim()).filter(Boolean)) {
+    const name = line.replace(/^refs\/remotes\/origin\//, "").replace(/^refs\/heads\//, "");
+    if (/^release\/\d+\.\d+\.\d+$/.test(name)) names.add(name);
+  }
+  return [...names].sort();
+}
+
+function isAncestor(ancestor, descendant, root = repositoryRoot, gitExec = defaultGit) {
+  try {
+    gitExec(["merge-base", "--is-ancestor", ancestor, descendant], root);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function setPackageVersions(packageJsonText, packageLockText, version) {
+  const pkg = JSON.parse(packageJsonText);
+  pkg.version = version;
+  let lockText = packageLockText;
+  if (packageLockText !== undefined) {
+    const lock = JSON.parse(packageLockText);
+    lock.version = version;
+    if (lock.packages?.[""]) lock.packages[""].version = version;
+    lockText = `${JSON.stringify(lock, null, 2)}\n`;
+  }
+  return { packageJsonText: `${JSON.stringify(pkg, null, 2)}\n`, packageLockText: lockText };
+}
+
+async function writeReleaseVersionFiles(root, version) {
+  const pkgPath = join(root, "package.json");
+  const lockPath = join(root, "package-lock.json");
+  const hasLock = existsSync(lockPath);
+  const next = setPackageVersions(
+    await readFile(pkgPath, "utf8"),
+    hasLock ? await readFile(lockPath, "utf8") : undefined,
+    version,
+  );
+  await writeFile(pkgPath, next.packageJsonText, "utf8");
+  if (hasLock) await writeFile(lockPath, next.packageLockText, "utf8");
+  // Payments' emdash-plugin.jsonc carries no version (the Registry workspace stamps it), so only a
+  // manifest that has one is synced.
+  const manifestPath = join(root, "emdash-plugin.jsonc");
+  if (existsSync(manifestPath)) {
+    const manifestText = await readFile(manifestPath, "utf8");
+    const pattern = /"version":\s*"[^"]*"/;
+    if (pattern.test(manifestText)) {
+      await writeFile(manifestPath, manifestText.replace(pattern, `"version": "${version}"`), "utf8");
+    }
+  }
+}
+
+async function nextBetaFor(targetVersion, { root, gitExec, fetchImpl }) {
+  const gitTags = listGitTags(`v${targetVersion}-beta.*`, root, gitExec);
+  const registryVersions = await fetchRegistryVersions(BETA_REGISTRY_SLUG, { root, fetchImpl });
+  return computeNextBetaVersion({ targetVersion, gitTags, registryVersions });
+}
+
+// Reads the published-version record a release check compares: the beta tag's files against the
+// release commit's.
+async function readReleaseComparison(root, gitExec, betaTagSha, changedPathsSinceBeta) {
+  const show = (path) => {
+    try {
+      return gitExec(["show", `${betaTagSha}:${path}`], root);
+    } catch {
+      return "";
+    }
+  };
+  const readOrEmpty = async (path) => {
+    try {
+      return await readFile(join(root, path), "utf8");
+    } catch {
+      return "";
+    }
+  };
+  const comparison = {
+    betaPackageJsonText: show("package.json"),
+    releasePackageJsonText: await readOrEmpty("package.json"),
+    betaManifestText: show("emdash-plugin.jsonc"),
+    releaseManifestText: await readOrEmpty("emdash-plugin.jsonc"),
+  };
+  if (existsSync(join(root, "package-lock.json")) || changedPathsSinceBeta.includes("package-lock.json")) {
+    comparison.betaPackageLockText = show("package-lock.json");
+    comparison.releasePackageLockText = await readOrEmpty("package-lock.json");
+  }
+  return comparison;
 }
 
 // Release allocation must include every occupied version, including records that
@@ -946,36 +1057,47 @@ export async function runReleaseFlowCli(argv, deps = {}) {
   }
 
   if (command === "plan-beta" || command === "cut-beta") {
+    // Cut beta: a new release/X.Y.Z branch from main's newest commit, and its first beta tag. The
+    // tag's own run publishes the beta and starts the journeys.
     const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
     const pending = await readPendingChangesets(root);
-    if (pending.length === 0 && !flags.version) {
+    if (pending.length === 0) {
       throw new Error(
-        "Cannot cut beta: no pending version-bumping `.changeset/*.md` files on main.",
+        "Cannot cut beta: nothing version-bumping has merged to main since the last release (no pending `.changeset/*.md`).",
+      );
+    }
+
+    const targetVersion = computeTargetVersion(
+      pkg.version,
+      pending.map((entry) => entry.bump),
+    );
+    const releaseBranch = releaseBranchFor(targetVersion);
+    if (resolveBranchSha(releaseBranch, root, gitExec)) {
+      throw new Error(
+        `${releaseBranch} is already cut. Add fix to beta puts a merged fix on it, and Promote releases it.`,
+      );
+    }
+    // One release on test at a time: the beta store runs the newest beta.
+    const unreleased = listReleaseBranches(root, gitExec).filter(
+      (branch) => !resolveTagCommitSha(`v${branch.slice(RELEASE_BRANCH_PREFIX.length)}`, root, gitExec),
+    );
+    if (unreleased.length > 0) {
+      throw new Error(
+        `${unreleased.join(", ")} is still on test. Promote it (or delete the branch to drop it) before cutting ${releaseBranch}.`,
       );
     }
 
     let version = flags.version?.trim();
-    let targetVersion = computeTargetVersion(
-      pkg.version,
-      pending.map((entry) => entry.bump),
-    );
-
     if (version) {
       const parsed = parseSemver(version);
-      if (parsed.beta === null) {
+      if (parsed.beta === null || !version.startsWith(`${targetVersion}-beta.`)) {
         throw new Error(
-          `Cannot cut beta with non-beta version "${version}": expected X.Y.Z-beta.N.`,
+          `Cannot cut beta with version "${version}": main's pending changesets make ${targetVersion}-beta.N.`,
         );
       }
-      targetVersion = version.replace(/-beta\.\d+$/, "");
       await fetchRegistryVersions(BETA_REGISTRY_SLUG, { root, fetchImpl });
     } else {
-      const gitTags = listGitTags(`v${targetVersion}-beta.*`, root, gitExec);
-      const registryVersions = await fetchRegistryVersions(BETA_REGISTRY_SLUG, {
-        root, fetchImpl,
-      });
-      const next = computeNextBetaVersion({ targetVersion, gitTags, registryVersions });
-      version = next.version;
+      version = (await nextBetaFor(targetVersion, { root, gitExec, fetchImpl })).version;
     }
 
     const tag = `v${version}`;
@@ -986,21 +1108,24 @@ export async function runReleaseFlowCli(argv, deps = {}) {
       version,
       betaVersion: version,
       betaTag: tag,
+      releaseBranch,
       slug: BETA_REGISTRY_SLUG,
       changesetCount: pending.length,
     };
 
     if (command === "cut-beta") {
-      const existingTagSha = resolveTagCommitSha(tag, root, gitExec);
       const headSha = gitExec(["rev-parse", "HEAD"], root);
-      if (!existingTagSha) {
-        gitExec(["tag", tag, headSha], root);
-        if (flags["no-push"] !== "true") {
-          gitExec(["push", "origin", `refs/tags/${tag}`], root);
-        }
-      } else if (existingTagSha !== headSha) {
+      const existingTagSha = resolveTagCommitSha(tag, root, gitExec);
+      if (existingTagSha && existingTagSha !== headSha) {
         throw new Error(`Tag ${tag} already exists at ${existingTagSha} (HEAD is ${headSha}).`);
       }
+      gitExec(["branch", releaseBranch, headSha], root);
+      if (!existingTagSha) gitExec(["tag", tag, headSha], root);
+      if (flags["no-push"] !== "true") {
+        gitExec(["push", "origin", `${headSha}:refs/heads/${releaseBranch}`], root);
+        gitExec(["push", "origin", `refs/tags/${tag}`], root);
+      }
+      result.betaSha = headSha;
     }
 
     await writeGithubOutputs(flags["github-output"], result);
@@ -1008,28 +1133,120 @@ export async function runReleaseFlowCli(argv, deps = {}) {
     return result;
   }
 
-  if (command === "promote") {
-    const betaVersion = flags["beta-version"] || process.env.BETA_VERSION || "";
-    const proofRef = flags["proof-ref"] || process.env.PROOF_REF || "";
+  if (command === "add-fix") {
+    // Add fix to beta: copy one commit already merged (and reviewed) on main onto release/X.Y.Z and
+    // tag the next beta there. A release/X.Y.Z that doesn't exist yet is a patch branch for a
+    // released X.Y.(Z-1), made from its tag.
+    const targetVersion = String(flags["release-version"] ?? process.env.RELEASE_VERSION ?? "").trim();
+    const fixRef = String(flags.commit ?? process.env.FIX_COMMIT ?? "").trim();
+    let parsedTarget;
+    try {
+      parsedTarget = parseSemver(targetVersion);
+    } catch {
+      parsedTarget = null;
+    }
+    if (!parsedTarget || parsedTarget.beta !== null) {
+      throw new Error(`Add fix to beta needs release_version X.Y.Z (got "${targetVersion || "(empty)"}").`);
+    }
+    if (!fixRef) {
+      throw new Error("Add fix to beta needs fix_commit, the merged commit on main to copy.");
+    }
 
-    const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
-    const pending = await readPendingChangesets(root);
-    const targetVersion = computeTargetVersion(
-      pkg.version,
-      pending.map((entry) => entry.bump),
+    const releaseBranch = releaseBranchFor(targetVersion);
+    const mainSha = resolveBranchSha("main", root, gitExec);
+    const fixSha = resolveCommitSha(fixRef, root, gitExec);
+    if (!fixSha || !mainSha || !isAncestor(fixSha, mainSha, root, gitExec)) {
+      throw new Error(
+        `${fixRef} is not a commit on main. Merge the fix to main through its reviewed PR first, then copy that commit.`,
+      );
+    }
+    if (resolveTagCommitSha(`v${targetVersion}`, root, gitExec)) {
+      throw new Error(
+        `v${targetVersion} is already released. A fix for it goes on ${releaseBranchFor(bumpPatch(targetVersion))}.`,
+      );
+    }
+
+    let branchSha = resolveBranchSha(releaseBranch, root, gitExec);
+    let patchBase = null;
+    if (!branchSha) {
+      if (parsedTarget.patch === 0) {
+        throw new Error(`${releaseBranch} is not cut. Cut beta makes it from main.`);
+      }
+      patchBase = `v${parsedTarget.major}.${parsedTarget.minor}.${parsedTarget.patch - 1}`;
+      branchSha = resolveTagCommitSha(patchBase, root, gitExec);
+      if (!branchSha) {
+        throw new Error(
+          `${releaseBranch} is not cut, and there is no released ${patchBase} to make a patch branch from.`,
+        );
+      }
+    }
+    const alreadyCopied = gitExec(
+      ["log", "-n", "1", "--format=%H", "--fixed-strings", `--grep=(cherry picked from commit ${fixSha})`, branchSha],
+      root,
     );
+    if (isAncestor(fixSha, branchSha, root, gitExec) || alreadyCopied) {
+      throw new Error(`${fixSha} is already on ${releaseBranch}.`);
+    }
 
+    gitExec(["checkout", "-B", releaseBranch, branchSha], root);
+    const parents = gitExec(["rev-list", "--parents", "-n", "1", fixSha], root).split(/\s+/).filter(Boolean);
+    const pickArgs = parents.length > 2 ? ["cherry-pick", "-x", "-m", "1", fixSha] : ["cherry-pick", "-x", fixSha];
+    try {
+      gitExec(pickArgs, root);
+    } catch (error) {
+      try {
+        gitExec(["cherry-pick", "--abort"], root);
+      } catch {
+        // Nothing to abort.
+      }
+      throw new Error(
+        `${fixSha} does not copy cleanly onto ${releaseBranch}; nothing was pushed. (${error instanceof Error ? error.message.split("\n")[0] : String(error)})`,
+      );
+    }
+    const headSha = gitExec(["rev-parse", "HEAD"], root);
+    const next = await nextBetaFor(targetVersion, { root, gitExec, fetchImpl });
+    const tag = next.tag;
+    gitExec(["tag", tag, headSha], root);
+    if (flags["no-push"] !== "true") {
+      gitExec(["push", "origin", `${headSha}:refs/heads/${releaseBranch}`], root);
+      gitExec(["push", "origin", `refs/tags/${tag}`], root);
+    }
+
+    const result = {
+      releaseBranch,
+      patchBase,
+      fixSha,
+      betaSha: headSha,
+      version: next.version,
+      betaVersion: next.version,
+      betaTag: tag,
+      slug: BETA_REGISTRY_SLUG,
+    };
+    await writeGithubOutputs(flags["github-output"], result);
+    log(JSON.stringify(result));
+    return result;
+  }
+
+  if (command === "promote") {
+    // Promote: work out the version and changelog on release/X.Y.Z, then open the one ci: release
+    // PR to main carrying only those. Merging it is the stable yes; that push's run writes the same
+    // files onto the branch and tags it.
+    const betaVersion = String(flags["beta-version"] || process.env.BETA_VERSION || "").trim();
+    const proofRef = flags["proof-ref"] || process.env.PROOF_REF || "";
+    let targetVersion = "";
+    try {
+      targetVersion = parseSemver(betaVersion).beta === null ? "" : betaVersion.replace(/-beta\.\d+$/, "");
+    } catch {
+      targetVersion = "";
+    }
+
+    const releaseBranch = targetVersion ? releaseBranchFor(targetVersion) : "";
     const betaTag = `v${betaVersion}`;
-    const betaTagSha = resolveTagCommitSha(betaTag, root, gitExec);
-    const currentMainSha = gitExec(["rev-parse", "HEAD"], root);
-    const changedFilesSinceBeta =
-      betaTagSha && betaTagSha !== currentMainSha
-        ? gitExec(["diff", "--name-only", `${betaTagSha}..${currentMainSha}`], root)
-            .split("\n")
-            .filter(Boolean)
-        : [];
+    const betaTagSha = betaVersion ? resolveTagCommitSha(betaTag, root, gitExec) : "";
+    const branchTipSha = releaseBranch ? resolveBranchSha(releaseBranch, root, gitExec) : "";
+    const stableTagSha = targetVersion ? resolveTagCommitSha(`v${targetVersion}`, root, gitExec) : "";
     const registryVersions =
-      flags["skip-registry-check"] === "true"
+      flags["skip-registry-check"] === "true" || !targetVersion
         ? []
         : await fetchRegistryVersions(BETA_REGISTRY_SLUG, { root, fetchImpl });
     const registryHasBetaVersion =
@@ -1039,8 +1256,8 @@ export async function runReleaseFlowCli(argv, deps = {}) {
       targetVersion,
       betaVersion,
       betaTagSha,
-      currentMainSha,
-      changedFilesSinceBeta,
+      branchTipSha,
+      stableTagSha,
       registryHasBetaVersion,
       proofRef,
     });
@@ -1048,14 +1265,43 @@ export async function runReleaseFlowCli(argv, deps = {}) {
       throw new Error(gate.message);
     }
 
+    const mainSha = resolveBranchSha("main", root, gitExec);
+    gitExec(["checkout", "-f", "--detach", betaTagSha], root);
     await npmExec(["run", "release:version"], root);
-    gitExec(["checkout", "-B", RELEASE_PR_BRANCH], root);
+    const branchPkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+    if (branchPkg.version !== targetVersion) {
+      gitExec(["checkout", "-f", mainSha], root);
+      throw new Error(
+        `The changesets on ${releaseBranch} make ${branchPkg.version}, not ${targetVersion}. A patch branch takes only patch changesets.`,
+      );
+    }
+    const notes = extractChangelogSection(await readFile(join(root, "CHANGELOG.md"), "utf8"), targetVersion);
+    if (!notes) {
+      gitExec(["checkout", "-f", mainSha], root);
+      throw new Error(`release:version wrote no CHANGELOG.md section for ${targetVersion}.`);
+    }
+    const consumedChangesets = gitExec(["diff", "--name-only", "--diff-filter=D", "HEAD", "--", ".changeset"], root)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && isChangesetMarkdownPath(line));
+
+    gitExec(["checkout", "-f", "-B", RELEASE_PR_BRANCH, mainSha], root);
+    const mainPkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+    if (compareSemver(targetVersion, mainPkg.version) > 0) {
+      await writeReleaseVersionFiles(root, targetVersion);
+    }
+    const changelogPath = join(root, "CHANGELOG.md");
+    const mainChangelog = existsSync(changelogPath) ? await readFile(changelogPath, "utf8") : `# ${PACKAGE_NAME}\n`;
+    await writeFile(changelogPath, insertChangelogSection(mainChangelog, targetVersion, notes), "utf8");
+    for (const relPath of consumedChangesets) {
+      if (existsSync(join(root, relPath))) gitExec(["rm", "-q", "--", relPath], root);
+    }
     gitExec(["add", "-A"], root);
     const prTitle = `${RELEASE_PR_TITLE_PREFIX} v${targetVersion}`;
     const commitBody = [
       prTitle,
       "",
-      `Promotes verified beta \`${BETA_REGISTRY_SLUG}@${betaVersion}\` (\`${betaTagSha}\`) to stable \`${STABLE_REGISTRY_SLUG}@${targetVersion}\`.`,
+      `Promotes verified beta \`${BETA_REGISTRY_SLUG}@${betaVersion}\` (\`${betaTagSha}\` on \`${releaseBranch}\`) to stable \`${STABLE_REGISTRY_SLUG}@${targetVersion}\`.`,
       "",
       gate.trailer,
     ].join("\n");
@@ -1066,11 +1312,12 @@ export async function runReleaseFlowCli(argv, deps = {}) {
       const prBody = [
         `## Release \`${PACKAGE_NAME}@${targetVersion}\``,
         "",
-        `- **Promoted beta**: \`${BETA_REGISTRY_SLUG}@${betaVersion}\` (tag \`v${betaVersion}\` at \`${betaTagSha}\`)`,
+        `- **Promoted beta**: \`${BETA_REGISTRY_SLUG}@${betaVersion}\` (tag \`v${betaVersion}\` at \`${betaTagSha}\` on \`${releaseBranch}\`)`,
         `- **Beta-store @running proof**: ${gate.proofRef}`,
         `- **Stable target**: \`${STABLE_REGISTRY_SLUG}@${targetVersion}\` (\`${STABLE_INSTALLED_PLUGIN_ID}\`)`,
+        `- **This PR changes only** the version, the ${targetVersion} CHANGELOG section, and the removal of the changesets that release used (${consumedChangesets.length}).`,
         "",
-        "Run `@clawsweeper review` on this PR before merging.",
+        `Run \`@clawsweeper review\` on this PR before merging. Merging it writes the same files onto \`${releaseBranch}\`, tags \`v${targetVersion}\` there, and publishes stable from that tag.`,
         "",
         gate.trailer,
       ].join("\n");
@@ -1103,56 +1350,39 @@ export async function runReleaseFlowCli(argv, deps = {}) {
       }
     }
 
+    const result = { ...gate, consumedChangesets };
     await writeGithubOutputs(flags["github-output"], gate);
-    log(JSON.stringify(gate));
-    return gate;
+    log(JSON.stringify(result));
+    return result;
   }
 
   if (command === "publish-merged-release") {
-    const pending = await readPendingChangesets(root);
-    const releasePackageJsonText = await readFile(join(root, "package.json"), "utf8");
-    const pkg = JSON.parse(releasePackageJsonText);
-    const version = pkg.version;
-    const tag = `v${version}`;
-
-    if (pending.length > 0) {
-      const skipped = {
-        published: false,
-        registryNeeded: false,
-        version,
-        reason: "pending_changesets_present",
-      };
+    // A push to main. Only a merged ci: release PR (its Release-Beta-Proof trailer) does anything:
+    // the same version files go onto release/X.Y.Z, the branch is checked against the approved beta,
+    // and vX.Y.Z is tagged there. That tag's run creates the GitHub Release and publishes stable.
+    const skip = async (reason, extra = {}) => {
+      const skipped = { tagPushed: false, reason, ...extra };
       await writeGithubOutputs(flags["github-output"], {
-        published: false,
-        registry_needed: false,
-        version,
-        reason: skipped.reason,
+        tag_pushed: false,
+        version: extra.version ?? "",
+        reason,
       });
       log(JSON.stringify(skipped));
       return skipped;
-    }
+    };
 
     const headSha = gitExec(["rev-parse", "HEAD"], root);
-    const existingTagSha = resolveTagCommitSha(tag, root, gitExec);
-    if (existingTagSha && existingTagSha !== headSha) {
-      const skipped = {
-        published: false,
-        registryNeeded: false,
-        version,
-        tag,
-        reason: "tag_already_exists_at_prior_commit",
-      };
-      await writeGithubOutputs(flags["github-output"], {
-        published: false,
-        registry_needed: false,
-        version,
-        reason: skipped.reason,
-      });
-      log(JSON.stringify(skipped));
-      return skipped;
+    // A squash merge carries the release PR's message itself; a merge commit carries it on its
+    // second parent, the PR's head.
+    let headMessage = gitExec(["log", "-1", "--format=%B"], root);
+    if (!headMessage.startsWith(`${RELEASE_PR_TITLE_PREFIX} v`)) {
+      const parents = gitExec(["rev-list", "--parents", "-n", "1", headSha], root).split(/\s+/).filter(Boolean);
+      const prHeadMessage = parents.length > 2 ? gitExec(["log", "-1", "--format=%B", parents[2]], root) : "";
+      if (!prHeadMessage.startsWith(`${RELEASE_PR_TITLE_PREFIX} v`)) {
+        return skip("not_a_release_commit");
+      }
+      headMessage = prHeadMessage;
     }
-
-    const headMessage = gitExec(["log", "-1", "--format=%B"], root);
     let proof = parseBetaProofRecord(headMessage);
     if (!proof && flags["no-gh"] !== "true") {
       try {
@@ -1165,136 +1395,182 @@ export async function runReleaseFlowCli(argv, deps = {}) {
         proof = null;
       }
     }
-
-    if (!proof || !proof.betaVersion.startsWith(`${version}-beta.`)) {
-      if (!existingTagSha && version === BASELINE_VERSION) {
-        const skipped = {
-          published: false,
-          registryNeeded: false,
-          version,
-          reason: "baseline_version_no_release_commit",
-        };
-        await writeGithubOutputs(flags["github-output"], {
-          published: false,
-          registry_needed: false,
-          version,
-          reason: skipped.reason,
-        });
-        log(JSON.stringify(skipped));
-        return skipped;
-      }
+    const titleVersion = /^ci: release v(\d+\.\d+\.\d+)\b/.exec(headMessage)?.[1] ?? "";
+    if (!proof || !titleVersion || !proof.betaVersion.startsWith(`${titleVersion}-beta.`)) {
       throw new Error(
-        `Refusing to tag ${tag}: merged release commit is missing a valid ${BETA_PROOF_TRAILER} record for ${version}-beta.<N>.`,
+        `Refusing to tag v${titleVersion || "?"}: merged release commit is missing a valid ${BETA_PROOF_TRAILER} record for ${titleVersion || "X.Y.Z"}-beta.<N>.`,
       );
     }
 
-    const betaTag = `v${proof.betaVersion}`;
-    const betaTagSha = resolveTagCommitSha(betaTag, root, gitExec);
+    const version = titleVersion;
+    const tag = `v${version}`;
+    const releaseBranch = releaseBranchFor(version);
+    if (resolveTagCommitSha(tag, root, gitExec)) {
+      return skip("tag_already_exists", { version, tag });
+    }
+
+    const betaTagSha = resolveTagCommitSha(`v${proof.betaVersion}`, root, gitExec);
+    const branchTipSha = resolveBranchSha(releaseBranch, root, gitExec);
+    if (!branchTipSha) {
+      throw new Error(`Refusing to tag ${tag}: ${releaseBranch} does not exist.`);
+    }
+
+    const mainChangelog = gitExec(["show", `${headSha}:CHANGELOG.md`], root);
+    const notes = extractChangelogSection(mainChangelog, version);
+    if (!notes) {
+      throw new Error(`Refusing to tag ${tag}: the merged CHANGELOG.md has no ${version} section.`);
+    }
+    const consumedChangesets = gitExec(
+      ["diff", "--name-only", "--diff-filter=D", `${headSha}^1`, headSha, "--", ".changeset"],
+      root,
+    )
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && isChangesetMarkdownPath(line));
+
+    // A run that already committed the release onto the branch but failed before tagging resumes
+    // from that commit.
+    const tipMessage = gitExec(["log", "-1", "--format=%B", branchTipSha], root);
+    const resumed = branchTipSha !== betaTagSha && tipMessage.startsWith(`${RELEASE_PR_TITLE_PREFIX} ${tag}\n`);
+    if (branchTipSha !== betaTagSha && !resumed) {
+      throw new Error(
+        `Refusing to tag ${tag}: ${releaseBranch} (${branchTipSha}) has moved past the approved beta v${proof.betaVersion} (${betaTagSha || "missing"}).`,
+      );
+    }
+
+    gitExec(["checkout", "-f", "-B", releaseBranch, branchTipSha], root);
+    if (!resumed) {
+      await writeReleaseVersionFiles(root, version);
+      const changelogPath = join(root, "CHANGELOG.md");
+      const branchChangelog = existsSync(changelogPath) ? await readFile(changelogPath, "utf8") : `# ${PACKAGE_NAME}\n`;
+      await writeFile(changelogPath, insertChangelogSection(branchChangelog, version, notes), "utf8");
+      for (const relPath of consumedChangesets) {
+        if (existsSync(join(root, relPath))) gitExec(["rm", "-q", "--", relPath], root);
+      }
+      const leftover = await readPendingChangesets(root, { includeEmpty: true });
+      if (leftover.length > 0) {
+        throw new Error(
+          `Refusing to tag ${tag}: ${releaseBranch} still has changesets the release PR did not use (${leftover.map((entry) => entry.filePath).join(", ")}).`,
+        );
+      }
+      gitExec(["add", "-A"], root);
+      gitExec(
+        ["commit", "-m", [`${RELEASE_PR_TITLE_PREFIX} ${tag}`, "", `Merged on main as ${headSha}.`, "", formatBetaProofRecord(proof)].join("\n")],
+        root,
+      );
+    }
+    const releaseSha = gitExec(["rev-parse", "HEAD"], root);
+
     const changedPathsSinceBeta = betaTagSha
-      ? gitExec(["diff", "--name-only", betaTagSha, headSha], root)
+      ? gitExec(["diff", "--name-only", betaTagSha, releaseSha], root)
           .split("\n")
           .map((line) => line.trim())
           .filter(Boolean)
       : [];
-
-    let betaPackageJsonText;
-    let betaPackageLockText;
-    let releasePackageLockText;
-    if (betaTagSha) {
-      try {
-        betaPackageJsonText = gitExec(["show", `${betaTagSha}:package.json`], root);
-      } catch {
-        betaPackageJsonText = "";
-      }
-      if (existsSync(join(root, "package-lock.json")) || changedPathsSinceBeta.includes("package-lock.json")) {
-        try {
-          betaPackageLockText = gitExec(["show", `${betaTagSha}:package-lock.json`], root);
-        } catch {
-          betaPackageLockText = "";
-        }
-        try {
-          releasePackageLockText = await readFile(join(root, "package-lock.json"), "utf8");
-        } catch {
-          releasePackageLockText = "";
-        }
-      }
-    }
-
     const sourceCheck = verifyApprovedBetaSourceTree({
       version,
       proof,
       betaTagSha,
       changedPathsSinceBeta,
-      betaPackageJsonText,
-      releasePackageJsonText,
-      betaPackageLockText,
-      releasePackageLockText,
+      ...(betaTagSha ? await readReleaseComparison(root, gitExec, betaTagSha, changedPathsSinceBeta) : {}),
     });
     if (!sourceCheck.ok) {
       throw new Error(sourceCheck.message);
     }
 
-    const changelog = await readFile(join(root, "CHANGELOG.md"), "utf8");
-    const notes = extractChangelogSection(changelog, version) || `Release ${PACKAGE_NAME} ${version}`;
-
-    let tagCreated = false;
-    if (!existingTagSha) {
-      gitExec(["tag", tag, headSha], root);
-      tagCreated = true;
-      if (flags["no-push"] !== "true") {
-        gitExec(["push", "origin", `refs/tags/${tag}`], root);
-      }
-    } else if (flags["no-push"] !== "true") {
+    gitExec(["tag", tag, releaseSha], root);
+    if (flags["no-push"] !== "true") {
+      gitExec(["push", "origin", `${releaseSha}:refs/heads/${releaseBranch}`], root);
       gitExec(["push", "origin", `refs/tags/${tag}`], root);
     }
 
-    let githubReleaseCreated = false;
-    if (flags["no-push"] !== "true") {
-      const releaseAlreadyExists = checkGithubReleaseExists(tag, root, ghExec);
-      if (!releaseAlreadyExists) {
+    const result = {
+      tagPushed: true,
+      resumed,
+      version,
+      tag,
+      releaseBranch,
+      releaseSha,
+      betaVersion: proof.betaVersion,
+      betaSha: betaTagSha,
+      consumedChangesets,
+    };
+    await writeGithubOutputs(flags["github-output"], {
+      tag_pushed: true,
+      version,
+      tag,
+      release_branch: releaseBranch,
+      release_sha: releaseSha,
+      beta_version: proof.betaVersion,
+    });
+    log(JSON.stringify(result));
+    return result;
+  }
+
+  if (command === "verify-release-tag") {
+    // A pushed version tag's run: the tag must sit on its release/X.Y.Z branch. A stable tag is
+    // checked against its approved beta again and gets its GitHub Release; then the Registry job runs.
+    const ref = String(flags.ref ?? process.env.GITHUB_REF ?? "").trim();
+    const version = parseReleaseTagRef(ref);
+    if (!version) {
+      throw new Error(`verify-release-tag needs a vX.Y.Z or vX.Y.Z-beta.N tag ref (got "${ref || "(empty)"}").`);
+    }
+    const tag = `v${version}`;
+    const releaseBranch = releaseBranchFor(version);
+    const tagSha = resolveTagCommitSha(tag, root, gitExec);
+    const branchTipSha = resolveBranchSha(releaseBranch, root, gitExec);
+    if (!tagSha || !branchTipSha || !isAncestor(tagSha, branchTipSha, root, gitExec)) {
+      throw new Error(`Refusing to publish ${tag}: it is not a commit on ${releaseBranch}.`);
+    }
+    const isBeta = parseSemver(version).beta !== null;
+    const result = {
+      version,
+      tag,
+      tagSha,
+      releaseBranch,
+      releaseMode: isBeta ? "beta" : "stable",
+      slug: isBeta ? BETA_REGISTRY_SLUG : STABLE_REGISTRY_SLUG,
+      githubReleaseCreated: false,
+    };
+
+    if (!isBeta) {
+      const proof = parseBetaProofRecord(gitExec(["log", "-1", "--format=%B", tagSha], root));
+      const betaTagSha = proof ? resolveTagCommitSha(`v${proof.betaVersion}`, root, gitExec) : "";
+      const changedPathsSinceBeta = betaTagSha
+        ? gitExec(["diff", "--name-only", betaTagSha, tagSha], root)
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean)
+        : [];
+      const sourceCheck = verifyApprovedBetaSourceTree({
+        version,
+        proof,
+        betaTagSha,
+        changedPathsSinceBeta,
+        ...(betaTagSha ? await readReleaseComparison(root, gitExec, betaTagSha, changedPathsSinceBeta) : {}),
+      });
+      if (!sourceCheck.ok) {
+        throw new Error(sourceCheck.message);
+      }
+      result.betaVersion = proof.betaVersion;
+      if (flags["no-gh"] !== "true" && !checkGithubReleaseExists(tag, root, ghExec)) {
+        const notes =
+          extractChangelogSection(gitExec(["show", `${tagSha}:CHANGELOG.md`], root), version) ||
+          `Release ${PACKAGE_NAME} ${version}`;
         ghExec(["release", "create", tag, "--title", tag, "--notes", notes, "--verify-tag"], root);
-        githubReleaseCreated = true;
+        result.githubReleaseCreated = true;
       }
     }
 
-    let registryAlreadyPublished = false;
-    if (flags["skip-registry-check"] !== "true") {
-      const stableRegistryVersions = await fetchRegistryVersions(STABLE_REGISTRY_SLUG, {
-        root, fetchImpl,
-      });
-      registryAlreadyPublished = stableRegistryVersions.includes(version);
-    }
-
-    // The Registry job runs for every tagged release commit. When the version is already listed it
-    // skips the publish but still checks the record against this commit's bundle, so re-running a
-    // release whose check failed can't go green without passing that check.
-    const registryNeeded = true;
-    const published = {
-      published: !registryAlreadyPublished,
-      registryNeeded,
-      registryAlreadyPublished,
-      tagCreated,
-      githubReleaseCreated,
-      resumedFromExistingTag: Boolean(existingTagSha),
+    await writeGithubOutputs(flags["github-output"], {
       version,
       tag,
-      betaVersion: proof.betaVersion,
-      betaSha: betaTagSha,
-    };
-    await writeGithubOutputs(flags["github-output"], {
-      published: published.published,
-      registry_needed: published.registryNeeded,
-      registry_already_published: published.registryAlreadyPublished,
-      tag_created: published.tagCreated,
-      github_release_created: published.githubReleaseCreated,
-      resumed_from_existing_tag: published.resumedFromExistingTag,
-      version: published.version,
-      tag: published.tag,
-      beta_version: published.betaVersion,
-      beta_sha: published.betaSha,
+      release_mode: result.releaseMode,
+      slug: result.slug,
+      github_release_created: result.githubReleaseCreated,
     });
-    log(JSON.stringify(published));
-    return published;
+    log(JSON.stringify(result));
+    return result;
   }
 
   if (command === "check-registry-version") {
