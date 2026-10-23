@@ -1,6 +1,6 @@
 {
   "name": "@dinkuskit/payments",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "The open-source payment-provider plugin for EmDash commerce sites",
   "type": "module",
   "files": [
