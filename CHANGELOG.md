@@ -1,5 +1,11 @@
 # @dinkuskit/payments
 
+## 0.4.0
+
+### Minor Changes
+
+- [#82](https://github.com/dinkuskit/payments/pull/82) [`0572f9c`](https://github.com/dinkuskit/payments/commit/0572f9cdd758481948190fea882204c234b6714f) Thanks [@saariuslystoned](https://github.com/saariuslystoned)! - Connect now gives the Payments plugin its own DinkusKit store key, so nothing is pasted: DinkusKit.com hands the key over at the end of Connect, the plugin keeps it in its encrypted Connect setting, and the status page uses it to read payment status. The Store key setting is gone. A missing or unknown key asks for Connect again, and a store whose Commerce plugin is not connected yet is told to connect Commerce first. Needs DinkusKit.com with per-plugin keys deployed first; stores that pasted a key press Connect again once.
+
 ## 0.3.0
 
 ### Minor Changes
