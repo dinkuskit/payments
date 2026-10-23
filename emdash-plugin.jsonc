@@ -13,8 +13,9 @@
     "pages": [
       {
         "path": "/status",
-        "label": "Payments status",
-        "icon": "activity"
+        "label": "Payment settings",
+        "icon": "activity",
+        "group": "Dinkus Payments"
       }
     ],
     "settingsSchema": {
