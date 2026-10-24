@@ -322,7 +322,7 @@ export function createAuthorizeNetPaymentPort(options: {
       assertUsd(request);
       const existing = read(request.attemptId);
       if (existing) {
-        if (existing.bindingRef !== request.bindingRef || existing.amountMinor !== request.total.minor || existing.currency !== request.total.currency) {
+        if (existing.bindingRef !== request.bindingRef || (existing.siteId !== undefined && existing.siteId !== options.siteId) || existing.amountMinor !== request.total.minor || existing.currency !== request.total.currency) {
           throw new AuthorizeNetError("attempt_mismatch");
         }
         return {
@@ -344,22 +344,32 @@ export function createAuthorizeNetPaymentPort(options: {
         const createdAt = Math.floor(now() / 1000);
         const expiresAt = createdAt + ("paymentWindow" in request && request.paymentWindow
           ? request.paymentWindow.maxSeconds : request.paymentWindowSeconds);
-        options.store.transaction(tx => {
-          if (!tx.read(request.attemptId)) tx.write(request.attemptId, {
+        const saved = options.store.transaction(tx => {
+          const current = tx.read(request.attemptId);
+          if (current) {
+            if (current.bindingRef !== request.bindingRef || (current.siteId !== undefined && current.siteId !== options.siteId) || current.amountMinor !== request.total.minor || current.currency !== request.total.currency) {
+              throw new AuthorizeNetError("attempt_mismatch");
+            }
+            return current;
+          }
+          const record = {
             token: created.token, transactionId: null, createdAt, expiresAt,
             bindingRef: request.bindingRef, siteId: options.siteId,
             amountMinor: request.total.minor, currency: request.total.currency,
-          });
+          };
+          tx.write(request.attemptId, record);
+          return record;
         });
-        const saved = read(request.attemptId);
-        if (!saved) return { outcome: "unknown" };
         return {
           outcome: "open",
           attemptId: request.attemptId,
           total: request.total,
           session: asSession(saved),
         };
-      } catch {
+      } catch (error) {
+        if (error instanceof AuthorizeNetError && error.message === "attempt_mismatch") {
+          throw error;
+        }
         return { outcome: "unknown" };
       }
     },
