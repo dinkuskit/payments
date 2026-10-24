@@ -365,3 +365,43 @@ test("fetch transport deadline covers a late response body without AbortSignal R
   try { await assert.rejects(transport.request({}), /authorize_net_timeout/); }
   finally { globalThis.fetch = originalFetch; }
 });
+
+for (const [label, overrides, secondSiteId] of [
+  ["binding", { bindingRef: "bind-other" }, siteId],
+  ["amount", { total: { currency: "USD", minor: "1300" } }, siteId],
+  ["site", {}, "site-other"],
+  ["matching details", {}, siteId],
+]) {
+  test(`concurrent session creation validates the winning record: ${label}`, async () => {
+    const records = new Map();
+    const pending = [];
+    const makePort = portSiteId => createAuthorizeNetPaymentPort({
+      gateway: {
+        createHostedPayment: () => new Promise(resolve => pending.push(resolve)),
+      },
+      siteId: portSiteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
+      returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel",
+      store: { transaction: fn => fn({
+        read: id => structuredClone(records.get(id) ?? null),
+        write: (id, value) => records.set(id, structuredClone(value)),
+      }) },
+    });
+    const first = makePort(siteId).ensureSession(payment);
+    const second = makePort(secondSiteId).ensureSession({ ...payment, ...overrides });
+    assert.equal(pending.length, 2);
+    pending[0]({ token: "winning-token" });
+    const winner = await first;
+    assert.equal(winner.outcome, "open");
+    assert.equal(winner.session.sessionId, "winning-token");
+    pending[1]({ token: "losing-token" });
+    if (label === "matching details") {
+      assert.deepEqual(await second, winner);
+    } else {
+      await assert.rejects(second, /attempt_mismatch/);
+    }
+    assert.equal(records.get(payment.attemptId).token, "winning-token");
+    assert.equal(records.get(payment.attemptId).bindingRef, payment.bindingRef);
+    assert.equal(records.get(payment.attemptId).siteId, siteId);
+    assert.equal(records.get(payment.attemptId).amountMinor, payment.total.minor);
+  });
+}
