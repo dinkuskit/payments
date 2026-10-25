@@ -3103,7 +3103,7 @@
       "choice": "Through an EmDash-provided payment-provider slot, modelled on EmDash's exclusive email:deliver hook: the site owner picks one plugin as the payment provider, and Commerce asks EmDash to take payment for an order and hears 'paid' back the same way, without knowing which plugin answered. Needs an upstream EmDash Ideas Discussion, posted by Ronald or Matt (upstream AI policy bars agents), and then an RFC. Until then Commerce stores use Connect through payments.dinkuskit.com only.",
       "context_ref": "https://claude.ai/code/project/chan_01JLcLQeD34rfoMic23aaman?thread=cmsg_01JLcLQeD34rfoMic23aamanUS98RXsncP8L4LmH6fmPCH",
       "created_at": "2026-10-25T18:17:10+00:00",
-      "deferred_reason": "Ronald (18:16 UTC 25 Oct 2026): defer until the upstream EmDash Discussion is opened and answered. He holds whether and when to post it.",
+      "deferred_reason": "Ronald (18:16 UTC 25 Oct 2026): defer until the upstream EmDash Discussion is answered. Posted 25 Oct 2026 as https://github.com/emdash-cms/emdash/discussions/4402 (Ideas; Ronald requested, offered to champion and to implement), and raised the same day on the EmDash Discord with the alternative of letting plugins from the same publisher talk.",
       "delivery_ref": null,
       "dependencies": [],
       "domain": "Checkout return pages",
@@ -3114,6 +3114,20 @@
           "from": "proposed",
           "implementation_ref": null,
           "note": "Ronald (18:16 UTC 25 Oct 2026): defer until the upstream EmDash Discussion is opened and answered. He holds whether and when to post it.",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "deferred",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-25T19:02:11+00:00",
+          "choice": "Through an EmDash-provided payment-provider slot, modelled on EmDash's exclusive email:deliver hook: the site owner picks one plugin as the payment provider, and Commerce asks EmDash to take payment for an order and hears 'paid' back the same way, without knowing which plugin answered. Needs an upstream EmDash Ideas Discussion, posted by Ronald or Matt (upstream AI policy bars agents), and then an RFC. Until then Commerce stores use Connect through payments.dinkuskit.com only.",
+          "from": "deferred",
+          "implementation_ref": null,
+          "note": "Ronald (18:16 UTC 25 Oct 2026): defer until the upstream EmDash Discussion is answered. Posted 25 Oct 2026 as https://github.com/emdash-cms/emdash/discussions/4402 (Ideas; Ronald requested, offered to champion and to implement), and raised the same day on the EmDash Discord with the alternative of letting plugins from the same publisher talk.",
           "repair_required": false,
           "review_classifications": [],
           "review_ref": null,
@@ -3135,7 +3149,7 @@
       "review_source_identity": null,
       "status": "deferred",
       "superseded_by": null,
-      "updated_at": "2026-10-25T18:17:10+00:00",
+      "updated_at": "2026-10-25T19:02:11+00:00",
       "verification_ref": null
     }
   ],
@@ -3159,5 +3173,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-25T18:17:10+00:00"
+  "updated_at": "2026-10-25T19:02:11+00:00"
 }
