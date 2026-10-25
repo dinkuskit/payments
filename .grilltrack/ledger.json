@@ -3096,6 +3096,47 @@
       "superseded_by": null,
       "updated_at": "2026-10-25T18:14:32+00:00",
       "verification_ref": null
+    },
+    {
+      "baseline_ref": null,
+      "candidate_refs": [],
+      "choice": "Through an EmDash-provided payment-provider slot, modelled on EmDash's exclusive email:deliver hook: the site owner picks one plugin as the payment provider, and Commerce asks EmDash to take payment for an order and hears 'paid' back the same way, without knowing which plugin answered. Needs an upstream EmDash Ideas Discussion, posted by Ronald or Matt (upstream AI policy bars agents), and then an RFC. Until then Commerce stores use Connect through payments.dinkuskit.com only.",
+      "context_ref": "https://claude.ai/code/project/chan_01JLcLQeD34rfoMic23aaman?thread=cmsg_01JLcLQeD34rfoMic23aamanUS98RXsncP8L4LmH6fmPCH",
+      "created_at": "2026-10-25T18:17:10+00:00",
+      "deferred_reason": "Ronald (18:16 UTC 25 Oct 2026): defer until the upstream EmDash Discussion is opened and answered. He holds whether and when to post it.",
+      "delivery_ref": null,
+      "dependencies": [],
+      "domain": "Checkout return pages",
+      "history": [
+        {
+          "at": "2026-10-25T18:17:10+00:00",
+          "choice": "Through an EmDash-provided payment-provider slot, modelled on EmDash's exclusive email:deliver hook: the site owner picks one plugin as the payment provider, and Commerce asks EmDash to take payment for an order and hears 'paid' back the same way, without knowing which plugin answered. Needs an upstream EmDash Ideas Discussion, posted by Ronald or Matt (upstream AI policy bars agents), and then an RFC. Until then Commerce stores use Connect through payments.dinkuskit.com only.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "Ronald (18:16 UTC 25 Oct 2026): defer until the upstream EmDash Discussion is opened and answered. He holds whether and when to post it.",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "deferred",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-commerce-provider-door-043",
+      "implementation_ref": null,
+      "question": "How can Commerce take payment through a payment plugin other than the hosted DinkusKit Payments service (another vendor's plugin, or Payments with the owner's own keys)?",
+      "rationale": "EmDash 1.2 Registry plugins cannot call each other and can reach only fixed hosts, so Commerce cannot hear 'paid' from another plugin. One provider slot would unlock both other payment plugins and Payments' own-key mode on Commerce stores. Recommended in the 10 Oct plugin-tunnel findings; no record the Discussion was ever posted.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "deferred",
+      "superseded_by": null,
+      "updated_at": "2026-10-25T18:17:10+00:00",
+      "verification_ref": null
     }
   ],
   "last_activation": {
@@ -3118,5 +3159,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-25T18:14:32+00:00"
+  "updated_at": "2026-10-25T18:17:10+00:00"
 }

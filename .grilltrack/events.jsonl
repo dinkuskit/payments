@@ -56,3 +56,5 @@
 {"action": "decision_locked", "at": "2026-10-25T17:25:28+00:00", "data": {"decision_id": "payments-standalone-direction-042"}, "event_id": "5d55e693-4ae7-4e07-872a-8e5bcdd1c2a9"}
 {"action": "decision_reopened", "at": "2026-10-25T18:14:32+00:00", "data": {"affected": [], "decision_id": "payments-standalone-direction-042", "reason": "Ronald (18:13 UTC 25 Oct 2026, 'Agreed'): make the owner's-own-Stripe-key route for sites without Commerce planned, built alongside the Connect route, instead of held for later."}, "event_id": "64d5313f-14a3-41ab-8930-504aa9e98fed"}
 {"action": "decision_locked", "at": "2026-10-25T18:14:32+00:00", "data": {"decision_id": "payments-standalone-direction-042"}, "event_id": "84c34c42-8076-4377-bb2e-f09dd30b9b24"}
+{"action": "decision_proposed", "at": "2026-10-25T18:17:10+00:00", "data": {"decision_id": "payments-commerce-provider-door-043"}, "event_id": "c945d5d8-c1d8-44ef-8cd6-1aae6f29b266"}
+{"action": "decision_deferred", "at": "2026-10-25T18:17:10+00:00", "data": {"decision_id": "payments-commerce-provider-door-043"}, "event_id": "da6b7e29-5665-482d-b1d1-8da9375554e8"}
