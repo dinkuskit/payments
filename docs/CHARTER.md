@@ -26,6 +26,11 @@ state, orders, receipts, and reconciliation orchestration. Payments consumes
 the Commerce-owned provider contract; it does not create a competing checkout
 or order model.
 
+Commerce is optional (decision `payments-standalone-direction-042`, locked
+2026-10-25, not yet built): on an EmDash site without Commerce, Payments may
+keep a small Sales list and a Buy button, both switched off whenever Commerce
+is connected, so a store never has two order lists.
+
 This repository does not own physical inventory, fulfillment, shipping rates
 or labels, storefront UI, customer identity, taxes, promotions, or secret
 storage.

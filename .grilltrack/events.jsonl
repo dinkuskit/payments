@@ -52,3 +52,5 @@
 {"action": "decision_locked", "at": "2026-10-22T01:24:48+00:00", "data": {"decision_id": "payments-checkout-cancel-url-041"}, "event_id": "3e93fbcd-7f57-4646-aa9c-e6fdf371ab8d"}
 {"action": "decision_implemented", "at": "2026-10-22T01:24:48+00:00", "data": {"decision_id": "payments-checkout-cancel-url-041"}, "event_id": "187fd6dd-3ac0-42d2-9f3a-db40d0125837"}
 {"action": "decision_verified", "at": "2026-10-22T01:24:48+00:00", "data": {"decision_id": "payments-checkout-cancel-url-041"}, "event_id": "bf1cd298-1862-4243-b7c3-35a1a7fcfe9a"}
+{"action": "decision_proposed", "at": "2026-10-25T17:25:28+00:00", "data": {"decision_id": "payments-standalone-direction-042"}, "event_id": "a5b7c7ff-7693-41d1-a595-7db6f44fb251"}
+{"action": "decision_locked", "at": "2026-10-25T17:25:28+00:00", "data": {"decision_id": "payments-standalone-direction-042"}, "event_id": "5d55e693-4ae7-4e07-872a-8e5bcdd1c2a9"}
