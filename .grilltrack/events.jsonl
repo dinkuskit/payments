@@ -58,3 +58,4 @@
 {"action": "decision_locked", "at": "2026-10-25T18:14:32+00:00", "data": {"decision_id": "payments-standalone-direction-042"}, "event_id": "84c34c42-8076-4377-bb2e-f09dd30b9b24"}
 {"action": "decision_proposed", "at": "2026-10-25T18:17:10+00:00", "data": {"decision_id": "payments-commerce-provider-door-043"}, "event_id": "c945d5d8-c1d8-44ef-8cd6-1aae6f29b266"}
 {"action": "decision_deferred", "at": "2026-10-25T18:17:10+00:00", "data": {"decision_id": "payments-commerce-provider-door-043"}, "event_id": "da6b7e29-5665-482d-b1d1-8da9375554e8"}
+{"action": "decision_deferred", "at": "2026-10-25T19:02:11+00:00", "data": {"decision_id": "payments-commerce-provider-door-043"}, "event_id": "9921bba8-f9e7-4238-b0ee-742eeab8988b"}
