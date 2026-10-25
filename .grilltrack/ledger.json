@@ -3,12 +3,11 @@
   "created_at": "2026-10-10T04:09:17+00:00",
   "current_focus": {
     "cadence": "sequential",
-    "confirmed": true,
-    "confirmed_at": "2026-10-22T01:24:48+00:00",
-    "domain": "Checkout return pages",
-    "started_at": "2026-10-22T01:24:48+00:00",
-    "status": "confirmed",
-    "summary": "storeReturnPages sets cancelUrl to ${principal.siteOrigin}/checkout across supported payment providers (stripe and authorize_net) so cancelled checkouts return to the dedicated /checkout route where the checkout form, order manifest, and guest-cart recovery controls live."
+    "confirmed": false,
+    "domain": "Existing Stripe account attachment",
+    "started_at": "2026-10-25T17:45:32+00:00",
+    "status": "grilling",
+    "summary": "Scope attaching an existing Stripe account through Connect OAuth alongside Accounts v2 creation (dinkuskit/payments#89)."
   },
   "decisions": [
     {
@@ -3028,6 +3027,36 @@
       "superseded_by": null,
       "updated_at": "2026-10-22T01:24:48+00:00",
       "verification_ref": ".grilltrack/proof/store-return-pages-033/PROOF.md"
+    },
+    {
+      "baseline_ref": "git:a5ee00fca9cbc235385ed894a5122f0567184ef3",
+      "candidate_refs": [],
+      "choice": "Keep Accounts v2 (2026-09-30.endive, POST /v2/core/accounts + /v2/core/account_links) for 'Create a Stripe account', and add Connect Standard OAuth (GET https://connect.stripe.com/oauth/authorize + single-use POST https://connect.stripe.com/oauth/token, scope=read_write) for 'I already have Stripe' on Payment settings when no account is bound. Discard deprecated OAuth access/refresh tokens; store only stripe_user_id (acct_...) with creationProtocol 'oauth_standard' and continue using platform-key Stripe-Account direct charges, full Stripe Dashboard, and Stripe fee/loss ownership. Evaluate oauth_standard readiness via GET /v1/accounts/:id on 2026-08-26.dahlia (avoiding Accounts v2's missing-configuration and 10-minute v1 sync limits, and without minting v2 accountLinks), reporting the same /v1/status shape and failing closed if deauthorized. Enforce 1:1 account-to-store uniqueness via a mode-scoped Account Claim Registry (and reject self-binding to the platform account), forbid overwriting a bound stripeAccountId, and persist append-only connection_bindings so existingBinding and lookup/wakes always recover payments from historical bindings. No secret keys in the plugin, no global_fetch_strictly_public, and <= 8 bridge calls per setup action. Build waits until smokyclub.com is selling and Ronald locks this proposal.",
+      "context_ref": "https://github.com/dinkuskit/payments/issues/89",
+      "created_at": "2026-10-25T17:45:32+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "merchant-stripe-onboarding-002",
+        "payments-one-screen-setup-029",
+        "payments-status-owner-rule-040"
+      ],
+      "domain": "Existing Stripe account attachment",
+      "history": [],
+      "id": "payments-existing-stripe-account-043",
+      "implementation_ref": null,
+      "question": "How should Payments let a store owner attach an existing Stripe account through Connect while preserving direct charges, full Dashboard, Stripe fee/loss ownership, 1:1 store binding, no silent account switching, and historical payment recovery?",
+      "rationale": "Stripe Accounts v2 (2026-09-30.endive) only creates new accounts and explicitly requires Accounts v1 OAuth for authenticating existing accounts; Networked Onboarding still creates a separate acct_... with split payouts and dashboards. Connect OAuth links the owner's existing standalone account while keeping direct charges and zero secret storage. Scoped in docs/existing-stripe-account-scope.md for dinkuskit/payments#89.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "proposed",
+      "superseded_by": null,
+      "updated_at": "2026-10-25T17:45:32+00:00",
+      "verification_ref": null
     }
   ],
   "last_activation": {
@@ -3050,5 +3079,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-22T01:24:48+00:00"
+  "updated_at": "2026-10-25T17:45:32+00:00"
 }

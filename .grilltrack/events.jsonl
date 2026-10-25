@@ -52,3 +52,5 @@
 {"action": "decision_locked", "at": "2026-10-22T01:24:48+00:00", "data": {"decision_id": "payments-checkout-cancel-url-041"}, "event_id": "3e93fbcd-7f57-4646-aa9c-e6fdf371ab8d"}
 {"action": "decision_implemented", "at": "2026-10-22T01:24:48+00:00", "data": {"decision_id": "payments-checkout-cancel-url-041"}, "event_id": "187fd6dd-3ac0-42d2-9f3a-db40d0125837"}
 {"action": "decision_verified", "at": "2026-10-22T01:24:48+00:00", "data": {"decision_id": "payments-checkout-cancel-url-041"}, "event_id": "bf1cd298-1862-4243-b7c3-35a1a7fcfe9a"}
+{"action": "focus_started", "at": "2026-10-25T17:45:32+00:00", "data": {"cadence": "sequential", "domain": "Existing Stripe account attachment"}, "event_id": "2fcf4e06-5423-4768-bee4-741339cf7eaa"}
+{"action": "decision_proposed", "at": "2026-10-25T17:45:32+00:00", "data": {"decision_id": "payments-existing-stripe-account-043"}, "event_id": "8f3de54f-339f-481e-bf9f-ed9e7bc1e15f"}
