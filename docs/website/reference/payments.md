@@ -23,9 +23,9 @@ The Registry plugin, hosted Payments service and DinkusKit account service have 
 
 Connect [Commerce](/docs/reference/commerce) first: Commerce's Connect makes the store at DinkusKit.com. Until it does, Payments says "Connect the Commerce plugin first."
 
-Then open **Payments status** in the store admin to reach **Payment setup**. Select **Authorize Payments at DinkusKit** and press **Approve** there. DinkusKit.com brings you back, the page checks your approval on its own, and it hands Payments its own store key. Nothing is pasted: the plugin keeps the key in its encrypted Connect setting and uses it to read payment status. Stores that pasted a key into the old Store key setting press Connect again once; that setting is gone.
+Then open **Dinkus Payments > Payment settings** in the store admin to reach **Payment setup**, and press **Connect**. Select the **Authorize Payments at DinkusKit** link that appears and press **Approve** there. DinkusKit.com brings you back, the page checks your approval on its own, and it hands Payments its own store key. Nothing is pasted: the plugin keeps the key in its encrypted Connect setting and uses it to read payment status. Stores that pasted a key into the old Store key setting press Connect again once; that setting is gone.
 
-If no processor is connected yet, the **Connect payments** step offers **Set up Stripe**. When Stripe needs more information, use **Set up or resume Stripe**, which lists what is missing. Press **Check connection** to read the current status.
+If no processor is connected yet, the **Connect payments** step asks you to set up Stripe: press **Set up or resume Stripe**. Use the same button when Stripe needs more information; Stripe's setup lists what is missing. Press **Check connection** to read the current status.
 
 A verified Stripe test connection shows **Connected: Stripe test mode**. Shoppers can then pay with Stripe test cards; real customer payments need a live Stripe connection. Until a check has run, the page shows "Payment status not checked", and "Not ready to sell" means a step is still incomplete.
 
