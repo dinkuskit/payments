@@ -405,3 +405,71 @@ for (const [label, overrides, secondSiteId] of [
     assert.equal(records.get(payment.attemptId).amountMinor, payment.total.minor);
   });
 }
+
+// commerce#197 case B: a shopper whose first card is declined pays with a second one. Authorize.net
+// does not promise its notices arrive in order, so the declined try's notice can land last.
+test("a paid transaction stays paid when a declined try's notice for the same checkout arrives after it", async () => {
+  const records = new Map();
+  const identity = await buildAuthorizeNetInvoiceReference(siteId, payment.attemptId);
+  const transactions = {
+    111: { transId: "111", responseCode: 1, transactionStatus: "settledSuccessfully", authAmount: "12.00", settleAmount: "12.00", order: { invoiceNumber: identity } },
+    222: { transId: "222", responseCode: 2, transactionStatus: "declined", authAmount: "12.00", settleAmount: "12.00", order: { invoiceNumber: identity } },
+  };
+  const gateway = createAuthorizeNetGateway({
+    ...credentials,
+    transport: { request: async body => body.getTransactionDetailsRequest
+      ? { messages: { resultCode: "Ok" }, transaction: transactions[body.getTransactionDetailsRequest.transId] }
+      : { messages: { resultCode: "Ok" }, token: "hosted-token" } },
+  });
+  const port = createAuthorizeNetPaymentPort({
+    gateway, siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
+    returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel",
+    now: () => 1_800_000_000_000,
+    store: { transaction: fn => fn({
+      read: id => structuredClone(records.get(id) ?? null),
+      write: (id, value) => records.set(id, structuredClone(value)),
+    }) },
+  });
+  assert.equal((await port.ensureSession(payment)).outcome, "open");
+  port.recordTransaction(payment.attemptId, "111");
+  port.recordTransaction(payment.attemptId, "222");
+  const outcome = await port.lookup(payment);
+  assert.equal(outcome.outcome, "paid");
+  assert.equal(outcome.paymentId, "111");
+});
+
+test("a checkout reads unpaid only when every notified try is unpaid, and a try still pending keeps it open", async () => {
+  const records = new Map();
+  const identity = await buildAuthorizeNetInvoiceReference(siteId, payment.attemptId);
+  const declined = id => ({ transId: id, responseCode: 2, transactionStatus: "declined", authAmount: "12.00", settleAmount: "12.00", order: { invoiceNumber: identity } });
+  const transactions = { 301: declined("301"), 302: declined("302"),
+    303: { transId: "303", responseCode: 1, transactionStatus: "pendingSettlement", authAmount: "12.00", settleAmount: "12.00", order: { invoiceNumber: identity } } };
+  const looked = [];
+  const gateway = createAuthorizeNetGateway({
+    ...credentials,
+    transport: { request: async body => {
+      if (!body.getTransactionDetailsRequest) return { messages: { resultCode: "Ok" }, token: "hosted-token" };
+      looked.push(body.getTransactionDetailsRequest.transId);
+      return { messages: { resultCode: "Ok" }, transaction: transactions[body.getTransactionDetailsRequest.transId] };
+    } },
+  });
+  const port = createAuthorizeNetPaymentPort({
+    gateway, siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
+    returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel",
+    now: () => 1_800_000_000_000,
+    store: { transaction: fn => fn({
+      read: id => structuredClone(records.get(id) ?? null),
+      write: (id, value) => records.set(id, structuredClone(value)),
+    }) },
+  });
+  await port.ensureSession(payment);
+  port.recordTransaction(payment.attemptId, "301");
+  // The same notice delivered again is kept once.
+  port.recordTransaction(payment.attemptId, "301");
+  port.recordTransaction(payment.attemptId, "302");
+  assert.deepEqual(records.get(payment.attemptId).transactionIds, ["301", "302"]);
+  assert.equal((await port.lookup(payment)).outcome, "expired-unpaid");
+  port.recordTransaction(payment.attemptId, "303");
+  assert.deepEqual(await port.lookup(payment), { outcome: "unknown" });
+  assert.deepEqual(looked, ["301", "302", "301", "302", "303"]);
+});
