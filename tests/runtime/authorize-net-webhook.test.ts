@@ -212,3 +212,25 @@ test("public notification endpoint rejects forged and malformed bytes before dur
     expect((await attemptRecord(stub))?.transactionId ?? null).toBeNull();
   }
 });
+
+test("a checkout stored before transaction history keeps its transaction when a new notice arrives", async () => {
+  const siteId = crypto.randomUUID();
+  const invoiceNumber = await buildAuthorizeNetInvoiceReference(siteId, attemptId);
+  const stub = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", siteId]));
+  // The shape every release before transaction history wrote: one transactionId, no transactionIds.
+  await runInDurableObject(stub, instance => {
+    (instance as { ctx: { storage: { sql: { exec: (query: string, ...binds: unknown[]) => void } } } }).ctx.storage.sql.exec(
+      "INSERT INTO authorize_net_attempts (attempt_id,value) VALUES (?,?)",
+      attemptId,
+      JSON.stringify({ attemptId, bindingRef, siteId, transactionId: "777" }),
+    );
+  });
+  const response = await postWebhook(siteId, "upgrade-1", invoiceNumber, "upgrade-1", "888");
+  expect(response.status).toBe(200);
+  // Read back from the Durable Object's SQL storage, as a later request would.
+  const stored = await attemptRecord(stub) as { transactionId?: string | null; transactionIds?: string[]; siteId?: string; bindingRef?: string };
+  expect(stored.transactionIds).toEqual(["777", "888"]);
+  expect(stored.transactionId).toBe("888");
+  expect(stored.siteId).toBe(siteId);
+  expect(stored.bindingRef).toBe(bindingRef);
+});

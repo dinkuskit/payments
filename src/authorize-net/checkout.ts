@@ -293,14 +293,14 @@ export function transactionOutcome(transaction: AuthorizeNetTransaction, expecte
   return "unknown";
 }
 
-/** Transactions kept per checkout; Accept Hosted lets a declined shopper try again only a few times. */
+/** Most transactions kept per checkout, which also bounds the provider reads one lookup makes. */
 export const AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT = 20;
 
-/** Every transaction notified for a checkout, including one stored before the list existed. */
+/** The latest transactions notified for a checkout, including one stored before the list existed. */
 function transactionsOf(record: { transactionId: string | null; transactionIds?: string[] }): string[] {
   const ids = Array.isArray(record.transactionIds) ? [...record.transactionIds] : [];
   if (record.transactionId && !ids.includes(record.transactionId)) ids.push(record.transactionId);
-  return ids;
+  return ids.slice(-AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT);
 }
 
 export function createAuthorizeNetPaymentPort(options: {
@@ -395,7 +395,10 @@ export function createAuthorizeNetPaymentPort(options: {
         // any order: any paid transaction makes the checkout paid, and unpaid needs every try unpaid.
         let pending = false;
         for (const id of ids) {
-          const transaction = await options.gateway.getTransaction(id);
+          let transaction;
+          // A try that can't be read now is pending; a later try may still prove the payment.
+          try { transaction = await options.gateway.getTransaction(id); }
+          catch { pending = true; continue; }
           if (transaction.invoiceNumber !== identity && transaction.refId !== identity) {
             throw new AuthorizeNetError("identity_mismatch");
           }
@@ -417,10 +420,11 @@ export function createAuthorizeNetPaymentPort(options: {
       options.store.transaction(tx => {
         const current = tx.read(attemptId);
         if (!current) return;
-        const ids = transactionsOf(current);
-        // Every notified try is kept, in arrival order; the latest also stays in transactionId for older readers.
-        if (!ids.includes(transactionId) && ids.length < AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT) ids.push(transactionId);
-        tx.write(attemptId, { ...current, transactionId, transactionIds: ids });
+        // The latest tries are kept, in arrival order, and a full list drops its oldest first; the latest
+        // also stays in transactionId for older readers.
+        const ids = transactionsOf(current).filter(id => id !== transactionId);
+        ids.push(transactionId);
+        tx.write(attemptId, { ...current, transactionId, transactionIds: ids.slice(-AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT) });
       });
     },
   };

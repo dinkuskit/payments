@@ -8,6 +8,7 @@ import {
   AUTHORIZE_NET_PRODUCTION_URL,
   AUTHORIZE_NET_SANDBOX_URL,
   AUTHORIZE_NET_STORE_TAG_LENGTH,
+  AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT,
   authorizeNetEndpoints,
   authorizeNetStoreTag,
   buildAuthorizeNetInvoiceReference,
@@ -472,4 +473,48 @@ test("a checkout reads unpaid only when every notified try is unpaid, and a try 
   port.recordTransaction(payment.attemptId, "303");
   assert.deepEqual(await port.lookup(payment), { outcome: "unknown" });
   assert.deepEqual(looked, ["301", "302", "301", "302", "303"]);
+});
+
+test("a try that can't be read now doesn't hide a later paid one, and the kept tries stay bounded", async () => {
+  const records = new Map();
+  const identity = await buildAuthorizeNetInvoiceReference(siteId, payment.attemptId);
+  let reads = 0, down = false;
+  const gateway = createAuthorizeNetGateway({
+    ...credentials,
+    transport: { request: async body => {
+      if (!body.getTransactionDetailsRequest) return { messages: { resultCode: "Ok" }, token: "hosted-token" };
+      const id = body.getTransactionDetailsRequest.transId;
+      reads += 1;
+      if (id === "401" || down) throw new Error("provider timeout");
+      return { messages: { resultCode: "Ok" }, transaction: { transId: id, responseCode: 1, transactionStatus: "settledSuccessfully",
+        authAmount: "12.00", settleAmount: "12.00", order: { invoiceNumber: identity } } };
+    } },
+  });
+  const port = createAuthorizeNetPaymentPort({
+    gateway, siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
+    returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel",
+    now: () => 1_800_000_000_000,
+    store: { transaction: fn => fn({
+      read: id => structuredClone(records.get(id) ?? null),
+      write: (id, value) => records.set(id, structuredClone(value)),
+    }) },
+  });
+  await port.ensureSession(payment);
+  port.recordTransaction(payment.attemptId, "401");
+  port.recordTransaction(payment.attemptId, "402");
+  const outcome = await port.lookup(payment);
+  assert.equal(outcome.outcome, "paid");
+  assert.equal(outcome.paymentId, "402");
+
+  for (let id = 500; id < 530; id++) port.recordTransaction(payment.attemptId, String(id));
+  const kept = records.get(payment.attemptId);
+  assert.equal(kept.transactionIds.length, AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT);
+  assert.equal(kept.transactionIds.at(-1), "529");
+  assert.equal(kept.transactionId, "529");
+  // A record whose latest try sits outside a full list still reads at most the limit.
+  records.set(payment.attemptId, { ...kept, transactionId: "999" });
+  reads = 0;
+  down = true;
+  assert.deepEqual(await port.lookup(payment), { outcome: "unknown" });
+  assert.equal(reads, AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT);
 });
