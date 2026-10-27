@@ -3,11 +3,12 @@
   "created_at": "2026-10-10T04:09:17+00:00",
   "current_focus": {
     "cadence": "sequential",
-    "confirmed": false,
-    "domain": "Checkout return pages",
-    "started_at": "2026-10-25T18:14:32+00:00",
-    "status": "grilling",
-    "summary": "Reopen payments-standalone-direction-042: Ronald (18:13 UTC 25 Oct 2026, 'Agreed'): make the owner's-own-Stripe-key route for sites without Commerce planned, built alongside the Connect route, instead of held for later."
+    "confirmed": true,
+    "confirmed_at": "2026-10-27T19:25:36+00:00",
+    "domain": "Authorize.net checkout reconciliation",
+    "started_at": "2026-10-27T19:25:36+00:00",
+    "status": "confirmed",
+    "summary": "Ronald, 27 Oct 2026 19:19 UTC in the 'Plan checkout reliability and self-hosting' thread: 'im on the same page i agree across the board' to the plain-terms recommendation: if one checkout is ever paid twice, keep both payments recorded and show the store owner a line telling them to refund one by hand. No automatic refunds in v1 (refunds by hand is v1 scope)."
   },
   "decisions": [
     {
@@ -3151,6 +3152,47 @@
       "superseded_by": null,
       "updated_at": "2026-10-25T19:02:11+00:00",
       "verification_ref": null
+    },
+    {
+      "baseline_ref": "git:e38dcc7",
+      "candidate_refs": [],
+      "choice": "Keep both paid transactions recorded on the checkout (transactionIds, payments#95). Commerce makes one order from the first paid transaction. The store owner sees a plain line saying the checkout was paid twice, with both transaction ids, telling them to refund one by hand in Authorize.net. Payments never refunds on its own. Build order: the line is built only after the Authorize.net sandbox proof shows Accept Hosted can actually take a second successful payment on one checkout; until then the second payment is recorded but not shown. Surfacing it needs a status field the plugin understands before the Worker sends it (decodeStatus rejects unknown keys), so the plugin release goes first and the Worker change second.",
+      "context_ref": "https://github.com/dinkuskit/payments/pull/95",
+      "created_at": "2026-10-27T19:25:36+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [],
+      "domain": "Authorize.net checkout reconciliation",
+      "history": [
+        {
+          "at": "2026-10-27T19:25:36+00:00",
+          "choice": "Keep both paid transactions recorded on the checkout (transactionIds, payments#95). Commerce makes one order from the first paid transaction. The store owner sees a plain line saying the checkout was paid twice, with both transaction ids, telling them to refund one by hand in Authorize.net. Payments never refunds on its own. Build order: the line is built only after the Authorize.net sandbox proof shows Accept Hosted can actually take a second successful payment on one checkout; until then the second payment is recorded but not shown. Surfacing it needs a status field the plugin understands before the Worker sends it (decodeStatus rejects unknown keys), so the plugin release goes first and the Worker change second.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-authorize-net-paid-twice-044",
+      "implementation_ref": null,
+      "question": "If one Authorize.net checkout ends up with two paid transactions, what does Payments do?",
+      "rationale": "v1 scope is refunds by hand; automatic refunds risk refunding the wrong payment. Stripe cannot reach a second payment (one session per attempt, idempotency key, session_mismatch), so only Authorize.net needs this. Building a screen for a case the sandbox may show is unreachable would spend Payments bytes for nothing.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "locked",
+      "superseded_by": null,
+      "updated_at": "2026-10-27T19:25:36+00:00",
+      "verification_ref": null
     }
   ],
   "last_activation": {
@@ -3173,5 +3215,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-25T19:02:11+00:00"
+  "updated_at": "2026-10-27T19:25:36+00:00"
 }
