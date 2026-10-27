@@ -293,6 +293,16 @@ export function transactionOutcome(transaction: AuthorizeNetTransaction, expecte
   return "unknown";
 }
 
+/** Most transactions kept per checkout, which also bounds the provider reads one lookup makes. */
+export const AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT = 20;
+
+/** The latest transactions notified for a checkout, including one stored before the list existed. */
+function transactionsOf(record: { transactionId: string | null; transactionIds?: string[] }): string[] {
+  const ids = Array.isArray(record.transactionIds) ? [...record.transactionIds] : [];
+  if (record.transactionId && !ids.includes(record.transactionId)) ids.push(record.transactionId);
+  return ids.slice(-AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT);
+}
+
 export function createAuthorizeNetPaymentPort(options: {
   gateway: ReturnType<typeof createAuthorizeNetGateway>;
   /** The store's own return pages, needed only to start a new hosted payment. */
@@ -302,8 +312,8 @@ export function createAuthorizeNetPaymentPort(options: {
   siteId: string;
   store: {
     transaction<T>(fn: (state: {
-      read(attemptId: string): { token: string; transactionId: string | null; createdAt: number; expiresAt: number; bindingRef?: string; siteId?: string; amountMinor?: string; currency?: string } | null;
-      write(attemptId: string, value: { token: string; transactionId: string | null; createdAt: number; expiresAt: number; bindingRef?: string; siteId?: string; amountMinor?: string; currency?: string }): void;
+      read(attemptId: string): { token: string; transactionId: string | null; transactionIds?: string[]; createdAt: number; expiresAt: number; bindingRef?: string; siteId?: string; amountMinor?: string; currency?: string } | null;
+      write(attemptId: string, value: { token: string; transactionId: string | null; transactionIds?: string[]; createdAt: number; expiresAt: number; bindingRef?: string; siteId?: string; amountMinor?: string; currency?: string }): void;
     }) => T): T;
   };
   now?: () => number;
@@ -376,18 +386,27 @@ export function createAuthorizeNetPaymentPort(options: {
     async lookup(request) {
       assertUsd(request);
       const existing = read(request.attemptId);
-      if (!existing?.transactionId) return { outcome: "unknown" };
+      const ids = existing ? transactionsOf(existing) : [];
+      if (!existing || ids.length === 0) return { outcome: "unknown" };
       try {
-        const transaction = await options.gateway.getTransaction(existing.transactionId);
         const identity = await identityFor(options.siteId, request.attemptId);
-        if (transaction.invoiceNumber !== identity && transaction.refId !== identity) {
-          throw new AuthorizeNetError("identity_mismatch");
-        }
-        const outcome = transactionOutcome(transaction, request.total);
         const fields = { attemptId: request.attemptId, total: request.total, session: asSession(existing) };
-        if (outcome === "paid") return { outcome, ...fields, paymentId: transaction.id };
-        if (outcome === "unpaid") return { outcome: "expired-unpaid" as const, ...fields };
-        return { outcome: "unknown" as const };
+        // A shopper can be declined and pay on a second try, and Authorize.net's notices can arrive in
+        // any order: any paid transaction makes the checkout paid, and unpaid needs every try unpaid.
+        let pending = false;
+        for (const id of ids) {
+          let transaction;
+          // A try that can't be read now is pending; a later try may still prove the payment.
+          try { transaction = await options.gateway.getTransaction(id); }
+          catch { pending = true; continue; }
+          if (transaction.invoiceNumber !== identity && transaction.refId !== identity) {
+            throw new AuthorizeNetError("identity_mismatch");
+          }
+          const outcome = transactionOutcome(transaction, request.total);
+          if (outcome === "paid") return { outcome, ...fields, paymentId: transaction.id };
+          if (outcome === "unknown") pending = true;
+        }
+        return pending ? { outcome: "unknown" as const } : { outcome: "expired-unpaid" as const, ...fields };
       } catch (error) {
         if (error instanceof AuthorizeNetError &&
             (error.message === "amount_or_currency_mismatch" || error.message === "identity_mismatch")) {
@@ -400,7 +419,12 @@ export function createAuthorizeNetPaymentPort(options: {
       if (!/^[0-9]+$/.test(transactionId)) throw new AuthorizeNetError("invalid_transaction_id");
       options.store.transaction(tx => {
         const current = tx.read(attemptId);
-        if (current) tx.write(attemptId, { ...current, transactionId });
+        if (!current) return;
+        // The latest tries are kept, in arrival order, and a full list drops its oldest first; the latest
+        // also stays in transactionId for older readers.
+        const ids = transactionsOf(current).filter(id => id !== transactionId);
+        ids.push(transactionId);
+        tx.write(attemptId, { ...current, transactionId, transactionIds: ids.slice(-AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT) });
       });
     },
   };
