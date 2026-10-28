@@ -524,14 +524,17 @@ export function createAuthorizeNetPaymentPort(options: {
         return { action: "not_found" };
       }
       const total = { minor: record.amountMinor, currency: "USD" as const };
+      const ended = { action: "redirect" as const, url: record.cancelUrl };
       // Only a checkout with no try, or only unpaid tries, gets a card form. Paid or still being decided goes
-      // back to the store, where Commerce shows the result; so does a checkout that has ended.
-      if (seconds() >= record.expiresAt) return { action: "redirect", url: record.cancelUrl };
+      // back to the store, where Commerce shows the result; so does a checkout that has ended. The end is
+      // checked again after every provider call, so a visit that crosses it never gets a token.
+      if (seconds() >= record.expiresAt) return ended;
       if (transactionsOf(record).length > 0) {
         let result;
         try { result = await tries(attemptId, record, total); }
         catch { return { action: "redirect", url: record.returnUrl }; }
         if (!("unpaid" in result)) return { action: "redirect", url: record.returnUrl };
+        if (seconds() >= record.expiresAt) return ended;
       }
       const mintedAt = record.tokenAt ?? record.createdAt;
       if (seconds() - mintedAt < AUTHORIZE_NET_FORM_TOKEN_REUSE_SECONDS) {
@@ -543,9 +546,11 @@ export function createAuthorizeNetPaymentPort(options: {
           attemptId, siteId: options.siteId, total, returnUrl: record.returnUrl, cancelUrl: record.cancelUrl,
         });
       } catch {
-        return { action: "redirect", url: record.cancelUrl };
+        return ended;
       }
       const tokenAt = seconds();
+      // A token minted after the end is never stored or shown.
+      if (tokenAt >= record.expiresAt) return ended;
       options.store.transaction(tx => {
         const current = tx.read(attemptId);
         if (!current || current.sessionId !== record.sessionId) return;

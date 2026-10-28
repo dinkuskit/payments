@@ -541,26 +541,28 @@ test("a try that can't be read now doesn't hide a later paid one, and the kept t
   assert.equal(reads, AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT);
 });
 
-function payPageHarness({ transactions = {}, mintFails = false } = {}) {
-  const records = new Map();
-  const state = { clock: 1_800_000_000_000, mints: 0, mintFails };
+function payPageHarness({ transactions = {}, mintFails = false, portSiteId = siteId, records = new Map() } = {}) {
+  const state = { clock: 1_800_000_000_000, mints: 0, calls: 0, mintFails, onRead: null, onMint: null };
   const identity = buildAuthorizeNetInvoiceReference(siteId, payment.attemptId);
   const gateway = createAuthorizeNetGateway({
     ...credentials,
     transport: { request: async body => {
+      state.calls += 1;
       if (body.getTransactionDetailsRequest) {
+        state.onRead?.();
         const id = body.getTransactionDetailsRequest.transId;
         const found = transactions[id];
         if (!found) throw new Error("provider timeout");
         return { messages: { resultCode: "Ok" }, transaction: { authAmount: "12.00", order: { invoiceNumber: await identity }, ...found, transId: id } };
       }
       if (state.mintFails && state.mints > 0) throw new Error("connection_lost");
+      state.onMint?.();
       state.mints += 1;
       return { messages: { resultCode: "Ok" }, token: `token-${state.mints}` };
     } },
   });
   const port = createAuthorizeNetPaymentPort({
-    gateway, siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
+    gateway, siteId: portSiteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
     returnUrl: "https://store.example/checkout/success", cancelUrl: "https://store.example/checkout", payPageUrl,
     now: () => state.clock,
     store: { transaction: fn => fn({
@@ -592,14 +594,25 @@ test("the pay page hands out a fresh card-form token while the Commerce session 
   assert.deepEqual(await port.ensureSession(payment), open);
 });
 
-test("the pay page refuses anything but the checkout's own session", async () => {
-  const { records, port } = payPageHarness();
+test("the pay page refuses anything but the checkout's own session, before any provider call", async () => {
+  const { records, state, port } = payPageHarness();
   const { session } = await port.ensureSession(payment);
+  port.recordTransaction(payment.attemptId, "801");
+  state.clock += 600_000;
+  state.calls = 0;
   const [secret] = session.sessionId.split(".");
   for (const sessionId of ["", "attempt-one", `${secret}.other`, `${"0".repeat(32)}.attempt-one`, `${secret.toUpperCase()}.attempt-one`,
     `${secret}.attempt-one/x`, `${secret}..`, "hosted-token"]) {
     assert.deepEqual(await port.payPage(sessionId), { action: "not_found" }, sessionId);
   }
+  // Another store's pay page cannot open this checkout, even with its exact session.
+  const otherStore = payPageHarness({ portSiteId: "store-b", records });
+  assert.deepEqual(await otherStore.port.payPage(session.sessionId), { action: "not_found" });
+  // An ended checkout sends the shopper back without reading or minting anything.
+  state.clock = 1_800_000_000_000 + 1860_000;
+  assert.deepEqual(await port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout" });
+  assert.equal(state.calls + otherStore.state.calls, 0);
+  state.clock = 1_800_000_000_000 + 600_000;
   // A checkout started before the pay page has no pay page session.
   const { sessionId: _sessionId, redirectUrl: _redirectUrl, ...legacy } = records.get(payment.attemptId);
   records.set(payment.attemptId, legacy);
@@ -690,4 +703,62 @@ test("the pay page route posts the token without putting it in a URL", async () 
   assert.equal((await handle(new Request(url, { method: "POST" }))).status, 405);
   assert.equal((await handle(new Request(`${url}?token=x`))).status, 404);
   assert.equal(seen.length, 3);
+});
+
+test("a pay page visit that crosses the checkout's end never gets a token", async () => {
+  const { records, state, port, transactions } = payPageHarness();
+  const { session } = await port.ensureSession(payment);
+  port.recordTransaction(payment.attemptId, "901");
+  transactions[901] = { responseCode: 2, transactionStatus: "declined" };
+  // The visit starts a second before the end and the provider read takes two seconds.
+  state.clock += 1859_000;
+  state.onRead = () => { state.clock += 2_000; };
+  assert.deepEqual(await port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout" });
+  assert.equal(state.mints, 1);
+  // The same when the end passes while the new token is being minted: it is neither shown nor stored.
+  state.clock = 1_800_000_000_000 + 1859_000;
+  state.onRead = null;
+  state.onMint = () => { state.clock += 2_000; };
+  assert.deepEqual(await port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout" });
+  assert.equal(records.get(payment.attemptId).token, "token-1");
+  assert.equal(records.get(payment.attemptId).tokenAt, 1_800_000_000);
+});
+
+// Written by the adapter on main before the pay page (ac29a29); see proof/authorize-net-pay-page.
+const preChangeRecord = {
+  token: "hosted-token", transactionId: "123", createdAt: 1_800_000_000, expiresAt: 1_800_001_860,
+  bindingRef: "bind-one", siteId: "store-a", amountMinor: "1200", currency: "USD", transactionIds: ["123"],
+};
+
+test("a checkout stored before the pay page keeps its session and still reconciles", async () => {
+  const records = new Map([[payment.attemptId, structuredClone(preChangeRecord)]]);
+  const identity = await buildAuthorizeNetInvoiceReference(siteId, payment.attemptId);
+  let calls = 0;
+  let status = { responseCode: 2, transactionStatus: "declined" };
+  const port = createAuthorizeNetPaymentPort({
+    gateway: createAuthorizeNetGateway({ ...credentials, transport: { request: async body => {
+      calls += 1;
+      return { messages: { resultCode: "Ok" }, transaction: { transId: body.getTransactionDetailsRequest.transId,
+        authAmount: "12.00", order: { invoiceNumber: identity }, ...status } };
+    } } }),
+    siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL, payPageUrl,
+    returnUrl: "https://store.example/checkout/success", cancelUrl: "https://store.example/checkout",
+    now: () => 1_800_000_100_000,
+    store: { transaction: fn => fn({
+      read: id => structuredClone(records.get(id) ?? null),
+      write: (id, value) => records.set(id, structuredClone(value)),
+    }) },
+  });
+  const legacySession = {
+    sessionId: "hosted-token", redirectUrl: `${AUTHORIZE_NET_HOSTED_SANDBOX_URL}?token=hosted-token`,
+    createdAt: 1_800_000_000, expiresAt: 1_800_001_860,
+  };
+  assert.deepEqual(await port.ensureSession(payment), { outcome: "open", attemptId: payment.attemptId, total: payment.total, session: legacySession });
+  assert.deepEqual(await port.lookup(payment), { outcome: "open", attemptId: payment.attemptId, total: payment.total, session: legacySession });
+  port.recordTransaction(payment.attemptId, "124");
+  status = { responseCode: 1, transactionStatus: "capturedPendingSettlement" };
+  assert.deepEqual(await port.lookup(payment), { outcome: "paid", attemptId: payment.attemptId, total: payment.total, session: legacySession, paymentId: "123" });
+  assert.deepEqual(await port.payPage(`${"0".repeat(32)}.${payment.attemptId}`), { action: "not_found" });
+  assert.deepEqual(records.get(payment.attemptId), { ...preChangeRecord, transactionId: "124", transactionIds: ["123", "124"] });
+  assert.equal(calls, 2);
 });
