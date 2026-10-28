@@ -16,8 +16,11 @@ import {
   createAuthorizeNetFetchTransport,
   createAuthorizeNetPaymentPort,
   parseAuthorizeNetInvoiceReference,
+  payPageAttemptId,
   transactionOutcome,
 } from "../src/authorize-net/checkout.ts";
+import { createHostedHandler } from "../src/hosted/http.ts";
+import { authorizeNetPayPagePath, matchAuthorizeNetPaySession } from "../src/hosted/manifest.ts";
 import {
   createAuthorizeNetWebhookHandler,
   verifyAuthorizeNetReturn,
@@ -25,6 +28,7 @@ import {
 
 const credentials = { apiLoginId: "synthetic-login", transactionKey: "synthetic-transaction-key", merchantCurrency: "USD", mode: "test" };
 const siteId = "store-a";
+const payPageUrl = "https://payments.example/v1/pay/authorize-net/store-a";
 const payment = {
   attemptId: "attempt-one", bindingRef: "bind-one",
   lines: [{ catalogItemId: "sku", quantity: 1, name: "Item", unitPrice: { currency: "USD", minor: "1200" } }],
@@ -97,6 +101,10 @@ test("Accept Hosted creation uses the official request shape and converts USD mi
   assert.equal(hosted.transactionRequest.transactionType, "authCaptureTransaction");
   assert.equal(hosted.refId, identity);
   assert.equal(hosted.transactionRequest.order.invoiceNumber, identity);
+  // A declined shopper's corrected retry must not be refused as a duplicate. Authorize.net checks element
+  // order, so the setting follows order.
+  assert.deepEqual(hosted.transactionRequest.transactionSettings, { setting: [{ settingName: "duplicateWindow", settingValue: "0" }] });
+  assert.deepEqual(Object.keys(hosted.transactionRequest), ["transactionType", "amount", "order", "transactionSettings"]);
   assert.deepEqual(JSON.parse(hosted.hostedPaymentSettings.setting[0].settingValue), {
     url: "https://store.example/return",
     urlText: "Return",
@@ -274,6 +282,7 @@ test("browser return is only a validated lookup hint and forged URLs fail closed
 
 test("wired payment port persists hosted session and reports authoritative paid, unpaid, and pending outcomes", async () => {
   const records = new Map();
+  let clock = 1_800_000_000_000;
   const identity = await buildAuthorizeNetInvoiceReference(siteId, payment.attemptId);
   let response = { transId: "123", responseCode: 1, transactionStatus: "settledSuccessfully", authAmount: "12.00", settleAmount: "12.00", order: { invoiceNumber: identity } };
   const gateway = createAuthorizeNetGateway({
@@ -284,8 +293,8 @@ test("wired payment port persists hosted session and reports authoritative paid,
   });
   const port = createAuthorizeNetPaymentPort({
     gateway, siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
-    returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel",
-    now: () => 1_800_000_000_000,
+    returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel", payPageUrl,
+    now: () => clock,
     store: { transaction: fn => fn({
       read: id => structuredClone(records.get(id) ?? null),
       write: (id, value) => records.set(id, structuredClone(value)),
@@ -293,12 +302,19 @@ test("wired payment port persists hosted session and reports authoritative paid,
   });
   const open = await port.ensureSession(payment);
   assert.equal(open.outcome, "open");
-  assert.match(open.session.redirectUrl, /test\.authorize\.net\/payment\/payment\?token=/);
+  assert.match(open.session.sessionId, /^[0-9a-f]{32}\.attempt-one$/);
+  assert.equal(open.session.redirectUrl, `${payPageUrl}/${open.session.sessionId}`);
+  assert.doesNotMatch(open.session.redirectUrl, /hosted-token/);
   assert.deepEqual(await port.lookup(payment), { outcome: "unknown" });
   port.recordTransaction(payment.attemptId, "123");
   assert.equal((await port.lookup(payment)).outcome, "paid");
   response = { ...response, transId: "123", responseCode: 2, transactionStatus: "declined" };
   records.get(payment.attemptId).transactionId = "123";
+  // A declined shopper can still try again until the checkout ends.
+  assert.equal((await port.lookup(payment)).outcome, "open");
+  clock += 1861_000;
+  assert.deepEqual(await port.lookup(payment), { outcome: "unknown" });
+  clock += 300_000;
   assert.equal((await port.lookup(payment)).outcome, "expired-unpaid");
   response = { ...response, transId: "123", responseCode: 1, transactionStatus: "pendingSettlement" };
   records.get(payment.attemptId).transactionId = "123";
@@ -324,7 +340,7 @@ test("wired creation remains unknown after a lost response and can recover durab
   });
   const port = createAuthorizeNetPaymentPort({
     gateway, siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
-    returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel",
+    returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel", payPageUrl,
     store: { transaction: fn => fn({
       read: id => structuredClone(records.get(id) ?? null),
       write: (id, value) => records.set(id, structuredClone(value)),
@@ -352,7 +368,9 @@ test("a port without the store's return pages cannot start a hosted payment but 
   await assert.rejects(port({}).ensureSession(payment), /invalid_return_url/);
   assert.equal(requests, 0);
   assert.equal(records.size, 0);
-  assert.equal((await port({ returnUrl: "https://store.example/checkout/success", cancelUrl: "https://store.example/checkout" }).ensureSession(payment)).outcome, "open");
+  await assert.rejects(port({ returnUrl: "https://store.example/checkout/success", cancelUrl: "https://store.example/checkout" }).ensureSession(payment), /invalid_pay_page_url/);
+  assert.equal(requests, 0);
+  assert.equal((await port({ returnUrl: "https://store.example/checkout/success", cancelUrl: "https://store.example/checkout", payPageUrl }).ensureSession(payment)).outcome, "open");
   assert.equal((await port({}).ensureSession(payment)).outcome, "open");
   assert.equal(requests, 1);
 });
@@ -381,7 +399,7 @@ for (const [label, overrides, secondSiteId] of [
         createHostedPayment: () => new Promise(resolve => pending.push(resolve)),
       },
       siteId: portSiteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
-      returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel",
+      returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel", payPageUrl,
       store: { transaction: fn => fn({
         read: id => structuredClone(records.get(id) ?? null),
         write: (id, value) => records.set(id, structuredClone(value)),
@@ -393,7 +411,8 @@ for (const [label, overrides, secondSiteId] of [
     pending[0]({ token: "winning-token" });
     const winner = await first;
     assert.equal(winner.outcome, "open");
-    assert.equal(winner.session.sessionId, "winning-token");
+    assert.match(winner.session.sessionId, /^[0-9a-f]{32}\.attempt-one$/);
+    assert.equal(records.get(payment.attemptId).sessionId, winner.session.sessionId);
     pending[1]({ token: "losing-token" });
     if (label === "matching details") {
       assert.deepEqual(await second, winner);
@@ -424,7 +443,7 @@ test("a paid transaction stays paid when a declined try's notice for the same ch
   });
   const port = createAuthorizeNetPaymentPort({
     gateway, siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
-    returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel",
+    returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel", payPageUrl,
     now: () => 1_800_000_000_000,
     store: { transaction: fn => fn({
       read: id => structuredClone(records.get(id) ?? null),
@@ -441,6 +460,7 @@ test("a paid transaction stays paid when a declined try's notice for the same ch
 
 test("a checkout reads unpaid only when every notified try is unpaid, and a try still pending keeps it open", async () => {
   const records = new Map();
+  let clock = 1_800_000_000_000;
   const identity = await buildAuthorizeNetInvoiceReference(siteId, payment.attemptId);
   const declined = id => ({ transId: id, responseCode: 2, transactionStatus: "declined", authAmount: "12.00", settleAmount: "12.00", order: { invoiceNumber: identity } });
   const transactions = { 301: declined("301"), 302: declined("302"),
@@ -456,8 +476,8 @@ test("a checkout reads unpaid only when every notified try is unpaid, and a try 
   });
   const port = createAuthorizeNetPaymentPort({
     gateway, siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
-    returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel",
-    now: () => 1_800_000_000_000,
+    returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel", payPageUrl,
+    now: () => clock,
     store: { transaction: fn => fn({
       read: id => structuredClone(records.get(id) ?? null),
       write: (id, value) => records.set(id, structuredClone(value)),
@@ -469,10 +489,12 @@ test("a checkout reads unpaid only when every notified try is unpaid, and a try 
   port.recordTransaction(payment.attemptId, "301");
   port.recordTransaction(payment.attemptId, "302");
   assert.deepEqual(records.get(payment.attemptId).transactionIds, ["301", "302"]);
+  assert.equal((await port.lookup(payment)).outcome, "open");
+  clock += 2161_000;
   assert.equal((await port.lookup(payment)).outcome, "expired-unpaid");
   port.recordTransaction(payment.attemptId, "303");
   assert.deepEqual(await port.lookup(payment), { outcome: "unknown" });
-  assert.deepEqual(looked, ["301", "302", "301", "302", "303"]);
+  assert.deepEqual(looked, ["301", "302", "301", "302", "301", "302", "303"]);
 });
 
 test("a try that can't be read now doesn't hide a later paid one, and the kept tries stay bounded", async () => {
@@ -492,7 +514,7 @@ test("a try that can't be read now doesn't hide a later paid one, and the kept t
   });
   const port = createAuthorizeNetPaymentPort({
     gateway, siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
-    returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel",
+    returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel", payPageUrl,
     now: () => 1_800_000_000_000,
     store: { transaction: fn => fn({
       read: id => structuredClone(records.get(id) ?? null),
@@ -517,4 +539,226 @@ test("a try that can't be read now doesn't hide a later paid one, and the kept t
   down = true;
   assert.deepEqual(await port.lookup(payment), { outcome: "unknown" });
   assert.equal(reads, AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT);
+});
+
+function payPageHarness({ transactions = {}, mintFails = false, portSiteId = siteId, records = new Map() } = {}) {
+  const state = { clock: 1_800_000_000_000, mints: 0, calls: 0, mintFails, onRead: null, onMint: null };
+  const identity = buildAuthorizeNetInvoiceReference(siteId, payment.attemptId);
+  const gateway = createAuthorizeNetGateway({
+    ...credentials,
+    transport: { request: async body => {
+      state.calls += 1;
+      if (body.getTransactionDetailsRequest) {
+        state.onRead?.();
+        const id = body.getTransactionDetailsRequest.transId;
+        const found = transactions[id];
+        if (!found) throw new Error("provider timeout");
+        return { messages: { resultCode: "Ok" }, transaction: { authAmount: "12.00", order: { invoiceNumber: await identity }, ...found, transId: id } };
+      }
+      if (state.mintFails && state.mints > 0) throw new Error("connection_lost");
+      state.onMint?.();
+      state.mints += 1;
+      return { messages: { resultCode: "Ok" }, token: `token-${state.mints}` };
+    } },
+  });
+  const port = createAuthorizeNetPaymentPort({
+    gateway, siteId: portSiteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
+    returnUrl: "https://store.example/checkout/success", cancelUrl: "https://store.example/checkout", payPageUrl,
+    now: () => state.clock,
+    store: { transaction: fn => fn({
+      read: id => structuredClone(records.get(id) ?? null),
+      write: (id, value) => records.set(id, structuredClone(value)),
+    }) },
+  });
+  return { records, state, port, transactions };
+}
+
+const post = token => ({ action: "post", hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL, token });
+
+test("the pay page hands out a fresh card-form token while the Commerce session never changes", async () => {
+  const { records, state, port } = payPageHarness();
+  const open = await port.ensureSession(payment);
+  const sessionId = open.session.sessionId;
+  assert.equal(payPageAttemptId(sessionId), payment.attemptId);
+  assert.deepEqual(await port.payPage(sessionId), post("token-1"));
+  assert.equal(state.mints, 1);
+  // A reload within 10 minutes reuses the token, which still has at least 5 minutes left.
+  state.clock += 599_000;
+  assert.deepEqual(await port.payPage(sessionId), post("token-1"));
+  assert.equal(state.mints, 1);
+  // Past that, the shopper gets a token minted now, for the same checkout.
+  state.clock += 1_000;
+  assert.deepEqual(await port.payPage(sessionId), post("token-2"));
+  assert.equal(records.get(payment.attemptId).token, "token-2");
+  assert.equal(records.get(payment.attemptId).tokenAt, 1_800_000_600);
+  assert.deepEqual(await port.ensureSession(payment), open);
+});
+
+test("the pay page refuses anything but the checkout's own session, before any provider call", async () => {
+  const { records, state, port } = payPageHarness();
+  const { session } = await port.ensureSession(payment);
+  port.recordTransaction(payment.attemptId, "801");
+  state.clock += 600_000;
+  state.calls = 0;
+  const [secret] = session.sessionId.split(".");
+  for (const sessionId of ["", "attempt-one", `${secret}.other`, `${"0".repeat(32)}.attempt-one`, `${secret.toUpperCase()}.attempt-one`,
+    `${secret}.attempt-one/x`, `${secret}..`, "hosted-token"]) {
+    assert.deepEqual(await port.payPage(sessionId), { action: "not_found" }, sessionId);
+  }
+  // Another store's pay page cannot open this checkout, even with its exact session.
+  const otherStore = payPageHarness({ portSiteId: "store-b", records });
+  assert.deepEqual(await otherStore.port.payPage(session.sessionId), { action: "not_found" });
+  // An ended checkout sends the shopper back without reading or minting anything.
+  state.clock = 1_800_000_000_000 + 1860_000;
+  assert.deepEqual(await port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout" });
+  assert.equal(state.calls + otherStore.state.calls, 0);
+  state.clock = 1_800_000_000_000 + 600_000;
+  // A checkout started before the pay page has no pay page session.
+  const { sessionId: _sessionId, redirectUrl: _redirectUrl, ...legacy } = records.get(payment.attemptId);
+  records.set(payment.attemptId, legacy);
+  assert.deepEqual(await port.payPage(session.sessionId), { action: "not_found" });
+  assert.equal((await port.ensureSession(payment)).session.redirectUrl, `${AUTHORIZE_NET_HOSTED_SANDBOX_URL}?token=token-1`);
+});
+
+test("the pay page sends a paid, undecided or ended checkout back to the store and retries a declined one", async () => {
+  const { state, port, transactions } = payPageHarness();
+  const { session } = await port.ensureSession(payment);
+  port.recordTransaction(payment.attemptId, "601");
+  transactions[601] = { responseCode: 2, transactionStatus: "declined" };
+  assert.deepEqual(await port.payPage(session.sessionId), post("token-1"));
+  transactions[601] = { responseCode: 4, transactionStatus: "FDSPendingReview" };
+  assert.deepEqual(await port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout/success" });
+  delete transactions[601];
+  assert.deepEqual(await port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout/success" });
+  transactions[601] = { responseCode: 1, transactionStatus: "capturedPendingSettlement" };
+  assert.deepEqual(await port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout/success" });
+  transactions[601] = { responseCode: 2, transactionStatus: "declined" };
+  state.clock += 1860_000;
+  assert.deepEqual(await port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout" });
+  assert.equal(state.mints, 1);
+});
+
+test("a pay page that can't get a new token sends the shopper back to the store checkout", async () => {
+  const { state, port } = payPageHarness({ mintFails: true });
+  const { session } = await port.ensureSession(payment);
+  state.clock += 600_000;
+  assert.deepEqual(await port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout" });
+});
+
+test("unpaid is final only after the last card form can no longer be used, and a fraud hold never is", async () => {
+  const { state, port, transactions } = payPageHarness();
+  const { session } = await port.ensureSession(payment);
+  port.recordTransaction(payment.attemptId, "701");
+  transactions[701] = { responseCode: 2, transactionStatus: "declined" };
+  // A token minted 10 seconds before the checkout ends can be used for 15 minutes after that.
+  state.clock += 1850_000;
+  assert.deepEqual(await port.payPage(session.sessionId), post("token-2"));
+  assert.equal((await port.lookup(payment)).outcome, "open");
+  state.clock += 10_000 + 300_000;
+  assert.deepEqual(await port.lookup(payment), { outcome: "unknown" });
+  state.clock += 890_000 - 300_000 + 299_000;
+  assert.deepEqual(await port.lookup(payment), { outcome: "unknown" });
+  state.clock += 1_000;
+  assert.equal((await port.lookup(payment)).outcome, "expired-unpaid");
+  for (const status of ["FDSPendingReview", "FDSAuthorizedPendingReview"]) {
+    transactions[701] = { responseCode: 4, transactionStatus: status };
+    assert.deepEqual(await port.lookup(payment), { outcome: "unknown" }, status);
+  }
+});
+
+test("the pay page route posts the token without putting it in a URL", async () => {
+  assert.equal(authorizeNetPayPagePath("store a/b"), "/v1/pay/authorize-net/store%20a%2Fb");
+  assert.deepEqual(matchAuthorizeNetPaySession("/v1/pay/authorize-net/store%20a/abc.def"), { siteId: "store a", sessionId: "abc.def" });
+  for (const path of ["/v1/pay/authorize-net/store", "/v1/pay/authorize-net/store/a/b", "/v1/pay/authorize-net//abc", "/v1/pay/authorize-net/%2F/abc", "/v1/pay/authorize-net/%E0/abc"]) {
+    assert.equal(matchAuthorizeNetPaySession(path), null, path);
+  }
+  const seen = [];
+  let page = post('tok"<en>');
+  const handle = createHostedHandler({
+    authenticate: async () => { throw new Error("no pass needed"); },
+    service: () => { throw new Error("unused"); },
+    authorizeNetPayPage: async (site, sessionId) => { seen.push([site, sessionId]); return page; },
+  });
+  const url = `https://payments.example${authorizeNetPayPagePath(siteId)}/abc.attempt-one`;
+  const response = await handle(new Request(url));
+  assert.deepEqual(seen, [[siteId, "abc.attempt-one"]]);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+  assert.match(response.headers.get("content-type"), /^text\/html/);
+  const csp = response.headers.get("content-security-policy");
+  assert.match(csp, /default-src 'none'/);
+  assert.match(csp, /script-src 'sha256-[A-Za-z0-9+/=]+'/);
+  assert.match(csp, /form-action https:\/\/test\.authorize\.net https:\/\/accept\.authorize\.net/);
+  assert.match(csp, /frame-ancestors 'none'/);
+  const html = await response.text();
+  assert.match(html, /<form method="post" action="https:\/\/test\.authorize\.net\/payment\/payment">/);
+  assert.match(html, /name="token" value="tok&#34;&#60;en&#62;"/);
+  page = { action: "redirect", url: "https://store.example/checkout/success" };
+  const redirect = await handle(new Request(url));
+  assert.equal(redirect.status, 303);
+  assert.equal(redirect.headers.get("location"), "https://store.example/checkout/success");
+  page = { action: "not_found" };
+  assert.equal((await handle(new Request(url))).status, 404);
+  assert.equal((await handle(new Request(url, { method: "POST" }))).status, 405);
+  assert.equal((await handle(new Request(`${url}?token=x`))).status, 404);
+  assert.equal(seen.length, 3);
+});
+
+test("a pay page visit that crosses the checkout's end never gets a token", async () => {
+  const { records, state, port, transactions } = payPageHarness();
+  const { session } = await port.ensureSession(payment);
+  port.recordTransaction(payment.attemptId, "901");
+  transactions[901] = { responseCode: 2, transactionStatus: "declined" };
+  // The visit starts a second before the end and the provider read takes two seconds.
+  state.clock += 1859_000;
+  state.onRead = () => { state.clock += 2_000; };
+  assert.deepEqual(await port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout" });
+  assert.equal(state.mints, 1);
+  // The same when the end passes while the new token is being minted: it is neither shown nor stored.
+  state.clock = 1_800_000_000_000 + 1859_000;
+  state.onRead = null;
+  state.onMint = () => { state.clock += 2_000; };
+  assert.deepEqual(await port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout" });
+  assert.equal(records.get(payment.attemptId).token, "token-1");
+  assert.equal(records.get(payment.attemptId).tokenAt, 1_800_000_000);
+});
+
+// Written by the adapter on main before the pay page (ac29a29); see proof/authorize-net-pay-page.
+const preChangeRecord = {
+  token: "hosted-token", transactionId: "123", createdAt: 1_800_000_000, expiresAt: 1_800_001_860,
+  bindingRef: "bind-one", siteId: "store-a", amountMinor: "1200", currency: "USD", transactionIds: ["123"],
+};
+
+test("a checkout stored before the pay page keeps its session and still reconciles", async () => {
+  const records = new Map([[payment.attemptId, structuredClone(preChangeRecord)]]);
+  const identity = await buildAuthorizeNetInvoiceReference(siteId, payment.attemptId);
+  let calls = 0;
+  let status = { responseCode: 2, transactionStatus: "declined" };
+  const port = createAuthorizeNetPaymentPort({
+    gateway: createAuthorizeNetGateway({ ...credentials, transport: { request: async body => {
+      calls += 1;
+      return { messages: { resultCode: "Ok" }, transaction: { transId: body.getTransactionDetailsRequest.transId,
+        authAmount: "12.00", order: { invoiceNumber: identity }, ...status } };
+    } } }),
+    siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL, payPageUrl,
+    returnUrl: "https://store.example/checkout/success", cancelUrl: "https://store.example/checkout",
+    now: () => 1_800_000_100_000,
+    store: { transaction: fn => fn({
+      read: id => structuredClone(records.get(id) ?? null),
+      write: (id, value) => records.set(id, structuredClone(value)),
+    }) },
+  });
+  const legacySession = {
+    sessionId: "hosted-token", redirectUrl: `${AUTHORIZE_NET_HOSTED_SANDBOX_URL}?token=hosted-token`,
+    createdAt: 1_800_000_000, expiresAt: 1_800_001_860,
+  };
+  assert.deepEqual(await port.ensureSession(payment), { outcome: "open", attemptId: payment.attemptId, total: payment.total, session: legacySession });
+  assert.deepEqual(await port.lookup(payment), { outcome: "open", attemptId: payment.attemptId, total: payment.total, session: legacySession });
+  port.recordTransaction(payment.attemptId, "124");
+  status = { responseCode: 1, transactionStatus: "capturedPendingSettlement" };
+  assert.deepEqual(await port.lookup(payment), { outcome: "paid", attemptId: payment.attemptId, total: payment.total, session: legacySession, paymentId: "123" });
+  assert.deepEqual(await port.payPage(`${"0".repeat(32)}.${payment.attemptId}`), { action: "not_found" });
+  assert.deepEqual(records.get(payment.attemptId), { ...preChangeRecord, transactionId: "124", transactionIds: ["123", "124"] });
+  assert.equal(calls, 2);
 });

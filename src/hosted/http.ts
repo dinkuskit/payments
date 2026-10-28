@@ -1,3 +1,4 @@
+import type { AuthorizeNetPayPage } from "../authorize-net/checkout.js";
 import { AuthorizeNetWebhookError } from "../authorize-net/webhook.js";
 import { CheckoutError, validatePaymentRequest } from "../checkout/sessions.js";
 import { isPlayground, PLAYGROUND_IP_LIMIT, PLAYGROUND_RATE_LIMIT_ERROR } from "../checkout/playground.js";
@@ -6,7 +7,7 @@ import { assertCommercePaymentWake, WakeError, type CommercePaymentWake } from "
 import type { PaymentOutcome, PaymentRequest } from "../commerce/checkout-port.js";
 import type { Principal, createConnectionService } from "./connection.js";
 import { clientIpRateKey } from "./client-ip.js";
-import { hostedHttpRoutes, hostedWebhookRoutes, matchAuthorizeNetWebhookSite } from "./manifest.js";
+import { hostedHttpRoutes, hostedPayRoutes, hostedWebhookRoutes, matchAuthorizeNetPaySession, matchAuthorizeNetWebhookSite } from "./manifest.js";
 
 type ConnectionApi = Pick<ReturnType<typeof createConnectionService>, "connect" | "status" | "checkoutBinding" | "existingBinding"> & {
   diagnostics?(principal: Principal): ReturnType<ReturnType<typeof createConnectionService>["diagnostics"]> | Promise<ReturnType<ReturnType<typeof createConnectionService>["diagnostics"]>>;
@@ -20,7 +21,7 @@ type CheckoutApi = {
   receipt?(sessionId: string): Promise<PaymentOutcome>;
 };
 /** Request facts a checkout may need beyond the validated body. */
-export type CheckoutContext = { clientIp?: string };
+export type CheckoutContext = { clientIp?: string; origin?: string };
 
 /** Only these routes are open to the playground's narrow pass. */
 const PLAYGROUND_ROUTES = new Set(["/v1/checkout/session", "/v1/checkout/lookup", "/v1/checkout/receipt"]);
@@ -31,6 +32,41 @@ type WakeApi = {
 };
 
 const MAX_CHECKOUT_BODY_BYTES = 128 * 1024;
+
+const PAY_PAGE_SCRIPT = "document.forms[0].submit();";
+const HOSTED_FORM_ORIGINS = "https://test.authorize.net https://accept.authorize.net";
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, character => `&#${character.charCodeAt(0)};`);
+}
+
+/**
+ * Authorize.net opens its card form only for a POST carrying the form token, so this page posts it at once.
+ * The token stays out of every URL; the button covers a browser without scripts.
+ */
+async function payPageResponse(page: AuthorizeNetPayPage): Promise<Response> {
+  const headers = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" };
+  if (page.action === "redirect") return new Response(null, { status: 303, headers: { ...headers, Location: page.url } });
+  if (page.action === "not_found") {
+    return new Response("This checkout link is not valid.", { status: 404, headers: { ...headers, "Content-Type": "text/plain; charset=utf-8" } });
+  }
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(PAY_PAGE_SCRIPT));
+  const scriptHash = btoa(String.fromCharCode(...new Uint8Array(digest)));
+  const body = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\">" +
+    "<title>Payment</title></head><body>" +
+    `<form method="post" action="${escapeHtml(page.hostedUrl)}"><input type="hidden" name="token" value="${escapeHtml(page.token)}">` +
+    "<p>Taking you to the secure payment page.</p><button type=\"submit\">Continue to payment</button></form>" +
+    `<script>${PAY_PAGE_SCRIPT}</script></body></html>`;
+  return new Response(body, {
+    status: 200,
+    headers: {
+      ...headers,
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Security-Policy": `default-src 'none'; script-src 'sha256-${scriptHash}'; form-action ${HOSTED_FORM_ORIGINS}; ` +
+        "base-uri 'none'; frame-ancestors 'none'",
+    },
+  });
+}
 
 async function readCheckoutRequest(request: Request): Promise<PaymentRequest> {
   if (!request.body) throw new CheckoutError("invalid_request");
@@ -107,6 +143,7 @@ export function createHostedHandler(options: {
   wakes?(principal: Principal): WakeApi;
   webhook?(payload: Uint8Array, signature: string, stripeAccount: string | null): Promise<void>;
   authorizeNetWebhook?(payload: Uint8Array, signature: string, eventId: string, siteId: string): Promise<void>;
+  authorizeNetPayPage?(siteId: string, sessionId: string): Promise<AuthorizeNetPayPage>;
 }) {
   const respond = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
   return async (request: Request): Promise<Response> => {
@@ -145,6 +182,13 @@ export function createHostedHandler(options: {
         if (error instanceof Error && /signature/i.test(error.message)) return respond({ error: "invalid_signature" }, 400);
         return respond({ error: "wake_failed" }, 500);
       }
+    }
+    const paySession = matchAuthorizeNetPaySession(pathname);
+    if (paySession) {
+      if (request.method !== hostedPayRoutes.authorizeNet.method) return respond({ error: "method_not_allowed" }, 405);
+      if (!options.authorizeNetPayPage || searchParams.size) return payPageResponse({ action: "not_found" });
+      try { return await payPageResponse(await options.authorizeNetPayPage(paySession.siteId, paySession.sessionId)); }
+      catch { return respond({ error: "service_unavailable" }, 503); }
     }
     const route = Object.hasOwn(hostedHttpRoutes, pathname)
       ? hostedHttpRoutes[pathname as keyof typeof hostedHttpRoutes] : undefined;
@@ -233,7 +277,8 @@ export function createHostedHandler(options: {
       }
       if (searchParams.size) return respond({ error: "unexpected_input" }, 400);
       const requestBody = await readCheckoutRequest(request);
-      const context: CheckoutContext = {};
+      // A new Authorize.net checkout links shoppers to this service's own pay page.
+      const context: CheckoutContext = { origin: new URL(request.url).origin };
       if (playground && pathname === "/v1/checkout/session") {
         // The playground Worker calls server-to-server, so it forwards the
         // shopper's IP. Without one, the per-IP limit cannot apply: fail closed.

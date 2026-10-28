@@ -74,6 +74,7 @@ Commerce service is admitted to checkout operations.
 | POST | `/v1/checkout/wakes/ack` | `payments:checkout` JWT |
 | POST | `/v1/webhooks/stripe` | Stripe raw-byte signature |
 | POST | `/v1/webhooks/authorize-net/{siteId}` | Authorize.net raw-byte HMAC-SHA512 |
+| GET | `/v1/pay/authorize-net/{siteId}/{sessionId}` | Public shopper page; the unguessable session segment must match the stored checkout; no query or body |
 
 `GET /v1/connect/diagnostics` rejects body bytes and query parameters. It reads
 local connection state without provider calls or state writes, using the existing
@@ -91,6 +92,11 @@ into Access. The helper accepts an unambiguous ASCII alphanumeric/underscore/
 hyphen site segment; other identifiers require explicit path qualification.
 Apply any approved hosted-origin rule separately from a store's Registry
 bypass list. This change configures neither origin nor Access.
+
+The Authorize.net pay page is also public, but each checkout has its own path,
+so `hostedPublicRouteManifest` cannot list it. If Access ever fronts the hosted
+origin, the `/v1/pay/authorize-net/` prefix must stay reachable without a
+sign-in, because a shopper's browser opens it.
 
 Webhooks validate original bytes and signed identity before durable effects.
 A verified notification only queues reconciliation (Authorize.net can also
