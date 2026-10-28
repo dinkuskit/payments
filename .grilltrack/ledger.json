@@ -3220,10 +3220,24 @@
           "review_source_identity": null,
           "to": "locked",
           "verification_ref": null
+        },
+        {
+          "at": "2026-10-28T03:15:32+00:00",
+          "choice": "Payments serves its own page at payments.dinkuskit.com/v1/pay/authorize-net/{siteId}/{sessionId} and returns it as the session's redirectUrl. The session Commerce sees never changes: for new sessions sessionId is a stable unguessable Payments id (attempt id plus 128 random bits), not the Authorize.net token, with the same redirectUrl, createdAt and expiresAt on every call, because Commerce refuses a changed session. Sessions already open keep their old token shape until they expire. When the shopper opens the page, Payments checks the checkout: paid, past expiresAt or unknown sends the shopper back to the store; otherwise it mints a fresh getHostedPaymentPageRequest token for the same attempt, amount and store-bound invoice reference and auto-submits it to Authorize.net by POST. The page takes no input, holds no card data (SAQ-A), never puts the token in a URL, and is not cached. Every try from any token carries the same invoice reference, so lookups, webhooks and the every-try-counts rule (payments#95) are unchanged; a shopper paying in two tabs at once falls under payments-authorize-net-paid-twice-044. Requests send duplicateWindow=0 so a declined shopper who fixes CVV or ZIP can retry at once. A checkout whose tries are all unpaid stays open (lookup returns open) until expiresAt; expired-unpaid is returned only once every try is unpaid and both expiresAt and the last minted token's 15-minute life plus a 5-minute margin have passed. Fraud holds (FDSPendingReview, FDSAuthorizedPendingReview) and any other unrecognized status stay unknown, never unpaid. Commerce does not change. Hosted Worker change only; deploy with --keep-vars on a quiet beta, on Ronald's go.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
         }
       ],
       "id": "payments-authorize-net-pay-page-045",
-      "implementation_ref": null,
+      "implementation_ref": "git:b72bac489e1978f118a041e1b3cccfd3161683ef",
       "question": "How does an Authorize.net shopper reach the card form for the whole 30-31 minute checkout window, when Authorize.net needs a POST and its form token lives only 15 minutes?",
       "rationale": "Authorize.net docs (developer.authorize.net Accept Hosted): the form is opened by an HTML POST of the token and the token is valid for 15 minutes. Minting on visit keeps Commerce's bounded 1800-1860 s window honest without changing the port. A Payments-owned page is the only place that can POST without Commerce knowing the provider. Re-minting makes a second paid try on one checkout more reachable, which 044 already handles by recording both and telling the owner to refund one by hand.",
       "repair_required": false,
@@ -3232,9 +3246,9 @@
       "review_ref": null,
       "review_result": null,
       "review_source_identity": null,
-      "status": "locked",
+      "status": "implemented",
       "superseded_by": null,
-      "updated_at": "2026-10-28T03:05:54+00:00",
+      "updated_at": "2026-10-28T03:15:32+00:00",
       "verification_ref": null
     }
   ],
@@ -3258,5 +3272,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-28T03:05:54+00:00"
+  "updated_at": "2026-10-28T03:15:32+00:00"
 }
