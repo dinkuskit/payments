@@ -10,7 +10,26 @@ receipts, and the final payment decision.
 - Accept Hosted is used; raw card fields are never accepted by this repository.
 - The create request sends `authCaptureTransaction`, a decimal USD amount only
   at the transport edge, and the same store-bound invoice reference in `refId`
-  and `order.invoiceNumber`.
+  and `order.invoiceNumber`. It also sends `duplicateWindow` `0` in
+  `transactionSettings`, so a declined shopper who corrects the card's CVV or
+  ZIP can retry at once instead of being refused as a duplicate.
+- Shoppers reach the card form through Payments' pay page
+  (`payments-authorize-net-pay-page-045`, issue #99). Authorize.net opens its
+  form only for an HTML POST carrying the form token, and the token works for
+  15 minutes. The session returned to Commerce never changes: its `sessionId`
+  is 32 random hex, `.`, and the attempt id, and its `redirectUrl` is
+  `/v1/pay/authorize-net/{siteId}/{sessionId}` on the hosted service. Each visit
+  checks the checkout. A paid try, or one still being decided, sends the shopper
+  to the store's success page, and an ended checkout sends them to the store's
+  checkout. Otherwise the page posts a token to Authorize.net, minting a new one
+  for the same attempt, amount and invoice reference once the stored one is 10
+  minutes old. The token never appears in a URL. Checkouts started before the pay
+  page keep their token session until they expire.
+- A checkout whose tries are all unpaid reads `open` until `expiresAt`, so the
+  shopper can try again. It reads `expired-unpaid` only after `expiresAt`, and
+  after the last token's 15 minutes plus a 5-minute margin have passed. Until
+  then it reads `unknown`. Fraud holds (`FDSPendingReview`,
+  `FDSAuthorizedPendingReview`) stay `unknown`.
 - Authorize.net's `getTransactionDetailsRequest` is the only source that can
   produce `paid` or terminal `unpaid`. A lost create response, a pending status,
   a browser return, and an unrecognized status remain `unknown`.
@@ -116,13 +135,11 @@ identity fields fail closed.
 
 ## Open decisions
 
-- Accept Hosted does not report a provider expiry. The test-only wiring uses
-  the already-approved Commerce request window as the local hosted-session
-  lease; it does not treat that lease as provider evidence. Resolve any
-  production expiry policy against issue #6 before enabling production
-  checkout.
-- Refund and void operations are intentionally not implemented here. They must
-  follow issue #7's refund design once that contract is available.
+- Accept Hosted does not report a provider expiry. The session uses the
+  Commerce request window (1800–1860 seconds) as its lease, and the pay page
+  keeps a usable token inside it. The lease is not provider evidence.
+- Refund and void operations are not implemented. In v1 owners refund or void
+  by hand in the Authorize.net merchant interface.
 - The live endpoint and live credentials remain explicitly disabled. The
   credentialed sandbox proof is left for stack-pilot to run on its box against
   the wiring branch.

@@ -6,6 +6,7 @@ import { assertCommercePaymentWake, assertWakeContext, consumeWakeBatch, WakeErr
 import { ConnectionError, createConnectionService, type CheckoutBinding, type Connection, type Principal, type Status, type TestOrderEvidence } from "../hosted/connection.js";
 import { createAccountAuthenticator } from "../hosted/auth.js";
 import { createHostedHandler } from "../hosted/http.js";
+import { authorizeNetPayPagePath } from "../hosted/manifest.js";
 import { createStripeCheckout } from "../stripe/checkout.js";
 import {
   assertPlaygroundStripeKey,
@@ -200,7 +201,7 @@ export class PaymentConnection extends DurableObject<Env> {
     const next = this.ctx.storage.sql.exec<{ oldest: number | null }>("SELECT MIN(created_at) AS oldest FROM playground_attempts").toArray()[0]?.oldest;
     if (typeof next === "number") await this.ctx.storage.setAlarm(Math.max(now + 1000, next + PLAYGROUND_RETENTION_MS));
   }
-  private authorizeNetCheckout(siteId: string, returnPages?: ReturnPages) {
+  private authorizeNetCheckout(siteId: string, returnPages?: ReturnPages, origin?: string) {
     const sql = this.ctx.storage.sql;
     const gateway = createAuthorizeNetGateway({
       apiLoginId: this.env.AUTHORIZE_NET_API_LOGIN_ID,
@@ -214,6 +215,7 @@ export class PaymentConnection extends DurableObject<Env> {
       hostedUrl: authorizeNetEndpoints("test").hosted,
       returnUrl: returnPages?.successUrl,
       cancelUrl: returnPages?.cancelUrl,
+      payPageUrl: origin ? `${origin}${authorizeNetPayPagePath(siteId)}` : undefined,
       store: {
         transaction: fn => this.ctx.storage.transactionSync(() => fn({
           read: attemptId => {
@@ -310,13 +312,13 @@ export class PaymentConnection extends DurableObject<Env> {
   }
   async checkoutBinding(principal: Principal, bindingRef: string) { return this.connection().checkoutBinding(principal, bindingRef); }
   async existingBinding(principal: Principal, bindingRef: string) { return this.connection().existingBinding(principal, bindingRef); }
-  async ensureSession(principal: Principal, request: PaymentRequest) {
+  async ensureSession(principal: Principal, request: PaymentRequest, origin?: string) {
     // The playground creates sessions only through playgroundEnsureSession (rate limited).
     if (isPlayground(principal)) throw new CheckoutError("binding_mismatch");
     if ((this.env.PAYMENT_PROVIDER as string) === "authorize_net") {
       const binding = await this.connection().checkoutBinding(principal, request.bindingRef);
       if (!binding || binding.providerId !== "authorize_net") return { outcome: "unknown" as const };
-      return this.notePaid(principal, request, await this.authorizeNetCheckout(principal.siteId, storeReturnPages(principal, "authorize_net")).ensureSession(request));
+      return this.notePaid(principal, request, await this.authorizeNetCheckout(principal.siteId, storeReturnPages(principal, "authorize_net"), origin).ensureSession(request));
     }
     return this.notePaid(principal, request, await this.checkout(storeReturnPages(principal, "stripe")).ensureSessionFor(principal, request));
   }
@@ -483,6 +485,10 @@ export class PaymentConnection extends DurableObject<Env> {
       mode: "test",
     })(new Uint8Array(payload), signature, stripeAccount);
   }
+  /** The shopper's visit to the Authorize.net pay page; the session segment is the only credential. */
+  async authorizeNetPayPage(siteId: string, sessionId: string) {
+    return this.authorizeNetCheckout(siteId).payPage(sessionId);
+  }
   async receiveAuthorizeNetWebhook(payload: Uint8Array, signature: string, eventId: string, siteId: string) {
     const sql = this.ctx.storage.sql;
     const seen = new Set(sql.exec<{ eventId: string }>("SELECT event_id AS eventId FROM authorize_net_webhook_events").toArray().map(row => row.eventId));
@@ -613,7 +619,7 @@ export default {
               receipt: sessionId => stub.playgroundReceipt(principal, sessionId),
             };
           }
-          return { ensureSession: request => stub.ensureSession(principal, request), lookup: request => stub.lookup(principal, request) };
+          return { ensureSession: request => stub.ensureSession(principal, request, context.origin), lookup: request => stub.lookup(principal, request) };
         },
         wakes: principal => {
           const stub = stubFor(env, principal.siteId);
@@ -641,6 +647,10 @@ export default {
             if (STRIPE_WEBHOOK_REFUSALS.has(message)) throw new WebhookError(message);
             throw error;
           }
+        },
+        authorizeNetPayPage: (siteId, sessionId) => {
+          if ((env.PAYMENT_PROVIDER as string) !== "authorize_net" || env.AUTHORIZE_NET_MODE !== "test") return Promise.resolve({ action: "not_found" });
+          return stubFor(env, siteId).authorizeNetPayPage(siteId, sessionId);
         },
         authorizeNetWebhook: async (payload, signature, eventId, siteId) => {
           if ((env.PAYMENT_PROVIDER as string) !== "authorize_net" || env.AUTHORIZE_NET_MODE !== "test") throw new Error("webhook_unconfigured");
