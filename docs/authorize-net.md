@@ -108,6 +108,16 @@ npm ci
 node --import tsx scripts/authorize-net-sandbox-proof.mjs --run
 ```
 
+The pay page has its own opt-in proof with the same two credentials. It makes a
+real sandbox checkout, sends wrong-secret, other-store and ended-checkout visits
+through the hosted handler, and counts every provider call (none for those
+visits, one for a refresh after 11 minutes). It saves `pay-page-proof.html`,
+which opens the sandbox card form when loaded in a browser:
+
+```bash
+node --import tsx scripts/authorize-net-pay-page-proof.mjs --run
+```
+
 `npm ci` must be run first. Without `--run`, the script prints a clear
 `DRY-RUN PASS` notice and exits 0 without contacting the sandbox. With
 `--run`, it prints only named PASS/FAIL checks and a non-secret transaction
