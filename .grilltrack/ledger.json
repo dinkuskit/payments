@@ -3,12 +3,11 @@
   "created_at": "2026-10-10T04:09:17+00:00",
   "current_focus": {
     "cadence": "sequential",
-    "confirmed": true,
-    "confirmed_at": "2026-10-27T19:25:36+00:00",
-    "domain": "Authorize.net checkout reconciliation",
-    "started_at": "2026-10-27T19:25:36+00:00",
-    "status": "confirmed",
-    "summary": "Ronald, 27 Oct 2026 19:19 UTC in the 'Plan checkout reliability and self-hosting' thread: 'im on the same page i agree across the board' to the plain-terms recommendation: if one checkout is ever paid twice, keep both payments recorded and show the store owner a line telling them to refund one by hand. No automatic refunds in v1 (refunds by hand is v1 scope)."
+    "confirmed": false,
+    "domain": "Authorize.net hosted checkout page",
+    "started_at": "2026-10-28T03:04:05+00:00",
+    "status": "grilling",
+    "summary": "payments#99, 28 Oct 2026: the Grow Funky Beans REA (saari-co/rea-lab synthesis/dinkuskit-payments-authorize-net-inputs.md) and Authorize.net's Accept Hosted docs show the hosted form needs an HTTP POST carrying the form token and the token lives 15 minutes. Payments returns a GET ?token= redirect and a 31-minute session that reuses one token. Proposal drafted for Ronald; not confirmed or locked."
   },
   "decisions": [
     {
@@ -3193,6 +3192,34 @@
       "superseded_by": null,
       "updated_at": "2026-10-27T19:25:36+00:00",
       "verification_ref": null
+    },
+    {
+      "baseline_ref": "git:ac29a29",
+      "candidate_refs": [],
+      "choice": "Payments serves its own page at payments.dinkuskit.com/pay/{session} and returns it as the session's redirectUrl. The session Commerce sees never changes: sessionId becomes a stable Payments id (not the Authorize.net token), with the same redirectUrl, createdAt and expiresAt on every call, because Commerce refuses a changed session. Sessions already open keep their old shape until they expire. When the shopper opens the page, Payments first runs the authoritative lookup: paid or past expiresAt sends the shopper back to the store; otherwise it mints a fresh getHostedPaymentPageRequest token for the same attempt, amount and store-bound invoice reference and auto-submits it to Authorize.net by POST. The page takes no input, holds no card data (SAQ-A) and never shows the token in a URL. Every try from any token carries the same invoice reference, so lookups, webhooks and the every-try-counts rule (payments#95) are unchanged; a shopper paying in two tabs at once falls under payments-authorize-net-paid-twice-044. Requests also send duplicateWindow=0 so a declined shopper who fixes CVV or ZIP can retry within 2 minutes. Fraud holds (FDSPendingReview, FDSAuthorizedPendingReview) stay unknown, never expired-unpaid. Commerce does not change. Hosted Worker change only; deploy with --keep-vars on a quiet beta, on Ronald's go.",
+      "context_ref": "https://github.com/dinkuskit/payments/issues/99",
+      "created_at": "2026-10-28T03:04:06+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-authorize-net-paid-twice-044"
+      ],
+      "domain": "Authorize.net hosted checkout page",
+      "history": [],
+      "id": "payments-authorize-net-pay-page-045",
+      "implementation_ref": null,
+      "question": "How does an Authorize.net shopper reach the card form for the whole 30-31 minute checkout window, when Authorize.net needs a POST and its form token lives only 15 minutes?",
+      "rationale": "Authorize.net docs (developer.authorize.net Accept Hosted): the form is opened by an HTML POST of the token and the token is valid for 15 minutes. Minting on visit keeps Commerce's bounded 1800-1860 s window honest without changing the port. A Payments-owned page is the only place that can POST without Commerce knowing the provider. Re-minting makes a second paid try on one checkout more reachable, which 044 already handles by recording both and telling the owner to refund one by hand.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "proposed",
+      "superseded_by": null,
+      "updated_at": "2026-10-28T03:04:06+00:00",
+      "verification_ref": null
     }
   ],
   "last_activation": {
@@ -3215,5 +3242,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-27T19:25:36+00:00"
+  "updated_at": "2026-10-28T03:04:06+00:00"
 }
