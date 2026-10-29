@@ -5,6 +5,9 @@
 - [Feature map](../FEATURE_MAP.md): planned feature ownership and exclusions.
 - [Hosted connections](hosted-connections.md): accepted merchant setup, local
   API contract, tests, and the remaining registry/account integration.
+- [Existing Stripe account scope](existing-stripe-account-scope.md): proposed
+  Connect OAuth flow for attaching an existing Stripe account, readiness rules,
+  1:1 store binding, and historical lookup safety (`dinkuskit/payments#89`).
 - [Checkout sessions](checkout-sessions.md): Commerce port fixture, durable
   Stripe session mapping, webhook wake rules, and feasibility limits.
 - [Route authentication](route-auth.md): exact installed Registry and hosted paths,
