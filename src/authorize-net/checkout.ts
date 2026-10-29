@@ -5,7 +5,17 @@ export const AUTHORIZE_NET_SANDBOX_URL = "https://apitest.authorize.net/xml/v1/r
 export const AUTHORIZE_NET_PRODUCTION_URL = "https://api2.authorize.net/xml/v1/request.api";
 export const AUTHORIZE_NET_HOSTED_SANDBOX_URL = "https://test.authorize.net/payment/payment";
 export const AUTHORIZE_NET_HOSTED_PRODUCTION_URL = "https://accept.authorize.net/payment/payment";
-export const AUTHORIZE_NET_DUPLICATE_WINDOW_SECONDS = 120;
+/**
+ * Sent on every hosted payment: Authorize.net's default 120 seconds refuses a declined shopper's corrected retry
+ * as a duplicate. One checkout's tries all carry its invoice reference, and the authoritative lookup decides paid.
+ */
+export const AUTHORIZE_NET_DUPLICATE_WINDOW_SECONDS = 0;
+/** Authorize.net shows its hosted form for a token only within 15 minutes of minting it. */
+export const AUTHORIZE_NET_FORM_TOKEN_SECONDS = 900;
+/** A token this fresh is handed out again rather than minting another, so reloading the pay page is cheap. */
+export const AUTHORIZE_NET_FORM_TOKEN_REUSE_SECONDS = 600;
+/** After the last token can no longer be used, this long passes before every-try-unpaid becomes final. */
+export const AUTHORIZE_NET_SETTLE_MARGIN_SECONDS = 300;
 export const AUTHORIZE_NET_REQUEST_TIMEOUT_MS = 10_000;
 
 export function authorizeNetEndpoints(mode: "test" | "live"): {
@@ -246,6 +256,10 @@ export function createAuthorizeNetGateway(options: {
             transactionType: "authCaptureTransaction",
             amount,
             order: { invoiceNumber: identity },
+            // After order: Authorize.net validates element order.
+            transactionSettings: {
+              setting: [{ settingName: "duplicateWindow", settingValue: String(AUTHORIZE_NET_DUPLICATE_WINDOW_SECONDS) }],
+            },
           },
           hostedPaymentSettings: {
             setting: [
@@ -293,38 +307,141 @@ export function transactionOutcome(transaction: AuthorizeNetTransaction, expecte
   return "unknown";
 }
 
+/**
+ * One checkout's stored state. Records written before the pay page have no sessionId: their session is the
+ * Authorize.net token itself, and they keep that shape until they expire.
+ */
+export interface AuthorizeNetAttemptRecord {
+  token: string;
+  transactionId: string | null;
+  transactionIds?: string[];
+  createdAt: number;
+  expiresAt: number;
+  bindingRef?: string;
+  siteId?: string;
+  amountMinor?: string;
+  currency?: string;
+  /** Stable session id: 32 random hex, ".", the attempt id. Also the pay page's last path segment. */
+  sessionId?: string;
+  redirectUrl?: string;
+  /** When the current token was minted, in seconds. */
+  tokenAt?: number;
+  returnUrl?: string;
+  cancelUrl?: string;
+}
+
+/** What the pay page does for one visit. */
+export type AuthorizeNetPayPage =
+  | { action: "post"; hostedUrl: string; token: string }
+  | { action: "redirect"; url: string }
+  | { action: "not_found" };
+
+const PAY_SESSION_PATTERN = /^[0-9a-f]{32}\.[A-Za-z0-9._-]{1,11}$/;
+
+function newPaySessionId(attemptId: string): string {
+  const secret = [...crypto.getRandomValues(new Uint8Array(16))].map(value => value.toString(16).padStart(2, "0")).join("");
+  return `${secret}.${attemptId}`;
+}
+
+/** The attempt a pay page session belongs to, or null for anything malformed. */
+export function payPageAttemptId(sessionId: string): string | null {
+  if (typeof sessionId !== "string" || !PAY_SESSION_PATTERN.test(sessionId)) return null;
+  const attemptId = sessionId.slice(33);
+  return ATTEMPT_ID_PATTERN.test(attemptId) ? attemptId : null;
+}
+
+function sameText(left: string, right: string): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index++) difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  return difference === 0;
+}
+
+/** Every try unpaid becomes final only once the checkout has ended and its last card form can no longer be used. */
+function settlesAt(record: AuthorizeNetAttemptRecord): number {
+  return Math.max(record.expiresAt, (record.tokenAt ?? record.createdAt) + AUTHORIZE_NET_FORM_TOKEN_SECONDS) +
+    AUTHORIZE_NET_SETTLE_MARGIN_SECONDS;
+}
+
+/** Most transactions kept per checkout, which also bounds the provider reads one lookup makes. */
+export const AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT = 20;
+
+/** The latest transactions notified for a checkout, including one stored before the list existed. */
+function transactionsOf(record: { transactionId: string | null; transactionIds?: string[] }): string[] {
+  const ids = Array.isArray(record.transactionIds) ? [...record.transactionIds] : [];
+  if (record.transactionId && !ids.includes(record.transactionId)) ids.push(record.transactionId);
+  return ids.slice(-AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT);
+}
+
 export function createAuthorizeNetPaymentPort(options: {
   gateway: ReturnType<typeof createAuthorizeNetGateway>;
   /** The store's own return pages, needed only to start a new hosted payment. */
   returnUrl?: string;
   cancelUrl?: string;
   hostedUrl: string;
+  /**
+   * This store's pay page address on the hosted service, without the session segment. Needed only to start a
+   * new hosted payment, like the return pages.
+   */
+  payPageUrl?: string;
   siteId: string;
   store: {
     transaction<T>(fn: (state: {
-      read(attemptId: string): { token: string; transactionId: string | null; createdAt: number; expiresAt: number; bindingRef?: string; siteId?: string; amountMinor?: string; currency?: string } | null;
-      write(attemptId: string, value: { token: string; transactionId: string | null; createdAt: number; expiresAt: number; bindingRef?: string; siteId?: string; amountMinor?: string; currency?: string }): void;
+      read(attemptId: string): AuthorizeNetAttemptRecord | null;
+      write(attemptId: string, value: AuthorizeNetAttemptRecord): void;
     }) => T): T;
   };
   now?: () => number;
-}): CheckoutPaymentPort & { recordTransaction(attemptId: string, transactionId: string): void } {
+}): CheckoutPaymentPort & {
+  recordTransaction(attemptId: string, transactionId: string): void;
+  payPage(sessionId: string): Promise<AuthorizeNetPayPage>;
+} {
   if (!options.siteId) throw new AuthorizeNetError("missing_site_id");
   const now = options.now ?? (() => Date.now());
+  const seconds = () => Math.floor(now() / 1000);
   const read = (attemptId: string) => options.store.transaction(tx => tx.read(attemptId));
-  const asSession = (record: { token: string; createdAt: number; expiresAt: number }) => ({
-    sessionId: record.token,
-    redirectUrl: `${options.hostedUrl}?token=${encodeURIComponent(record.token)}`,
-    createdAt: record.createdAt,
-    expiresAt: record.expiresAt,
-  });
+  // Commerce refuses a session that changes, so a pay page session is stored once and returned as is.
+  const asSession = (record: AuthorizeNetAttemptRecord) => record.sessionId && record.redirectUrl
+    ? { sessionId: record.sessionId, redirectUrl: record.redirectUrl, createdAt: record.createdAt, expiresAt: record.expiresAt }
+    : {
+      sessionId: record.token,
+      redirectUrl: `${options.hostedUrl}?token=${encodeURIComponent(record.token)}`,
+      createdAt: record.createdAt,
+      expiresAt: record.expiresAt,
+    };
+  const mismatched = (record: AuthorizeNetAttemptRecord, request: PaymentRequest) =>
+    record.bindingRef !== request.bindingRef || (record.siteId !== undefined && record.siteId !== options.siteId) ||
+    record.amountMinor !== request.total.minor || record.currency !== request.total.currency;
+
+  /** Any paid try makes the checkout paid; unpaid needs every try read and unpaid. */
+  async function tries(attemptId: string, record: AuthorizeNetAttemptRecord, total: { minor: string; currency: "USD" }):
+    Promise<{ paid: string } | { pending: true } | { unpaid: number }> {
+    const ids = transactionsOf(record);
+    const identity = await identityFor(options.siteId, attemptId);
+    // A shopper can be declined and pay on a second try, and Authorize.net's notices can arrive in
+    // any order: any paid transaction makes the checkout paid, and unpaid needs every try unpaid.
+    let pending = false;
+    for (const id of ids) {
+      let transaction;
+      // A try that can't be read now is pending; a later try may still prove the payment.
+      try { transaction = await options.gateway.getTransaction(id); }
+      catch { pending = true; continue; }
+      if (transaction.invoiceNumber !== identity && transaction.refId !== identity) {
+        throw new AuthorizeNetError("identity_mismatch");
+      }
+      const outcome = transactionOutcome(transaction, total);
+      if (outcome === "paid") return { paid: transaction.id };
+      if (outcome === "unknown") pending = true;
+    }
+    return pending ? { pending: true } : { unpaid: ids.length };
+  }
+
   return {
     async ensureSession(request) {
       assertUsd(request);
       const existing = read(request.attemptId);
       if (existing) {
-        if (existing.bindingRef !== request.bindingRef || (existing.siteId !== undefined && existing.siteId !== options.siteId) || existing.amountMinor !== request.total.minor || existing.currency !== request.total.currency) {
-          throw new AuthorizeNetError("attempt_mismatch");
-        }
+        if (mismatched(existing, request)) throw new AuthorizeNetError("attempt_mismatch");
         return {
         outcome: "open",
         attemptId: request.attemptId,
@@ -333,6 +450,7 @@ export function createAuthorizeNetPaymentPort(options: {
         };
       }
       if (!options.returnUrl || !options.cancelUrl) throw new AuthorizeNetError("invalid_return_url");
+      if (!options.payPageUrl) throw new AuthorizeNetError("invalid_pay_page_url");
       try {
         const created = await options.gateway.createHostedPayment({
           attemptId: request.attemptId,
@@ -341,21 +459,22 @@ export function createAuthorizeNetPaymentPort(options: {
           returnUrl: options.returnUrl,
           cancelUrl: options.cancelUrl,
         });
-        const createdAt = Math.floor(now() / 1000);
+        const createdAt = seconds();
         const expiresAt = createdAt + ("paymentWindow" in request && request.paymentWindow
           ? request.paymentWindow.maxSeconds : request.paymentWindowSeconds);
+        const sessionId = newPaySessionId(request.attemptId);
         const saved = options.store.transaction(tx => {
           const current = tx.read(request.attemptId);
           if (current) {
-            if (current.bindingRef !== request.bindingRef || (current.siteId !== undefined && current.siteId !== options.siteId) || current.amountMinor !== request.total.minor || current.currency !== request.total.currency) {
-              throw new AuthorizeNetError("attempt_mismatch");
-            }
+            if (mismatched(current, request)) throw new AuthorizeNetError("attempt_mismatch");
             return current;
           }
-          const record = {
+          const record: AuthorizeNetAttemptRecord = {
             token: created.token, transactionId: null, createdAt, expiresAt,
             bindingRef: request.bindingRef, siteId: options.siteId,
             amountMinor: request.total.minor, currency: request.total.currency,
+            sessionId, redirectUrl: `${options.payPageUrl}/${sessionId}`, tokenAt: createdAt,
+            returnUrl: options.returnUrl, cancelUrl: options.cancelUrl,
           };
           tx.write(request.attemptId, record);
           return record;
@@ -376,18 +495,18 @@ export function createAuthorizeNetPaymentPort(options: {
     async lookup(request) {
       assertUsd(request);
       const existing = read(request.attemptId);
-      if (!existing?.transactionId) return { outcome: "unknown" };
+      if (!existing || transactionsOf(existing).length === 0) return { outcome: "unknown" };
       try {
-        const transaction = await options.gateway.getTransaction(existing.transactionId);
-        const identity = await identityFor(options.siteId, request.attemptId);
-        if (transaction.invoiceNumber !== identity && transaction.refId !== identity) {
-          throw new AuthorizeNetError("identity_mismatch");
-        }
-        const outcome = transactionOutcome(transaction, request.total);
         const fields = { attemptId: request.attemptId, total: request.total, session: asSession(existing) };
-        if (outcome === "paid") return { outcome, ...fields, paymentId: transaction.id };
-        if (outcome === "unpaid") return { outcome: "expired-unpaid" as const, ...fields };
-        return { outcome: "unknown" as const };
+        const result = await tries(request.attemptId, existing, request.total);
+        if ("paid" in result) return { outcome: "paid", ...fields, paymentId: result.paid };
+        if ("pending" in result) return { outcome: "unknown" };
+        // Every try so far is unpaid. The shopper can still try again until the checkout ends, and a card form
+        // opened just before the end stays usable for a while after it.
+        const at = seconds();
+        if (at < existing.expiresAt) return { outcome: "open", ...fields };
+        if (at < settlesAt(existing)) return { outcome: "unknown" };
+        return { outcome: "expired-unpaid", ...fields };
       } catch (error) {
         if (error instanceof AuthorizeNetError &&
             (error.message === "amount_or_currency_mismatch" || error.message === "identity_mismatch")) {
@@ -396,11 +515,59 @@ export function createAuthorizeNetPaymentPort(options: {
         return { outcome: "unknown" };
       }
     },
+    async payPage(sessionId) {
+      const attemptId = payPageAttemptId(sessionId);
+      if (!attemptId) return { action: "not_found" };
+      const record = read(attemptId);
+      if (!record?.sessionId || !sameText(record.sessionId, sessionId) || record.siteId !== options.siteId ||
+          !record.returnUrl || !record.cancelUrl || !record.amountMinor || record.currency !== "USD") {
+        return { action: "not_found" };
+      }
+      const total = { minor: record.amountMinor, currency: "USD" as const };
+      const ended = { action: "redirect" as const, url: record.cancelUrl };
+      // Only a checkout with no try, or only unpaid tries, gets a card form. Paid or still being decided goes
+      // back to the store, where Commerce shows the result; so does a checkout that has ended. The end is
+      // checked again after every provider call, so a visit that crosses it never gets a token.
+      if (seconds() >= record.expiresAt) return ended;
+      if (transactionsOf(record).length > 0) {
+        let result;
+        try { result = await tries(attemptId, record, total); }
+        catch { return { action: "redirect", url: record.returnUrl }; }
+        if (!("unpaid" in result)) return { action: "redirect", url: record.returnUrl };
+        if (seconds() >= record.expiresAt) return ended;
+      }
+      const mintedAt = record.tokenAt ?? record.createdAt;
+      if (seconds() - mintedAt < AUTHORIZE_NET_FORM_TOKEN_REUSE_SECONDS) {
+        return { action: "post", hostedUrl: options.hostedUrl, token: record.token };
+      }
+      let created;
+      try {
+        created = await options.gateway.createHostedPayment({
+          attemptId, siteId: options.siteId, total, returnUrl: record.returnUrl, cancelUrl: record.cancelUrl,
+        });
+      } catch {
+        return ended;
+      }
+      const tokenAt = seconds();
+      // A token minted after the end is never stored or shown.
+      if (tokenAt >= record.expiresAt) return ended;
+      options.store.transaction(tx => {
+        const current = tx.read(attemptId);
+        if (!current || current.sessionId !== record.sessionId) return;
+        tx.write(attemptId, { ...current, token: created.token, tokenAt });
+      });
+      return { action: "post", hostedUrl: options.hostedUrl, token: created.token };
+    },
     recordTransaction(attemptId, transactionId) {
       if (!/^[0-9]+$/.test(transactionId)) throw new AuthorizeNetError("invalid_transaction_id");
       options.store.transaction(tx => {
         const current = tx.read(attemptId);
-        if (current) tx.write(attemptId, { ...current, transactionId });
+        if (!current) return;
+        // The latest tries are kept, in arrival order, and a full list drops its oldest first; the latest
+        // also stays in transactionId for older readers.
+        const ids = transactionsOf(current).filter(id => id !== transactionId);
+        ids.push(transactionId);
+        tx.write(attemptId, { ...current, transactionId, transactionIds: ids.slice(-AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT) });
       });
     },
   };

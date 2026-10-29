@@ -7,7 +7,7 @@ released public compatibility promise yet.
 | --- | --- | --- | --- |
 | `dinkus.payments-provider` | One server-owned active-provider selection and the adapter boundary that implements Commerce's payment-provider contract | Checkout totals, payment-attempt persistence, orders, receipts, browser provider selection, fallback routing | local CheckoutPaymentPort adapter |
 | `dinkus.payments-stripe` | Stripe Checkout Session transport, durable attempt mapping, webhook signature verification, and normalized outcomes | Secret storage, Commerce state transitions, marking paid from events, non-Stripe processors, live Stripe proof | local test-mode adapter |
-| `dinkus.payments-authorize-net` | Authorize.net Accept Hosted transport, authoritative transaction lookup, durable token mapping, and signed webhook wakes | Secret storage, Commerce state transitions, marking paid from events, live Authorize.net proof | local sandbox-only adapter |
+| `dinkus.payments-authorize-net` | Authorize.net Accept Hosted transport, pay page that posts a fresh form token, authoritative transaction lookup, durable token mapping, and signed webhook wakes | Secret storage, Commerce state transitions, marking paid from events, live Authorize.net proof | local sandbox-only adapter |
 | `dinkus.payments-connection` | Shared-account authentication, persistent store binding, resumable Stripe onboarding, new-checkout readiness, and existing-binding reads | Login/account creation, registry admin rendering, account switching, live activation | local test-mode backend |
 
 ## Boundary rules

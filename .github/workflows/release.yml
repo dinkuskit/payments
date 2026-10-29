@@ -272,3 +272,40 @@ jobs:
           fi
           echo "## Playground update started for $RELEASE" >> "$GITHUB_STEP_SUMMARY"
           echo "A PR moving the playground to the latest stable releases opens in dinkuskit/template-store: https://github.com/dinkuskit/template-store/actions/workflows/update-playground-plugins.yml" >> "$GITHUB_STEP_SUMMARY"
+
+  # A stable release also publishes its reference article (docs/website/reference/payments.md at
+  # this tag) to dinkuskit.com: this presses dinkuskit/dinkuskit's "Docs from a plugin release"
+  # button (GrillTrack website-docs-from-plugin-releases-086), which copies the article into
+  # docs/updates/ there and starts Docs publish. Betas never press it.
+  website-docs:
+    name: Publish the reference article to dinkuskit.com
+    needs: [release-tag, publish-emdash]
+    if: needs.release-tag.outputs.release_mode == 'stable'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Mint release GitHub App token for dinkuskit
+        id: app-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: dinkuskit
+          repositories: dinkuskit
+          permission-actions: write
+
+      - name: Press Docs from a plugin release in dinkuskit/dinkuskit
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAG: v${{ needs.publish-emdash.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The release is already published; a missed press only means pressing the button by hand.
+          if [ -z "$GH_TOKEN" ] || ! gh workflow run docs-plugin-release.yml --repo dinkuskit/dinkuskit --ref main -f plugin=payments -f tag="$TAG"; then
+            echo "::warning title=Docs not published::payments $TAG is published, but the release app could not press dinkuskit/dinkuskit's Docs from a plugin release button. Press it by hand with plugin payments and tag $TAG, and allow the release app on dinkuskit."
+            exit 0
+          fi
+          echo "## Reference article publishing for payments $TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "dinkuskit/dinkuskit copies docs/website/reference/payments.md from $TAG and publishes it: https://github.com/dinkuskit/dinkuskit/actions/workflows/docs-plugin-release.yml" >> "$GITHUB_STEP_SUMMARY"

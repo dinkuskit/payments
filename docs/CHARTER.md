@@ -26,6 +26,13 @@ state, orders, receipts, and reconciliation orchestration. Payments consumes
 the Commerce-owned provider contract; it does not create a competing checkout
 or order model.
 
+Commerce is optional (decision `payments-standalone-direction-042`, locked
+2026-10-25, not yet built): on an EmDash site without Commerce, Payments may
+keep a small Sales list and a Buy button, both switched off whenever Commerce
+is connected, so a store never has two order lists. Such a site may set up
+through DinkusKit Connect or with the owner's own provider keys kept in the
+plugin, which talks straight to the provider.
+
 This repository does not own physical inventory, fulfillment, shipping rates
 or labels, storefront UI, customer identity, taxes, promotions, or secret
 storage.

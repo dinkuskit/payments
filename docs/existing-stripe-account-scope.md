@@ -1,6 +1,6 @@
 # Scope: Attach an Existing Stripe Account Through Connect
 
-Status: **Proposed** (`payments-existing-stripe-account-043`, awaiting owner approval; no runtime code, Worker deployment, secret change, or live-mode change is authorized by this document).
+Status: **Proposed** (`payments-existing-stripe-account-046`, awaiting owner approval; no runtime code, Worker deployment, secret change, or live-mode change is authorized by this document).
 Issue: [`dinkuskit/payments#89`](https://github.com/dinkuskit/payments/issues/89).
 
 ## Context and problem
@@ -14,7 +14,7 @@ Hard constraints from issue #89 and [`docs/CHARTER.md`](CHARTER.md):
 - Owners never paste a Stripe secret key into the hosted service or the EmDash plugin.
 - The EmDash Registry plugin (`emdash-plugin.jsonc`) must not add `global_fetch_strictly_public`; outbound plugin HTTP stays restricted to `allowedHosts: ["dinkuskit.com", "payments.dinkuskit.com"]` within the 10-bridge-call sandbox budget per route invocation.
 - No Worker deployment, secret change, or live-mode change without Ronald's explicit approval.
-- Building waits until `smokyclub.com` is selling, unless Ronald says otherwise.
+- Build timing is Ronald's call once he locks the proposal. The earlier "wait until `smokyclub.com` is selling" gate was deferred by Ronald on 29 Oct 2026, so it no longer holds this work back.
 
 ---
 
@@ -72,7 +72,7 @@ Additional Stripe platform rules for Connect OAuth:
 
 ### What `/v1/status` reports for a linked existing account
 
-The external `/v1/status` JSON schema stays unchanged (`state`, `mode`, `providerId`, `bindingRef`, `stripeAccountId`, `chargesEnabled`, `payoutsEnabled`, `onboardingComplete`, `readyForLiveCheckout`, `testOrder`), while `Connection.creationProtocol` distinguishes how the bound `acct_...` was attached:
+The public `/v1/status` contract does not change. `decodeStatus` in `src/registry/status.ts` accepts exactly `state`, `mode`, `bindingRef`, `connectionEvidence` and `testOrder`, rejects any other field, and only knows the states `disconnected`, `connecting`, `setup_required`, `ready`, `checking`, `action_required` and `recovery_required`. An OAuth-attached account reports through that same shape and those same states; no new field or state is added, so existing Registry clients keep decoding it. How the bound `acct_...` was attached lives only on the internal `Connection.creationProtocol` record and is never sent in `/v1/status`:
 
 - **`creationProtocol: "accounts_v2"` (created via "Create a Stripe account")**:
   - Kept unchanged. Readiness calls `stripe.v2.core.accounts.retrieve(accountId, { include: ["configuration.merchant", "requirements"] })` on `2026-09-30.endive` and requires `applied_configurations.includes("merchant")`, active `card_payments` and `stripe_balance.payouts`, and no `currently_due` or `past_due` user requirements.
@@ -84,10 +84,13 @@ The external `/v1/status` JSON schema stays unchanged (`state`, `mode`, `provide
     - `payoutsEnabled = account.payouts_enabled === true`.
     - `requirementsDue`: `account.requirements?.disabled_reason !== null` or non-empty `account.requirements?.currently_due` or `account.requirements?.past_due`.
     - `onboardingComplete = account.details_submitted === true && chargesEnabled && payoutsEnabled && !requirementsDue`.
-  - **Resulting `/v1/status` projection**:
-    - When `chargesEnabled && payoutsEnabled && onboardingComplete`: `state: "ready"`, `readyForLiveCheckout: mode === "live"`.
-    - When the linked existing account still has pending verification or disabled capabilities in Stripe: `state: "pending_onboarding"`, `readyForLiveCheckout: false`. Unlike `accounts_v2`, the service does **not** call `v2.core.accountLinks.create` for `oauth_standard` accounts (Standard account holders manage verification directly in their own Stripe Dashboard).
-    - When the owner revokes the platform in Stripe (`account.application.deauthorized` webhook or `GET /v1/accounts/:id` returns an authorization/permission error): `/v1/status` fails closed (`readyForLiveCheckout: false`, `state: "failed"`, `failureCode: "account_deauthorized"`), immediately blocking new checkouts (`GET /v1/checkout-binding` refuses with `409 connection_not_ready`).
+  - **Resulting `/v1/status` projection** (same mapping `src/hosted/connection.ts` uses for `accounts_v2` today):
+    - Account fully enabled (`chargesEnabled && payoutsEnabled && onboardingComplete`): `state: "ready"` with `connectionEvidence: { provider: "stripe", mode, accountRef: "acct_...", result: "verified" }`.
+    - Stripe reports due or past-due requirements, or a `disabled_reason`: `state: "action_required"` with `connectionEvidence.result: "action_required"`. Unlike `accounts_v2`, the service does **not** call `v2.core.accountLinks.create` for `oauth_standard` accounts; the owner finishes verification in their own Stripe Dashboard, so the page's continue action points there instead of minting an account link.
+    - Account found but not yet enabled and nothing due: `state: "setup_required"` with `connectionEvidence.result: "unknown"`.
+    - Stripe cannot be read for a transient reason: `state: "checking"` with `connectionEvidence.result: "unknown"`, exactly as today.
+    - Owner revoked the platform in Stripe (an `account.application.deauthorized` webhook was recorded for the bound account, or `GET /v1/accounts/:id` returns an authorization/permission error): `state: "recovery_required"` with `mode` and `bindingRef` and no `connectionEvidence`. Payment settings already tells the owner to contact support and not start another account in that state, which matches Rule B below.
+    - Every state other than `ready` already blocks new checkout: `GET /v1/checkout-binding` refuses with the existing `409 payments_not_ready`. No new refusal code is added.
 
 ---
 

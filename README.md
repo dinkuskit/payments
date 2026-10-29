@@ -5,6 +5,37 @@ commerce sites. It gives DinkusKit Commerce one server-owned processor
 connection while keeping processor APIs, webhook verification, and release
 churn outside Commerce core.
 
+## Kit direction and accepted standalone work
+
+The organization [vision](https://github.com/dinkuskit/.github/blob/main/VISION.md)
+and [scope and planning](https://github.com/dinkuskit/.github/blob/main/ROADMAP.md)
+set the direction of independently useful tools. The current implementation
+still connects through Commerce. The [charter](docs/CHARTER.md#product-boundary)
+already records `payments-standalone-direction-042` (locked October 25, 2026,
+**not yet built**): optional Commerce, a small Sales list and Buy button when
+Commerce is absent, and hosted Connect or an owner-held provider-key path.
+Commerce's connection disables the standalone order list. The accepted work
+waits until the existing store is selling; this alignment does not start it
+([decision PR #88](https://github.com/dinkuskit/payments/pull/88)).
+
+[Issue #89](https://github.com/dinkuskit/payments/issues/89) and
+[proposal PR #90](https://github.com/dinkuskit/payments/pull/90) own existing
+Stripe-account connection work. Their earlier one-account/one-store proposal
+needs reconciliation before lock or build: a business may have several sites,
+and DinkusKit should preserve provider-permitted account sharing where safe and
+explicitly scoped rather than impose a permanent one-site restriction.
+[Stripe's domain list](https://docs.stripe.com/api/payment_method_domains/list)
+and [connected-account Checkout routing](https://docs.stripe.com/connect/direct-charges?platform=web&ui=stripe-hosted)
+are design inputs, not proof of eligibility for every business or of safe
+multi-site support here. Eligibility, routing and identity isolation still need
+a focused design and proof; account sharing is not implemented by this change.
+
+The hosted flow's no-pasted-key rule does not remove decision 042's standalone
+owner-key option. Immutable bindings preserve payment history; they do not by
+themselves decide whether a merchant can later leave or change providers.
+These are reconciliation boundaries for the existing proposal, not new locks
+or claims of implemented migration support.
+
 ## Status
 
 Local hosted-connection and Checkout Session adapter. The package name is
@@ -32,6 +63,11 @@ processors may be added as isolated modules behind the same Commerce-owned
 payment-provider contract. They do not require a second checkout model.
 
 ## Install type
+
+See [what ships and where it runs](https://dinkuskit.com/docs/developers/contribute#what-ships-and-where-it-runs)
+for the boundaries between Registry plugins, hosted services, the template,
+the playground and developer-only test tools. Beta and stable plugin artifacts
+do not include those developer preview controls.
 
 DinkusKit plugins ship as EmDash Registry plugins: sandboxed and installed
 from the plugin Registry, which is how most EmDash sites add plugins. The

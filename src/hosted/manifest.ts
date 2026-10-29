@@ -27,6 +27,14 @@ export const hostedWebhookRoutes = {
   authorizeNet: { prefix: "/v1/webhooks/authorize-net/", method: "POST", authentication: "hmac-sha512" },
 } as const;
 
+/**
+ * The Authorize.net pay page a shopper's browser opens: /v1/pay/authorize-net/{siteId}/{sessionId}. Public, with
+ * an unguessable session segment (payments-authorize-net-pay-page-045); it takes no input and sends no card data.
+ */
+export const hostedPayRoutes = {
+  authorizeNet: { prefix: "/v1/pay/authorize-net/", method: "GET", authentication: "session-secret" },
+} as const;
+
 /** Exact paths for one server-owned site, never an Access wildcard or template. */
 export function hostedPublicRouteManifest(siteId: string) {
   if (!/^[A-Za-z0-9_-]{1,200}$/.test(siteId)) throw new Error("invalid_site_path_segment");
@@ -47,4 +55,18 @@ export function matchAuthorizeNetWebhookSite(path: string): string | null {
   if (!path.startsWith(prefix)) return null;
   const siteId = path.slice(prefix.length);
   return siteId && !siteId.includes("/") ? siteId : null;
+}
+
+export function authorizeNetPayPagePath(siteId: string): string {
+  return `${hostedPayRoutes.authorizeNet.prefix}${encodeURIComponent(siteId)}`;
+}
+
+export function matchAuthorizeNetPaySession(path: string): { siteId: string; sessionId: string } | null {
+  const prefix = hostedPayRoutes.authorizeNet.prefix;
+  if (!path.startsWith(prefix)) return null;
+  const parts = path.slice(prefix.length).split("/");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  let siteId: string;
+  try { siteId = decodeURIComponent(parts[0]); } catch { return null; }
+  return siteId && !siteId.includes("/") ? { siteId, sessionId: parts[1] } : null;
 }

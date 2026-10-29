@@ -4,12 +4,28 @@ This public repository owns DinkusKit Payments, the open-source payment-provider
 plugin for EmDash commerce sites. Assume every committed byte is immediately
 public.
 
+## Direction and research
+
+Read the organization [vision](https://github.com/dinkuskit/.github/blob/main/VISION.md)
+and [scope and planning](https://github.com/dinkuskit/.github/blob/main/ROADMAP.md)
+with this repository's charter and current decisions. They describe direction
+and the store baseline; they do not reopen local locks or establish implemented
+capabilities.
+
+Use the installed `emdash-commerce` skill for material product or architecture
+questions and relevant grills. Its selective REA guidance distinguishes
+research, accepted design, active work and verified behavior. Reuse the owning
+issue or proposal for unresolved questions; research alone does not authorize
+implementation or expand an active release.
+
 ## Running GrillTrack
 
 Run `./scripts/agent-skills` first; it installs the pinned SaariusSkills
 skills into ignored `.cursor/skills/`. Use
 `./scripts/grilltrack --project . validate` or `show` for ledger reads.
-The CLI-only ledger rule remains in force. SmokySkills is enabled only after
+The bundle keeps its existing pin; `emdash-commerce` has a separate exact
+revision in that script, including its reference files. The CLI-only ledger
+rule remains in force. SmokySkills is enabled only after
 maintainer access and an immutable commit pin are supplied.
 
 In Claude Code cloud sessions `.claude/hooks/session-start.sh` checks Node
@@ -60,6 +76,27 @@ anything missing; read that report before running project scripts.
 - This repository does not own catalog pricing, carts, orders, stock,
   fulfillment, shipping, storefront UI, or secret storage.
 
+## Reference article
+
+`docs/website/reference/payments.md` is the Payments article on dinkuskit.com/docs
+(GrillTrack decision `website-docs-from-plugin-releases-086` in
+dinkuskit/dinkuskit). Change it in the same PR as any behavior, screen, route
+or setup step it describes. Keep `version_scope: "Payments {{version}}"` and the
+`{{version}}` and `{{release_date}}` placeholders: a stable release fills
+them in and publishes the article, so main may describe changes that are not
+released yet. Guides that span plugins live in dinkuskit/dinkuskit
+`docs/updates/`; link that PR under **Docs impact**.
+
+Reviewers, ClawSweeper included, record every PR's docs as one of:
+
+- **Docs: up to date**: the PR updates the article to match, or the article
+  already describes the change correctly.
+- **Docs: missing**: the PR changes something the article describes, or should
+  describe, without updating it. Report it as a P3 finding naming the section;
+  it does not block the merge.
+- **Docs: not applicable**: nothing an owner or developer sees changes (tests,
+  CI, internal refactors).
+
 ## Working rules
 
 - Product decisions flow through GrillTrack before implementation.
@@ -69,3 +106,8 @@ anything missing; read that report before running project scripts.
   before changes are routed.
 - Package publishing, deployment, live payment traffic, production mutation,
   secrets or permissions changes, and merges require explicit human approval.
+- `api-oracle` ([saari-co/api-oracle](https://github.com/saari-co/api-oracle)) runs
+  delegated background audits, CI triage, and architecture checkpoints on API
+  credits. Prefer `oracle ask <lane>` for work a brief can carry, and read and
+  rate the briefs it announces. It gates nothing and does not replace
+  ClawSweeper review.

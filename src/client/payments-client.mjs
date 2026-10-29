@@ -79,7 +79,7 @@ function assertPaymentOutcome(body, what, attemptId) {
 	if (body.outcome === "not-created") return;
 	assertMoney(body.total, what, "total");
 	const session = body.session;
-	// An Authorize.net session id is its hosted-form token, which has no fixed length (src/authorize-net/checkout.ts).
+	// An Authorize.net session id is a pay page id, or a hosted-form token for older checkouts; neither has a fixed length (src/authorize-net/checkout.ts).
 	if (!isObject(session) || !isText(session.sessionId, Infinity) || typeof session.redirectUrl !== "string" ||
 		!Number.isSafeInteger(session.createdAt) || !Number.isSafeInteger(session.expiresAt)) {
 		throw contract(what, "session");
