@@ -196,7 +196,7 @@ function connectionStep(status: PaymentsStatus | null, connectionState?: string,
     };
   }
   if (status?.state === "disconnected") {
-    return { title: "Connect payments", status: "incomplete", description: "DinkusKit Payments status was checked. No processor account is connected. Select Set up Stripe to connect your processor account." };
+    return { title: "Connect payments", status: "incomplete", description: "DinkusKit Payments status was checked. No processor account is connected. Select Set up or resume Stripe to connect your processor account. Already have Stripe? Sign in during setup to reuse your details." };
   }
   if (!status?.connectionEvidence) {
     return {

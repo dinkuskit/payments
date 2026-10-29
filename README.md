@@ -18,17 +18,15 @@ Commerce's connection disables the standalone order list. The accepted work
 waits until the existing store is selling; this alignment does not start it
 ([decision PR #88](https://github.com/dinkuskit/payments/pull/88)).
 
-[Issue #89](https://github.com/dinkuskit/payments/issues/89) and
-[proposal PR #90](https://github.com/dinkuskit/payments/pull/90) own existing
-Stripe-account connection work. Their earlier one-account/one-store proposal
-needs reconciliation before lock or build: a business may have several sites,
-and DinkusKit should preserve provider-permitted account sharing where safe and
-explicitly scoped rather than impose a permanent one-site restriction.
-[Stripe's domain list](https://docs.stripe.com/api/payment_method_domains/list)
-and [connected-account Checkout routing](https://docs.stripe.com/connect/direct-charges?platform=web&ui=stripe-hosted)
-are design inputs, not proof of eligibility for every business or of safe
-multi-site support here. Eligibility, routing and identity isolation still need
-a focused design and proof; account sharing is not implemented by this change.
+Owners who already have Stripe use the same **Set up or resume Stripe** flow:
+Stripe's networked onboarding lets them sign in and reuse their verified
+business details and bank, and the store gets its own Stripe account under the
+same login. Payments does not attach an existing account through Connect OAuth,
+which Stripe no longer recommends and which needs Accounts v1
+(`payments-existing-stripe-account-046`; research in
+[issue #89](https://github.com/dinkuskit/payments/issues/89) and
+[PR #90](https://github.com/dinkuskit/payments/pull/90)). Letting one business
+share an account across several sites stays a separate, unbuilt question.
 
 The hosted flow's no-pasted-key rule does not remove decision 042's standalone
 owner-key option. Immutable bindings preserve payment history; they do not by

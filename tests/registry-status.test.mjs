@@ -465,3 +465,13 @@ test("Stripe needing more information points the owner at Stripe's setup and off
   assert.match(page, /Select Set up or resume Stripe to open Stripe's setup, which lists what's missing/);
   assert.match(page, /"label":"Set up or resume Stripe","action_id":"setup_processor"/);
 });
+
+test("a checked store with no Stripe account points owners who already have Stripe to Stripe's sign-in", () => {
+  const rendered = JSON.stringify(renderSetupScreen({
+    state: "ready",
+    status: { availability: "available", status: { state: "disconnected", mode: "test" }, message: "Payments status checked." },
+  }));
+  assert.match(rendered, /No processor account is connected\. Select Set up or resume Stripe to connect your processor account\. Already have Stripe\? Sign in during setup to reuse your details\./);
+  assert.match(rendered, /"label":"Set up or resume Stripe","action_id":"setup_processor"/);
+  assert.doesNotMatch(rendered, /I already have Stripe|attach_existing_stripe/);
+});
