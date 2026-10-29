@@ -16,7 +16,7 @@ set -uo pipefail
 
 [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] || exit 0
 
-ORACLE_REV="edd8ad955f77117ca0dbaf874bf24d4b3f536b59"   # full commit SHA of saari-co/api-oracle, set when this file is copied
+ORACLE_REV="b4f1408a539800d096e77ba538eb2b574e4cca6f"   # full commit SHA of saari-co/api-oracle, set when this file is copied
 ORACLE_REPO_URL="${ORACLE_REPO_URL:-https://github.com/saari-co/api-oracle.git}"
 
 event="${1:-}"
@@ -44,11 +44,23 @@ verified() {
   return 0
 }
 
-# Clone from the configured URL only, then check out the pinned commit.
+# Clone from the configured URL only, then check out the pinned commit. When
+# the URL is a GitHub repository and gh is authenticated, gh clones that same
+# repository (never a hard-coded one); plain git is the fallback.
+clone_configured() {
+  local slug
+  slug="$(printf '%s' "$ORACLE_REPO_URL" | sed -nE 's#^(https://github\.com/|git@github\.com:)([^/]+/[^/]+)/?$#\2#p' | sed -E 's/\.git$//')"
+  if [ -n "$slug" ] && command -v gh >/dev/null 2>&1; then
+    gh repo clone "$slug" "$oracle_dir" -- --quiet --no-checkout >/dev/null 2>&1 && return 0
+    rm -rf "$oracle_dir"
+  fi
+  git clone --quiet --no-checkout "$ORACLE_REPO_URL" "$oracle_dir" >/dev/null 2>&1
+}
+
 install_pinned() {
   rm -rf "$oracle_dir"
   mkdir -p "$(dirname "$oracle_dir")" || return 1
-  git clone --quiet --no-checkout "$ORACLE_REPO_URL" "$oracle_dir" >/dev/null 2>&1 || return 1
+  clone_configured || return 1
   git -C "$oracle_dir" fetch --quiet --depth 1 origin "$ORACLE_REV" >/dev/null 2>&1 || true
   git -C "$oracle_dir" checkout --quiet --detach "$ORACLE_REV" >/dev/null 2>&1 || return 1
   verified
