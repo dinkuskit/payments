@@ -154,7 +154,9 @@ configuration supplies the merchant country before creation; other identity deta
 onboarding. See [TEST merchant country](test-merchant-country.md). Direct-charge
 Checkout and platform diagnostics retain API `2026-08-26.dahlia`. No application fee,
 subscription billing, embedded component or existing-account OAuth linkage is
-introduced. Provider eligibility and live activation remain separate gates.
+introduced. Owners who already have Stripe reuse their verified details
+through Stripe's networked onboarding during hosted onboarding
+(`payments-existing-stripe-account-046`). Provider eligibility and live activation remain separate gates.
 
 The Worker is explicitly TEST-only and refuses a live API key. Non-secret
 production deployment settings are documented in `DEPLOY.md` and

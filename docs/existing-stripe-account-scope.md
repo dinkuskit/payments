@@ -1,6 +1,6 @@
 # Scope: Attach an Existing Stripe Account Through Connect
 
-Status: **Proposed** (`payments-existing-stripe-account-046`, awaiting owner approval; no runtime code, Worker deployment, secret change, or live-mode change is authorized by this document).
+Status: **Research only; not adopted.** `payments-existing-stripe-account-046` was locked on 29 Oct 2026 for Stripe's recommended path instead: no Connect OAuth and no Accounts v1. Owners who already have Stripe use **Set up or resume Stripe**, and Stripe's networked onboarding (on by default) lets them sign in and reuse their existing account's verified business details and bank. The store gets its own connected account under the same Stripe login. Stripe says OAuth "isn't recommended for new Connect platforms" and lists OAuth as Accounts v1 only. The OAuth design below is kept as the record of what was considered.
 Issue: [`dinkuskit/payments#89`](https://github.com/dinkuskit/payments/issues/89).
 
 ## Context and problem
