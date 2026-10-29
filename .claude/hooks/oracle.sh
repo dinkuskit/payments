@@ -16,11 +16,12 @@ set -uo pipefail
 
 [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] || exit 0
 
-ORACLE_REV="b4f1408a539800d096e77ba538eb2b574e4cca6f"   # full commit SHA of saari-co/api-oracle, set when this file is copied
+ORACLE_REV="18a52da7e0968ba943667f762d41ca0c75b69944"   # full commit SHA of saari-co/api-oracle, set when this file is copied
 ORACLE_REPO_URL="${ORACLE_REPO_URL:-https://github.com/saari-co/api-oracle.git}"
 
 event="${1:-}"
-oracle_dir="${ORACLE_DIR:-$HOME/.api-oracle/$ORACLE_REV}"   # revision-specific install
+managed_dir="$HOME/.api-oracle/$ORACLE_REV"                 # the only directory this shim may create or delete
+oracle_dir="${ORACLE_DIR:-$managed_dir}"                     # an override is used as-is, never modified
 oracle="$oracle_dir/bin/oracle"
 
 note() {
@@ -57,9 +58,13 @@ clone_configured() {
   git clone --quiet --no-checkout "$ORACLE_REPO_URL" "$oracle_dir" >/dev/null 2>&1
 }
 
+# Install only into the managed, revision-specific directory. An overridden
+# ORACLE_DIR that fails verification is left untouched and delegation is
+# skipped; nothing outside $managed_dir is ever deleted.
 install_pinned() {
-  rm -rf "$oracle_dir"
-  mkdir -p "$(dirname "$oracle_dir")" || return 1
+  [ "$oracle_dir" = "$managed_dir" ] || return 1
+  rm -rf "$managed_dir"
+  mkdir -p "$(dirname "$managed_dir")" || return 1
   clone_configured || return 1
   git -C "$oracle_dir" fetch --quiet --depth 1 origin "$ORACLE_REV" >/dev/null 2>&1 || true
   git -C "$oracle_dir" checkout --quiet --detach "$ORACLE_REV" >/dev/null 2>&1 || return 1
@@ -69,6 +74,9 @@ install_pinned() {
 case "$event" in
   session-start)
     if ! verified && ! install_pinned; then
+      if [ "$oracle_dir" != "$managed_dir" ]; then
+        note "ORACLE_DIR=$oracle_dir is not the pinned revision $ORACLE_REV with a clean tree; it was left untouched."
+      fi
       note "could not install saari-co/api-oracle at the pinned revision $ORACLE_REV from $ORACLE_REPO_URL; the cloud environment needs read access to that private repository (attach it to the session)."
     fi
     [ -n "${CLAUDE_ENV_FILE:-}" ] && printf 'export ORACLE_DIR=%q\nexport PATH=%q:$PATH\n' "$oracle_dir" "$oracle_dir/bin" >> "$CLAUDE_ENV_FILE"
