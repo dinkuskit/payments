@@ -106,3 +106,8 @@ Reviewers, ClawSweeper included, record every PR's docs as one of:
   before changes are routed.
 - Package publishing, deployment, live payment traffic, production mutation,
   secrets or permissions changes, and merges require explicit human approval.
+- `api-oracle` ([saari-co/api-oracle](https://github.com/saari-co/api-oracle)) runs
+  delegated background audits, CI triage, and architecture checkpoints on API
+  credits. Prefer `oracle ask <lane>` for work a brief can carry, and read and
+  rate the briefs it announces. It gates nothing and does not replace
+  ClawSweeper review.
