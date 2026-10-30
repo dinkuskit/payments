@@ -20,16 +20,12 @@ Registry publishing uses GitHub OIDC, Sigstore build provenance (`actions/attest
 
 1. `.github/scripts/prepare-emdash-release.mjs` copies the audited Cloudflare sandbox prebundle (`dist/sandbox/plugin.mjs`) into an isolated temporary directory and invokes the official `emdash-plugin release prepare <slug@version>` command there, producing `.emdash-release/<slug>-<version>.tar.gz` plus the `publisher-did`, `bundle-file`, and `selector` outputs.
 2. `actions/attest-build-provenance` signs build provenance over the prepared bundle tarball (`id-token: write`, `attestations: write`).
-3. `scripts/registry-release-media.mjs` validates that bundle and prepares a complete URL-source release record. It uploads content-addressed bundle and provenance files to the tag's GitHub Release without replacement. A rebuilt gzip with different bytes gets a different filename; an identical retry reuses its verified asset. Existing same-name assets must have identical bytes; conflicts fail closed. A missing beta release is created as a prerelease, while a missing stable release is an error because the preceding tag gate creates it. Listing images use raw URLs pinned to the same source commit and checksums computed from their bytes.
-4. The pinned `emdash-cms/emdash/apps/release-action` receives only `release-file` and submits that record through the same OIDC workload, provenance verification and approval policy. The service fetches and validates the images before storing them as publisher PDS blobs. It does not receive a direct PDS credential.
+3. `scripts/registry-release-media.mjs` checks that the prepared `.emdash-release/emdash-plugin.jsonc` names the gated tag's version and the expected listing slug, checks each `release.artifacts` image (PNG, JPEG or WebP, at most 1 MiB, at most eight screenshots), and copies the images beside that manifest at the same relative paths.
+4. The `emdash-cms/emdash/apps/release-action` pinned to [`emdash-cms/emdash#4467`](https://github.com/emdash-cms/emdash/pull/4467) receives the bundle, the provenance bundle and `plugin-directory: .emdash-release`. It uploads the bundle, provenance and listing images to the release service through the same OIDC workload, provenance verification and approval policy, and the service stores them as publisher PDS blobs. It does not receive a direct PDS credential. Upstream `main` does not carry listing media through delegated releases yet ([`emdash-cms/emdash#4464`](https://github.com/emdash-cms/emdash/issues/4464)); move the pin to a `main` commit once #4467 merges.
 5. Because the delegated release service can currently end successful publishes in `RELEASE_CONFLICT` ([`emdash-cms/emdash#4159`](https://github.com/emdash-cms/emdash/issues/4159)), the publish step uses `continue-on-error: true` and `.github/scripts/verify-registry-release.mjs` acts as the fail-closed gate. It resolves the publisher PDS endpoint and verifies the exact bundle checksum and size plus the expected icon, banner and screenshot checksums, byte sizes and MIME types.
 
-The `publish-emdash` caller and reusable `publish` job request `contents: write`
-solely for these release asset uploads, in addition to their existing OIDC and
-attestation permissions. No App token or new secret is introduced. They do not
-move tags, replace assets, or alter the publisher profile. A GitHub release
-whose immutability policy refuses additional uploads fails rather than being
-unlocked or recreated. Existing package-profile copy still requires its own
+The `publish-emdash` caller and reusable `publish` job need only `contents: read` beside their OIDC and attestation permissions. No App token or new secret is introduced, and nothing is written to the GitHub release.
+Existing package-profile copy still requires its own
 approved `update-package`; publishing a version does not overwrite it.
 
 ### One-Time Publisher Profile Setup (`dinkus-payments-beta`)
@@ -81,7 +77,7 @@ The press needs the `DINKUS_LIVE_JOURNEYS_TOKEN` org secret, shared by every din
 
 ## Step 4: A Fix Found on the Beta (Add Fix to Beta)
 
-Merge the fix to `main` through its normal reviewed PR. Then press **Run workflow** with `action: add-fix`, `release_version: X.Y.Z`, and `fix_commit` set to the fix's merge commit on `main`. It copies that exact commit onto `release/X.Y.Z` (`git cherry-pick -x`, so the copy names its source) and tags the next `vX.Y.Z-beta.N`, whose run publishes it and starts the journeys again. It refuses a commit that isn't on `main`, one already on the branch, and one that doesn't copy cleanly; then nothing is pushed. A release-file fix is copied the same way, so the branch runs it too.
+Merge the fix to `main` through its normal reviewed PR. Then press **Run workflow** with `action: add-fix`, `release_version: X.Y.Z`, and `fix_commit` set to the fix's merge commit on `main`. It copies that exact commit onto `release/X.Y.Z` (`git cherry-pick -x`, so the copy names its source) and tags the next `vX.Y.Z-beta.N`, whose run publishes it and starts the journeys again. It refuses a commit that isn't on `main`, one already on the branch, and one that doesn't copy cleanly; then nothing is pushed.
 
 ## Step 5: Promote Verified Beta to a `ci: release` PR
 

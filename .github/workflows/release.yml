@@ -194,7 +194,7 @@ jobs:
     needs: release-tag
     uses: ./.github/workflows/emdash-release.yml
     permissions:
-      contents: write # Upload checksummed release assets; never replace existing bytes.
+      contents: read
       id-token: write
       attestations: write
     with:
