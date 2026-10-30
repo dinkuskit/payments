@@ -435,9 +435,26 @@ test("pending screen tells the owner the page checks on its own, and says so pla
   assert.doesNotMatch(checked, /checks your approval on its own/);
 });
 
+test("a store with no Stripe connection picks its business country before setup", () => {
+  const status = (state, extra = {}) => ({ state: "ready", status: { availability: "available", status: { state, mode: "test", ...extra } } });
+  const fresh = renderSetupScreen(status("disconnected"));
+  const form = fresh.blocks.find(block => block.type === "form");
+  assert.equal(form.submit.action_id, "setup_processor");
+  const select = form.fields[0];
+  assert.equal(select.type, "select"); assert.equal(select.action_id, "businessCountry"); assert.equal(select.initial_value, "");
+  assert.deepEqual(select.options[0], { label: "Choose a country", value: "" });
+  assert.equal(select.options.length, 45);
+  assert.doesNotMatch(JSON.stringify(fresh), /Set up or resume Stripe/);
+  for (const page of [status("connecting", { bindingRef: "b" }), status("setup_required", { bindingRef: "b", connectionEvidence: { provider: "stripe", mode: "test", result: "unknown", accountRef: "acct_one" } })]) {
+    const rendered = renderSetupScreen(page);
+    assert.equal(rendered.blocks.some(block => block.type === "form"), false);
+    assert.match(JSON.stringify(rendered), /"label":"Set up or resume Stripe","action_id":"setup_processor"/);
+  }
+});
+
 test("a refused Stripe setup names its reason and that nothing was created", () => {
   const page = JSON.stringify(renderSetupScreen({ state: "setup_refused", refusal: "merchant_country_required" }));
-  assert.match(page, /no business country on file for this store\. No Stripe account was created/);
+  assert.match(page, /Stripe setup needs your business country\. No Stripe account was created\. Select Check connection, choose the country where your business is registered/);
   assert.doesNotMatch(page, /final result is not confirmed/);
   assert.match(page, /"action_id":"check"/);
   const unknown = JSON.stringify(renderSetupScreen({ state: "setup_refused", refusal: "anything-else" }));
@@ -471,7 +488,7 @@ test("a checked store with no Stripe account points owners who already have Stri
     state: "ready",
     status: { availability: "available", status: { state: "disconnected", mode: "test" }, message: "Payments status checked." },
   }));
-  assert.match(rendered, /No processor account is connected\. Select Set up or resume Stripe to connect your processor account\. Already have Stripe\? Sign in during setup to reuse your details\./);
-  assert.match(rendered, /"label":"Set up or resume Stripe","action_id":"setup_processor"/);
+  assert.match(rendered, /No processor account is connected\. Choose your business country and select Set up Stripe to connect your processor account\. Already have Stripe\? Sign in during setup to reuse your details\./);
+  assert.match(rendered, /"submit":\{"label":"Set up Stripe","action_id":"setup_processor"\}/);
   assert.doesNotMatch(rendered, /I already have Stripe|attach_existing_stripe/);
 });

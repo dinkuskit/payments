@@ -1,4 +1,3 @@
-import { configureStripeCountry } from "../helpers/merchant-country.js";
 import { stripeV2Account, stripeV2Link } from "../helpers/stripe-v2.js";
 import { env } from 'cloudflare:workers';
 import { afterEach, expect, test, vi } from 'vitest';
@@ -18,7 +17,6 @@ test('signed merchant connect accepts empty runtime streams and verifies return 
   const issuer = 'https://accounts.example.invalid';
   const audience = 'payments-runtime-admin';
   const site = crypto.randomUUID();
-  await configureStripeCountry(env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test",site])), site);
   const { publicKey, privateKey } = await generateKeyPair('ES256');
   const jwk = { ...await exportJWK(publicKey), kid: 'synthetic-http', alg: 'ES256', use: 'sig' };
   let ready = false, unavailable = false, creates = 0, links = 0, providerCalls = 0;
@@ -61,7 +59,12 @@ test('signed merchant connect accepts empty runtime streams and verifies return 
   expect((await call('/v1/connect', { body: '{}' })).status).toBe(400);
   expect((await call('/v1/connect?return_url=https://attacker.invalid', { emptyStream: true })).status).toBe(400);
   expect(providerCalls).toBe(deniedCalls);
-  const connected = await call('/v1/connect', { emptyStream: true });
+  // A new Stripe connection needs the owner's business country; nothing is created without it.
+  const refused = await call('/v1/connect', { emptyStream: true });
+  expect(refused.status).toBe(503);
+  expect(await refused.json()).toEqual({ error: 'merchant_country_required' });
+  expect(providerCalls).toBe(deniedCalls);
+  const connected = await call('/v1/connect', { body: '{"country":"GB"}' });
   expect(connected.status).toBe(200);
   const snapshot = await connected.json<{ state: string; bindingRef: string; url: string }>();
   expect(snapshot).toMatchObject({ state: 'setup_required', mode: 'test', url: 'https://accounts.stripe.com/r/acct_fixture#alu_test_synthetic' });
@@ -89,7 +92,6 @@ test('a checkout sends shoppers back to the store address signed into its pass, 
   const issuer = 'https://accounts.example.invalid';
   const audience = 'payments-runtime-checkout';
   const site = crypto.randomUUID();
-  await configureStripeCountry(env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test",site])), site);
   const origin = 'https://shop.example.invalid';
   const { publicKey, privateKey } = await generateKeyPair('ES256');
   const jwk = { ...await exportJWK(publicKey), kid: 'synthetic-checkout', alg: 'ES256', use: 'sig' };
@@ -122,7 +124,7 @@ test('a checkout sends shoppers back to the store address signed into its pass, 
   const call = async (path: string, token: string, body?: unknown) => worker.fetch(new Request('https://payments.example.invalid' + path, {
     method: 'POST', headers: { authorization: `Bearer ${token}`, 'x-dinkus-site': site }, body: body === undefined ? undefined : JSON.stringify(body),
   }), configured);
-  const connected = await (await call('/v1/connect', await pass('payments:admin'))).json<{ state: string; bindingRef: string }>();
+  const connected = await (await call('/v1/connect', await pass('payments:admin'), { country: 'GB' })).json<{ state: string; bindingRef: string }>();
   expect(connected.state).toBe('ready');
   const payment = {
     attemptId: 'attempt-return-pages', bindingRef: connected.bindingRef,

@@ -797,32 +797,29 @@ test("a store set up with released 0.3.0 asks for Connect again, then reads stat
   } finally { await host.dispose(); }
 });
 
-test("compiled operator preparation requires confirmation and keeps the held grant private", async () => {
+test("compiled business-country form sends the owner's choice with Set up Stripe", async () => {
   const f = await fixture(); const { host } = f;
+  const endpoint = "https://payments.dinkuskit.com/v1/connect";
   try {
-    await f.prepareStart("legacy-recovery"); await f.action("connect"); await f.pollDue();
-    const token = await f.prepareExchange(); await f.action("continue"); host.http.clear();
-    await f.prepareDiagnostics("recovery_required", { state: "recovery_required", mode: "test", processorAccountPresent: false, evidence: "observed", lastFailure: { category: "unknown", status: 400, at: Date.now() - 86400000 } });
-    const start = JSON.stringify(await f.action("check"));
-    assert.match(start, /review_legacy_v2/);
-    host.http.clear(); await f.prepareSession();
-    const confirmation = JSON.stringify(await f.action("review_legacy_v2"));
-    assert.match(confirmation, /Confirm recovery preparation/);
-    assert.equal(host.http.requests().some(r => r.method === "POST"), false);
-    host.http.clear(); await f.prepareSession();
-    await host.http.respond("https://payments.dinkuskit.com/v1/connect/reconcile-legacy-rejection", Response.json({
-      state: "prepared", mode: "test", bindingRef: "stripe_synthetic", operationId: "synthetic-operation", preparedAt: Date.now(),
-    }));
-    const result = JSON.stringify(await f.action("prepare_legacy_v2"));
-    assert.match(result, /Recovery preparation saved/);
-    assert.doesNotMatch(result, /setup_processor|prepare_legacy_v2/);
-    assert.equal(result.includes(token), false);
-    const posts = host.http.requests().filter(r => r.method === "POST");
-    assert.equal(posts.length, 1); assert.equal(posts[0].url, "https://payments.dinkuskit.com/v1/connect/reconcile-legacy-rejection");
-    assert.equal(posts[0].body.byteLength, 0);
-    const another = await host.fixtures.user({ email: "another-admin@example.invalid", role: "admin" });
-    host.http.clear(); await f.prepareStatus();
-    assert.match(JSON.stringify(await host.admin.act("/status", "prepare_legacy_v2", { user: another })), /Sign in again/);
-    assert.equal(host.http.requests().some(r => r.url.endsWith("/reconcile-legacy-rejection")), false);
+    await f.prepareStart("business-country"); await f.action("connect"); await f.pollDue();
+    await f.prepareExchange(); await f.action("continue");
+    host.http.clear(); await f.prepareStatus(true);
+    const page = JSON.stringify(await f.page());
+    assert.match(page, /"type":"select","action_id":"businessCountry"/);
+    assert.match(page, /\{"label":"Choose a country","value":""\}/);
+    assert.match(page, /\{"label":"United States","value":"US"\}/);
+    assert.match(page, /"submit":\{"label":"Set up Stripe","action_id":"setup_processor"\}/);
+    assert.doesNotMatch(page, /Set up or resume Stripe/);
+    host.http.clear(); await f.prepareProcessorStatus();
+    await host.http.respond(endpoint, Response.json({ state: "setup_required", mode: "test", bindingRef: "synthetic-binding", url: "https://connect.stripe.com/setup/first", expiresAt: Date.now() + 60_000 }));
+    const result = JSON.stringify(await host.admin.submit("/status", "setup_processor", { businessCountry: "US" }, { user: f.admin }));
+    assert.match(result, /Continue setup at Stripe/);
+    const posts = host.http.requests().filter(r => r.url === endpoint);
+    assert.equal(posts.length, 1); assert.equal(new TextDecoder().decode(posts[0].body), '{"country":"US"}');
+    // Once a Stripe connection exists the country is fixed and never asked again.
+    host.http.clear(); await f.prepareStatus("setup");
+    const resumed = JSON.stringify(await f.page());
+    assert.doesNotMatch(resumed, /businessCountry/);
+    assert.match(resumed, /"label":"Set up or resume Stripe","action_id":"setup_processor"/);
   } finally { await host.dispose(); }
 });

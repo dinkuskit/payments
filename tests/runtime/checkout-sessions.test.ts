@@ -1,4 +1,3 @@
-import { configureStripeCountry } from "../helpers/merchant-country.js";
 import { stripeV2Account, stripeV2Link } from "../helpers/stripe-v2.js";
 import { env } from "cloudflare:workers";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
@@ -73,8 +72,7 @@ test.each(["historical-unpriced", "priced-v1"])("SQLite mapping survives evictio
   });
   const principal = { accountId: "synthetic-owner", siteId: crypto.randomUUID(), siteOrigin: "https://store.example.invalid" };
   const stub = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", principal.siteId]));
-  await configureStripeCountry(stub, principal.siteId);
-  const connected = await stub.startOnboarding(principal);
+  const connected = await stub.startOnboarding(principal, "GB");
   ready = true;
   const binding = await stub.checkoutBinding(principal, connected.bindingRef!);
   expect(binding?.stripeAccountId).toBe("acct_fixture");
@@ -320,8 +318,7 @@ test("characterization: lost create response leaves a claim unrecoverable by web
 
   const principal = { accountId: "synthetic-owner", siteId: crypto.randomUUID(), siteOrigin: "https://store.example.invalid" };
   const stub = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", principal.siteId]));
-  await configureStripeCountry(stub, principal.siteId);
-  const connected = await stub.startOnboarding(principal);
+  const connected = await stub.startOnboarding(principal, "GB");
   expect(connected.state).toBe("ready");
   const payment = {
     attemptId: "attempt-lost-response",

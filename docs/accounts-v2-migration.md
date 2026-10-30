@@ -11,9 +11,9 @@ new payment method or v1 policy toggle.
 
 Stripe Node SDK 23.0.0 and API `2026-09-30.endive` handle account creation,
 account readiness and account links. Creation requests merchant card-payment
-capability and supplies the explicitly configured TEST merchant country before
-merchant configuration. Other identity/KYC details remain with Stripe-hosted
-onboarding. See [TEST merchant country](test-merchant-country.md).
+capability and supplies the owner's chosen business country before merchant
+configuration. Other identity/KYC details remain with Stripe-hosted
+onboarding. See [Business country](business-country.md).
 No account default currency is imposed before hosted onboarding. The two
 required responsibility fields are set to `stripe`; these are permanent
 choices for the account. Country is required before merchant configuration;

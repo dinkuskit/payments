@@ -27,7 +27,7 @@ test('connect accepts an exhausted empty POST stream as no input', async () => {
   assert.equal(f.connects(), 3);
 });
 
-test('connect rejects the first content byte without buffering caller input', async () => {
+test('connect rejects a non-JSON first byte without waiting for more caller input', async () => {
   const f = fixture();
   let canceled = false;
   const request = new Request('https://payments.example.invalid/v1/connect', {

@@ -6,13 +6,13 @@ import { WebhookError } from "../checkout/webhook.js";
 import { assertCommercePaymentWake, WakeError, type CommercePaymentWake } from "../checkout/wakes.js";
 import type { PaymentOutcome, PaymentRequest } from "../commerce/checkout-port.js";
 import type { Principal, createConnectionService } from "./connection.js";
+import { businessCountry } from "../business-country.js";
 import { clientIpRateKey } from "./client-ip.js";
 import { hostedHttpRoutes, hostedPayRoutes, hostedWebhookRoutes, matchAuthorizeNetPaySession, matchAuthorizeNetWebhookSite } from "./manifest.js";
 
 type ConnectionApi = Pick<ReturnType<typeof createConnectionService>, "connect" | "status" | "checkoutBinding" | "existingBinding"> & {
   diagnostics?(principal: Principal): ReturnType<ReturnType<typeof createConnectionService>["diagnostics"]> | Promise<ReturnType<ReturnType<typeof createConnectionService>["diagnostics"]>>;
   providerIdentityDiagnostic?(principal: Principal): Promise<unknown>;
-  prepareRejectedLegacyV2?(principal: Principal): Promise<unknown>;
 };
 type CheckoutApi = {
   ensureSession(request: PaymentRequest): Promise<PaymentOutcome>;
@@ -117,14 +117,49 @@ async function hasBodyBytes(request: Request): Promise<boolean> {
   }
 }
 
+const MAX_CONNECT_BODY_BYTES = 64;
+
+/**
+ * Set up Stripe may carry only the owner's business country:
+ * {"country":"US"}. A bodyless POST is still accepted.
+ */
+async function connectCountry(request: Request): Promise<string | undefined | null> {
+  if (request.body === null) return undefined;
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      // Refuse anything but a JSON object on its first byte, without waiting for more.
+      if (!size && value.byteLength && value[0] !== 0x7b) return null;
+      size += value.byteLength;
+      if (size > MAX_CONNECT_BODY_BYTES) return null;
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel();
+    reader.releaseLock();
+  }
+  if (!size) return undefined;
+  try {
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    const body = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes)) as unknown;
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).join() !== "country") return null;
+    const country = (body as { country: unknown }).country;
+    return businessCountry(country) ? country : null;
+  } catch { return null; }
+}
+
 function checkoutErrorStatus(error: unknown): number {
   if (!(error instanceof Error)) return 503;
   // Thrown inside the playground Durable Object; only the message survives RPC.
   if (error.message === PLAYGROUND_RATE_LIMIT_ERROR) return 429;
   if (error.message === "stripe_mode_mismatch" || error.message === "playground_unconfigured" || error.message === "diagnostic_unavailable") return 503;
   if (error.message === "connection_owner_mismatch") return 403;
-  if (error.message === "legacy_recovery_forbidden") return 403;
-  if (["legacy_recovery_refused", "legacy_recovery_conflict", "legacy_recovery_platform_mismatch"].includes(error.message)) return 409;
   // Thrown inside the store's Durable Object; only the message survives RPC.
   if (error.message === "store_origin_missing") return 409;
   if (error instanceof WakeError && error.message === "invalid_wake") return 400;
@@ -203,23 +238,17 @@ export function createHostedHandler(options: {
     try {
       if (pathname === "/v1/connect") {
         const service = options.service(principal);
-        // No caller-controlled account, mode, return URL, or provider selection.
-        // Check bytes, not stream presence: a bodyless runtime POST can still
-        // have a non-null, exhausted stream. No caller input is buffered.
-        if (searchParams.size || await hasBodyBytes(request)) return respond({ error: "unexpected_input" }, 400);
-        return respond(await service.connect(principal));
+        // No caller-controlled account, mode, return URL, or provider selection;
+        // the owner's business country is the only accepted input.
+        const country = searchParams.size ? null : await connectCountry(request);
+        if (country === null) return respond({ error: "unexpected_input" }, 400);
+        return respond(await service.connect(principal, country));
       }
       if (pathname === "/v1/connect/diagnostics") {
         if (searchParams.size || await hasBodyBytes(request)) return respond({ error: "unexpected_input" }, 400);
         const service = options.service(principal);
         if (!service.diagnostics) return respond({ error: "not_found" }, 404);
         return respond(await service.diagnostics(principal));
-      }
-      if (pathname === "/v1/connect/reconcile-legacy-rejection") {
-        if (searchParams.size || await hasBodyBytes(request)) return respond({ error: "unexpected_input" }, 400);
-        const service = options.service(principal);
-        if (!service.prepareRejectedLegacyV2) return respond({ error: "not_found" }, 404);
-        return respond(await service.prepareRejectedLegacyV2(principal));
       }
       if (pathname === "/v1/connect/provider-identity") {
         if (searchParams.size || await hasBodyBytes(request)) return respond({ error: "unexpected_input" }, 400);

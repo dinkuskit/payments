@@ -265,6 +265,14 @@ calls. Diagnostics for a connecting or recovery status stay admin-only: they use
 the viewing admin's own live sign-in (nine calls in all), and without one the
 page asks for Sign in again to see the recorded failure detail.
 
+While the store has no Stripe connection (status `disconnected`), the page shows
+a **Business country** select (Stripe's supported countries, "Choose a country"
+first, nothing preselected) with a **Set up Stripe** submit. The plugin sends
+only a listed code to `POST /v1/connect` as `{"country":"XX"}`; anything else
+goes without a body, which the service refuses for a new connection. Once a
+connection exists the country is fixed and the page shows **Set up or resume
+Stripe** instead (`payments-business-country-047`).
+
 When `POST /v1/connect` refuses with `merchant_country_required` or
 `payments_service_unconfigured`, both of which create nothing, the page names
 that reason. Any other refusal still reads as unconfirmed, and no other

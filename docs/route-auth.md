@@ -61,10 +61,9 @@ Commerce service is admitted to checkout operations.
 
 | Method | Hosted path | Authentication |
 | --- | --- | --- |
-| POST | `/v1/connect` | `payments:admin` JWT |
+| POST | `/v1/connect` | `payments:admin` JWT; optional body `{"country":"XX"}` from the business-country list, nothing else |
 | GET | `/v1/connect/diagnostics` | `payments:admin` JWT; authenticated site and stored owner must match |
 | GET | `/v1/connect/provider-identity` | `payments:admin` JWT; stored owner/site and deployment operator account/site allowlist; TEST configuration only |
-| POST | `/v1/connect/reconcile-legacy-rejection` | `payments:admin` JWT; exact operator/site and rejected legacy binding policy; TEST only; no body/query |
 | GET | `/v1/status` | `payments:admin` JWT |
 | GET | `/v1/checkout-binding` | `payments:checkout` JWT |
 | GET | `/v1/existing-binding` | `payments:checkout` JWT |

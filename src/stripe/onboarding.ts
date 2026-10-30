@@ -1,5 +1,5 @@
 import { validOnboardingUrl } from "../onboarding-url.js";
-import { countryCode } from "../hosted/merchant-country.js";
+import { businessCountry } from "../business-country.js";
 import Stripe from "stripe";
 import type { Mode, OnboardingProvider } from "../hosted/connection.js";
 
@@ -66,7 +66,7 @@ export function createStripeOnboarding(options: { apiKey: string; mode: Mode; re
       return account.id;
     },
     async createAccount(bindingRef, country) {
-      if (!countryCode(country)) throw new Error("merchant_country_required");
+      if (!businessCountry(country)) throw new Error("merchant_country_required");
       const account = await stripe.v2.core.accounts.create({
         identity: { country },
         dashboard: "full",

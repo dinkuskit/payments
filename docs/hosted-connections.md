@@ -119,11 +119,6 @@ new operation on another API or platform. Preserve unresolved state; no reset,
 automatic reconciliation or account deletion is included. See the
 [Accounts v2 migration](accounts-v2-migration.md) for the rollout boundary.
 
-A separately configured operator may [prepare one v2 operation after confirmed
-legacy rejection](rejected-legacy-recovery.md). This preserves the binding and
-original evidence, is disabled by default, and makes no account-create or link
-call. It is not a merchant retry or reset action.
-
 Existing saved account IDs remain in place and are read through their v2 view.
 Readiness requires an applied merchant configuration, active card-payment and
 payout capabilities, and no user requirements that are currently or past due.
@@ -149,9 +144,9 @@ when new payments are disabled. It must never substitute another account.
 The account lifecycle uses the official Stripe SDK 23.0.0 with Accounts v2
 on API `2026-09-30.endive`: creation, readiness reads and hosted account links.
 It requests merchant card payments, full Stripe Dashboard access, and Stripe
-fee collection/negative balance responsibility. An explicit site-scoped TEST
-configuration supplies the merchant country before creation; other identity details and account currency remain with hosted
-onboarding. See [TEST merchant country](test-merchant-country.md). Direct-charge
+fee collection/negative balance responsibility. The owner's chosen business
+country is saved before creation and sent as `identity.country`; other identity details and account currency remain with hosted
+onboarding. See [Business country](business-country.md). Direct-charge
 Checkout and platform diagnostics retain API `2026-08-26.dahlia`. No application fee,
 subscription billing, embedded component or existing-account OAuth linkage is
 introduced. Owners who already have Stripe reuse their verified details

@@ -18,7 +18,13 @@ Commerce's connection disables the standalone order list. The accepted work
 waits until the existing store is selling; this alignment does not start it
 ([decision PR #88](https://github.com/dinkuskit/payments/pull/88)).
 
-Owners who already have Stripe use the same **Set up or resume Stripe** flow:
+Before Stripe setup, the owner picks the store's **Business country** on Payment
+settings from Stripe's supported countries; it is saved before the Stripe account
+is created and fixed after that, in test and live alike, with no operator list
+([Business country](docs/business-country.md), `payments-business-country-047`).
+Authorize.net stores are never asked.
+
+Owners who already have Stripe use the same Stripe setup flow:
 Stripe's networked onboarding lets them sign in and reuse their verified
 business details and bank, and the store gets its own Stripe account under the
 same login. Payments does not attach an existing account through Connect OAuth,
