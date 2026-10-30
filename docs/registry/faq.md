@@ -19,7 +19,7 @@ Stripe test path.
 ## Does Payments create my storefront or manage shipping?
 
 No. Your site provides the storefront, Commerce owns products and orders, and
-[DinkusKit Ship](https://plugins.emdashcms.com/plugins/@smokyco.bsky.social/dinkus-ship)
+[DinkusKit Ship](https://plugins.emdashcms.com/plugins/@dinkuskit.com/dinkus-ship)
 provides the separate shipping-label workflow. Ship is not required to test a
 payment.
 
