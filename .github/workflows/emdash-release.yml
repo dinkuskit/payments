@@ -36,7 +36,7 @@ jobs:
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && inputs.version != '' && github.ref == format('refs/tags/v{0}', inputs.version) && ((inputs.release_mode == 'beta' && contains(inputs.version, '-beta.')) || (inputs.release_mode == 'stable' && !contains(inputs.version, '-beta.')))
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Required only for no-clobber release artifact uploads.
+      contents: read
       id-token: write # Required for the audience-bound GitHub OIDC token.
       attestations: write # Required to sign build provenance.
     outputs:
@@ -142,17 +142,10 @@ jobs:
         with:
           subject-path: ${{ steps.prepare.outputs.bundle-file }}
 
-      - name: Prepare delegated release with listing media
+      - name: Prepare listing media beside the release manifest
         id: media
         if: steps.registry-check.outputs.already_published != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BUNDLE_FILE: ${{ steps.prepare.outputs.bundle-file }}
-          PROVENANCE_FILE: ${{ steps.attest.outputs.bundle-path }}
-        run: |
-          node scripts/registry-release-media.mjs \
-            --bundle-file "$BUNDLE_FILE" \
-            --provenance-file "$PROVENANCE_FILE"
+        run: node scripts/registry-release-media.mjs
 
       # The release service currently ends successful publishes in
       # RELEASE_CONFLICT (emdash-cms/emdash#4159), so this step's
@@ -163,11 +156,15 @@ jobs:
         id: publish
         if: steps.registry-check.outputs.already_published != 'true'
         continue-on-error: true
-        uses: emdash-cms/emdash/apps/release-action@06f911b54f387a1284c767187042d7e11f6044fc # emdash main at generation time; bump deliberately
+        # emdash-cms/emdash#4467 (open): the first release-action that uploads listing
+        # media (emdash-cms/emdash#4464). Move back to an emdash main commit once it merges.
+        uses: emdash-cms/emdash/apps/release-action@45b542c016d35c7a88a590dce8e600e2384c13a9
         with:
           service-url: https://releases.emdashcms.com
           publisher-did: ${{ steps.prepare.outputs.publisher-did }}
-          release-file: ${{ steps.media.outputs.release-file }}
+          bundle-file: ${{ steps.prepare.outputs.bundle-file }}
+          provenance-file: ${{ steps.attest.outputs.bundle-path }}
+          plugin-directory: ${{ steps.media.outputs.plugin-directory }}
 
       - name: Verify release is indexed in EmDash Registry
         id: verify
