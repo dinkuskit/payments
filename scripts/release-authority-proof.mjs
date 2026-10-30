@@ -988,7 +988,7 @@ export async function runReleaseAuthorityProof() {
 
   // Scenario (n): Cut beta pressed while a beta is on test re-cuts it through the release App
   // (release-branch-recut-20261030). With nothing new on main it refuses. The same version moves
-  // forward to main, Add fix copies included, and tags the next beta. A commit only on the branch,
+  // forward to main, Add fix copies included (even of lines main changed again), and tags the next beta. A commit only on the branch,
   // an Add fix copy amended with extra lines, another file mode, other binary bytes or another last
   // newline, or an open ci: release PR for it stops the run with nothing pushed. A new version drops the
   // older branch (its beta tags stay) in the same atomic push.
@@ -1015,6 +1015,16 @@ export async function runReleaseAuthorityProof() {
     await commitOnMain(root, { "src/fix-three.ts": "export const three = 3;\n" }, "fix: three");
     const overCopy = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
     env.state.betaVersions.push(overCopy.version);
+
+    // Two Add fix copies to the same line, then main edits that line again: both copies still count.
+    const lineOnceSha = await commitOnMain(root, { "src/fix-one.ts": "export const one = 11;\n" }, "fix: one again");
+    env.state.betaVersions.push((await runReleaseFlowCli(["add-fix", "--release-version", target, "--commit", lineOnceSha], cliDeps(root, gitExec, env))).version);
+    const lineTwiceSha = await commitOnMain(root, { "src/fix-one.ts": "export const one = 111;\n" }, "fix: one once more");
+    env.state.betaVersions.push((await runReleaseFlowCli(["add-fix", "--release-version", target, "--commit", lineTwiceSha], cliDeps(root, gitExec, env))).version);
+    git(["checkout", "-q", "-f", "main"], root);
+    const settledSha = await commitOnMain(root, { "src/fix-one.ts": "export const one = 1111;\n" }, "fix: one settled");
+    const overEdits = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(overEdits.version);
 
     git(["checkout", "-q", "-f", branch], root);
     await writeFile(join(root, "src/branch-only.ts"), "export const stray = 1;\n", "utf8");
@@ -1074,7 +1084,7 @@ export async function runReleaseAuthorityProof() {
     const newlineError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
     git(["branch", "-f", branch, `${newlineTip}^`], root);
 
-    await runReleaseFlowCli(["promote", "--beta-version", overCopy.version, "--proof-ref", `run-730 (${overCopy.version} @running pass)`], cliDeps(root, gitExec, env));
+    await runReleaseFlowCli(["promote", "--beta-version", overEdits.version, "--proof-ref", `run-730 (${overEdits.version} @running pass)`], cliDeps(root, gitExec, env));
     git(["checkout", "-q", "-f", "main"], root);
     events.length = 0;
     const promotingError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
@@ -1099,6 +1109,9 @@ export async function runReleaseAuthorityProof() {
       !copiedSameCodeError?.includes(`${branch} already has main's newest code`) ||
       overCopy.version !== `${target}-beta.4` ||
       overCopy.movedBranch !== branch ||
+      overEdits.version !== `${target}-beta.7` ||
+      overEdits.movedBranch !== branch ||
+      overEdits.betaSha !== git(["rev-parse", settledSha], root) ||
       !strayError?.includes("which is not on main or a copy of a main commit") ||
       straySideEffects.length > 0 ||
       !amendedError?.includes(`${amendedTip.slice(0, 7)}, which is not on main or a copy of a main commit`) ||
@@ -1117,17 +1130,17 @@ export async function runReleaseAuthorityProof() {
       !nextPush.includes(` :refs/heads/${branch} `) ||
       !nextPush.startsWith(`git:push:--atomic --force-with-lease=refs/heads/${branch}:`) ||
       oldBranch !== "" ||
-      oldTags.length !== 4
+      oldTags.length !== 7
     ) {
       throw new Error(
-        `Scenario (n) failed: ${JSON.stringify({ sameCodeError, moved, movedPush, copied, copiedSameCodeError, overCopy, strayError, straySideEffects, amendedError, amendedSideEffects, modeError, binaryError, binarySideEffects, newlineError, promotingError, next, nextPush, oldBranch, oldTags })}`,
+        `Scenario (n) failed: ${JSON.stringify({ sameCodeError, moved, movedPush, copied, copiedSameCodeError, overCopy, overEdits, strayError, straySideEffects, amendedError, amendedSideEffects, modeError, binaryError, binarySideEffects, newlineError, promotingError, next, nextPush, oldBranch, oldTags })}`,
       );
     }
     scenarios.push({
       id: "n",
       name: "cut_beta_recuts_the_beta_on_test_through_the_release_app",
       status: "PASS",
-      outcome: { sameCodeError, moved: moved.version, overCopy: overCopy.version, strayError, amendedError, modeError, binaryError, newlineError, promotingError, next: next.version, dropped: next.droppedBranches },
+      outcome: { sameCodeError, moved: moved.version, overCopy: overCopy.version, overEdits: overEdits.version, strayError, amendedError, modeError, binaryError, newlineError, promotingError, next: next.version, dropped: next.droppedBranches },
       sideEffects: events,
     });
   });

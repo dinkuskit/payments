@@ -822,8 +822,7 @@ function listReleaseBranches(root = repositoryRoot, gitExec = defaultGit) {
 
 // Cut beta over unpromoted release branches (GrillTrack release-branch-recut-20261030). Returns
 // each one with the commit this run read, after checking it holds nothing main lacks: every commit
-// on it is on main or an Add fix copy (cherry-pick -x) of a main commit whose changes main already
-// holds. It also refuses while a
+// on it is on main or an exact Add fix copy (cherry-pick -x) of a main commit. It also refuses while a
 // ci: release PR for one of them is open, since merging it would release a beta this run replaces.
 function planReleaseBranchRecut({ releaseBranch, headSha, root = repositoryRoot, gitExec = defaultGit, ghExec = defaultGh }) {
   const unreleased = listReleaseBranches(root, gitExec).filter(
@@ -832,15 +831,16 @@ function planReleaseBranchRecut({ releaseBranch, headSha, root = repositoryRoot,
   if (unreleased.length === 0) return [];
 
   const treeOf = (commit) => gitExec(["rev-parse", `${commit}^{tree}`], root);
-  // Main already holds everything a commit changes when replaying that commit onto main (a
-  // three-way merge with the commit's parent as base) leaves main's files exactly as they are.
-  // Git compares whole files, modes and bytes, so an amended copy never passes.
-  const alreadyOnMain = (commit) => {
+  // A commit is an exact copy of its source when replaying the source's change onto the copy's
+  // parent (a three-way merge with the source's parent as base) gives the copy's files. Git compares
+  // whole files, modes and bytes, so an amended copy never passes, and later main edits to the same
+  // lines do not matter.
+  const isExactCopy = (commit, source) => {
     try {
-      const merged = gitExec(["merge-tree", "--write-tree", `--merge-base=${commit}^`, headSha, commit], root);
-      return merged.split("\n")[0].trim() === treeOf(headSha);
+      const replayed = gitExec(["merge-tree", "--write-tree", `--merge-base=${source}^`, `${commit}^`, source], root);
+      return replayed.split("\n")[0].trim() === treeOf(commit);
     } catch {
-      return false; // a conflict: the commit changes something main does differently
+      return false; // a conflict: the copy's parent differs where the source changes
     }
   };
   // Released versions are already kept by their tags: a patch branch starts from one, so its
@@ -861,8 +861,9 @@ function planReleaseBranchRecut({ releaseBranch, headSha, root = repositoryRoot,
       const isCopy = copied.some(
         (source) =>
           resolveCommitSha(source, root, gitExec) &&
-          isAncestor(source, headSha, root, gitExec),
-      ) && alreadyOnMain(commit);
+          isAncestor(source, headSha, root, gitExec) &&
+          isExactCopy(commit, source),
+      );
       if (!isCopy) {
         throw new Error(
           `Cannot cut ${releaseBranch}: ${branch} has ${commit.slice(0, 7)}, which is not on main or a copy of a main commit; nothing was pushed.`,
