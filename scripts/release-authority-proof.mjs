@@ -57,23 +57,24 @@ export async function verifyShippedEmDashWorkflowGateBinding() {
   const gateIdx = emdashWorkflowText.indexOf("node .github/scripts/emdash-dispatch-gate.mjs");
   const prepareIdx = emdashWorkflowText.indexOf("node .github/scripts/prepare-emdash-release.mjs");
   const attestIdx = emdashWorkflowText.indexOf("actions/attest-build-provenance@");
+  const mediaIdx = emdashWorkflowText.indexOf("node scripts/registry-release-media.mjs");
   const releaseActionIdx = emdashWorkflowText.indexOf("emdash-cms/emdash/apps/release-action@");
   const verifyIdx = emdashWorkflowText.indexOf("node .github/scripts/verify-registry-release.mjs");
   if (
     gateIdx === -1 ||
     prepareIdx === -1 ||
     attestIdx === -1 ||
+    mediaIdx === -1 ||
     releaseActionIdx === -1 ||
     verifyIdx === -1 ||
-    !(gateIdx < prepareIdx && prepareIdx < attestIdx && attestIdx < releaseActionIdx && releaseActionIdx < verifyIdx)
+    !(gateIdx < prepareIdx && prepareIdx < attestIdx && attestIdx < mediaIdx && mediaIdx < releaseActionIdx && releaseActionIdx < verifyIdx)
   ) {
     throw new Error(
       "emdash-release.yml must run .github/scripts/emdash-dispatch-gate.mjs before bundle preparation, build provenance attestation, delegated release-action publish, and PDS verification",
     );
   }
 
-  // The Registry job holds no GitHub write token: tags and branches are pushed only by release.yml's
-  // button and merge runs, and the tag run publishes what is already there.
+  // Release artifact uploads use the job token; tag/branch changes remain in release.yml.
   if (emdashWorkflowText.includes("actions/create-github-app-token@") || emdashWorkflowText.includes("RELEASE_APP_PRIVATE_KEY")) {
     throw new Error("emdash-release.yml must not mint a GitHub App token; the version tag already exists when it runs");
   }

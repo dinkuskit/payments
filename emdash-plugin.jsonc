@@ -27,16 +27,30 @@
     }
   },
   "name": "DinkusKit Payments",
-  "description": "Payments setup/status surface for DinkusKit stores (Stripe now, Authorize.net later).",
+  "description": "Connect Stripe to DinkusKit Commerce and check payment readiness from your EmDash admin.",
   "keywords": [
     "payments",
-    "status"
+    "stripe",
+    "checkout",
+    "ecommerce",
+    "payment setup"
   ],
+  "sections": {
+    "description": { "file": "./docs/registry/description.md" },
+    "installation": { "file": "./docs/registry/installation.md" },
+    "faq": { "file": "./docs/registry/faq.md" }
+  },
+  "release": {
+    "artifacts": {
+      "icon": { "file": "./assets/registry/payments.webp" },
+      "screenshots": [{ "file": "./assets/registry/payment-setup-demo.jpg", "lang": "en" }]
+    }
+  },
   "repo": "https://github.com/dinkuskit/payments",
   "publisher": "did:plc:ekk4pjmkh3k3ql2kfoex3qt4",
   "author": {
     "name": "DinkusKit",
-    "url": "https://github.com/dinkuskit"
+    "url": "https://dinkuskit.com"
   },
   "security": {
     "url": "https://github.com/dinkuskit/payments/security"
