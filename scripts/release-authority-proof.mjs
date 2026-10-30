@@ -307,6 +307,7 @@ function createStubEnvironment({
     }
     if (args[0] === "pr" && args[1] === "list") {
       events.push(`gh:pr:list`);
+      if (args.includes("title")) return state.openPrs[0]?.title ?? "";
       return state.openPrs[0]?.number ? String(state.openPrs[0].number) : "";
     }
     if (args[0] === "pr" && args[1] === "create") {
@@ -491,8 +492,6 @@ export async function runReleaseAuthorityProof() {
     const betaRun = await runTagRun({ root, gitExec, env, events, tag: cut.betaTag });
 
     const featureSha = await commitOnMain(root, { ".changeset/gift-notes.md": FEATURE_CHANGESET, "src/gift.ts": "export const gift = true;\n" }, "feat: gift notes");
-    const recutError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
-
     const promoted = await runReleaseFlowCli(
       ["promote", "--beta-version", cut.version, "--proof-ref", `https://github.com/dinkuskit/live-journeys/actions/runs/701 (${cut.version} @running pass)`],
       cliDeps(root, gitExec, env),
@@ -512,7 +511,6 @@ export async function runReleaseAuthorityProof() {
       cut.releaseBranch === "release/0.2.9" &&
       betaRun.registry.ok &&
       env.state.betaVersions.includes("0.2.9-beta.1") &&
-      recutError?.includes("release/0.2.9 is still on test") &&
       promoted.releaseBranch === "release/0.2.9" &&
       prFiles.every((path) => ["package.json", "package-lock.json", "emdash-plugin.jsonc", "CHANGELOG.md", ".changeset/add-feature.md"].includes(path)) &&
       finished.tagPushed &&
@@ -524,7 +522,7 @@ export async function runReleaseAuthorityProof() {
       !branchHasFeature;
     if (!ok) {
       throw new Error(
-        `Scenario (a) failed: ${JSON.stringify({ cut, recutError, prFiles, finished, mainVersion: mainPkg.version, mainPending, branchHasFeature })}`,
+        `Scenario (a) failed: ${JSON.stringify({ cut, prFiles, finished, mainVersion: mainPkg.version, mainPending, branchHasFeature })}`,
       );
     }
     scenarios.push({
@@ -984,6 +982,95 @@ export async function runReleaseAuthorityProof() {
       name: "patch_branch_waits_for_release_on_test_and_backport_keeps_consumed_changesets",
       status: "PASS",
       outcome: { onTestError, stableTag: done.tag, consumedChangesets: done.consumedChangesets, mainVersion: mainPkg.version },
+      sideEffects: events,
+    });
+  });
+
+  // Scenario (n): Cut beta pressed while a beta is on test re-cuts it through the release App
+  // (release-branch-recut-20261030). With nothing new on main it refuses. The same version moves
+  // forward to main, Add fix copies included, and tags the next beta. A commit only on the branch
+  // or an open ci: release PR for it stops the run with nothing pushed. A new version drops the
+  // older branch (its beta tags stay) in the same atomic push.
+  await withSeededRepo("recut-on-test", async ({ events, root, gitExec }) => {
+    const env = createStubEnvironment({ events });
+    const first = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(first.version);
+    const target = first.version.replace(/-beta\.\d+$/, "");
+    const branch = first.releaseBranch;
+    const sameCodeError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
+
+    const fixSha = await commitOnMain(root, { ".changeset/fix-one.md": FIX_CHANGESET, "src/fix-one.ts": "export const one = 1;\n" }, "fix: one");
+    const firstTip = git(["rev-parse", branch], root);
+    events.length = 0;
+    const moved = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(moved.version);
+    const movedPush = events.find((e) => e.startsWith("git:push:")) ?? "";
+
+    const copySha = await commitOnMain(root, { "src/fix-two.ts": "export const two = 2;\n" }, "fix: two");
+    const copied = await runReleaseFlowCli(["add-fix", "--release-version", target, "--commit", copySha], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(copied.version);
+    await commitOnMain(root, { "src/fix-three.ts": "export const three = 3;\n" }, "fix: three");
+    const overCopy = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(overCopy.version);
+
+    git(["checkout", "-q", "-f", branch], root);
+    await writeFile(join(root, "src/branch-only.ts"), "export const stray = 1;\n", "utf8");
+    git(["add", "-A"], root);
+    git(["commit", "-q", "-m", "branch-only edit"], root);
+    const strayTip = git(["rev-parse", "HEAD"], root);
+    await commitOnMain(root, { "src/fix-four.ts": "export const four = 4;\n" }, "fix: four");
+    events.length = 0;
+    const strayError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
+    const straySideEffects = events.filter(SIDE_EFFECT);
+    git(["branch", "-f", branch, `${strayTip}^`], root);
+
+    await runReleaseFlowCli(["promote", "--beta-version", overCopy.version, "--proof-ref", `run-730 (${overCopy.version} @running pass)`], cliDeps(root, gitExec, env));
+    git(["checkout", "-q", "-f", "main"], root);
+    events.length = 0;
+    const promotingError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
+    const promotingSideEffects = events.filter(SIDE_EFFECT);
+    env.state.openPrs.length = 0;
+
+    await commitOnMain(root, { ".changeset/minor.md": FEATURE_CHANGESET, "src/minor.ts": "export const minor = 1;\n" }, "feat: minor");
+    events.length = 0;
+    const next = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    const nextPush = events.find((e) => e.startsWith("git:push:")) ?? "";
+    const oldBranch = git(["branch", "--list", branch], root);
+    const oldTags = git(["tag", "--list", `v${target}-beta.*`], root).split("\n").filter(Boolean);
+    const mainSha = git(["rev-parse", "main"], root);
+
+    if (
+      !sameCodeError?.includes(`${branch} is already at main's newest commit`) ||
+      moved.version !== `${target}-beta.2` ||
+      moved.movedBranch !== branch ||
+      moved.betaSha !== git(["rev-parse", fixSha], root) ||
+      movedPush !== `git:push:--atomic --force-with-lease=refs/heads/${branch}:${firstTip} origin ${moved.betaSha}:refs/heads/${branch} refs/tags/v${target}-beta.2` ||
+      copied.version !== `${target}-beta.3` ||
+      overCopy.version !== `${target}-beta.4` ||
+      overCopy.movedBranch !== branch ||
+      !strayError?.includes("which is not on main or a copy of a main commit") ||
+      straySideEffects.length > 0 ||
+      !promotingError?.includes(`"ci: release v${target}" is open to promote ${branch}`) ||
+      promotingSideEffects.length > 0 ||
+      next.targetVersion === target ||
+      next.version !== `${next.targetVersion}-beta.1` ||
+      next.releaseBranch !== `release/${next.targetVersion}` ||
+      next.droppedBranches !== branch ||
+      next.betaSha !== mainSha ||
+      !nextPush.includes(` :refs/heads/${branch} `) ||
+      !nextPush.startsWith(`git:push:--atomic --force-with-lease=refs/heads/${branch}:`) ||
+      oldBranch !== "" ||
+      oldTags.length !== 4
+    ) {
+      throw new Error(
+        `Scenario (n) failed: ${JSON.stringify({ sameCodeError, moved, movedPush, copied, overCopy, strayError, straySideEffects, promotingError, next, nextPush, oldBranch, oldTags })}`,
+      );
+    }
+    scenarios.push({
+      id: "n",
+      name: "cut_beta_recuts_the_beta_on_test_through_the_release_app",
+      status: "PASS",
+      outcome: { sameCodeError, moved: moved.version, overCopy: overCopy.version, strayError, promotingError, next: next.version, dropped: next.droppedBranches },
       sideEffects: events,
     });
   });
