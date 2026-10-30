@@ -307,6 +307,8 @@ function createStubEnvironment({
     }
     if (args[0] === "pr" && args[1] === "list") {
       events.push(`gh:pr:list`);
+      if (args.includes("merged") && args.includes("title")) return state.mergedPrs.map((pr) => pr.title).join("\n");
+      if (args.includes("title")) return state.openPrs[0]?.title ?? "";
       return state.openPrs[0]?.number ? String(state.openPrs[0].number) : "";
     }
     if (args[0] === "pr" && args[1] === "create") {
@@ -491,8 +493,6 @@ export async function runReleaseAuthorityProof() {
     const betaRun = await runTagRun({ root, gitExec, env, events, tag: cut.betaTag });
 
     const featureSha = await commitOnMain(root, { ".changeset/gift-notes.md": FEATURE_CHANGESET, "src/gift.ts": "export const gift = true;\n" }, "feat: gift notes");
-    const recutError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
-
     const promoted = await runReleaseFlowCli(
       ["promote", "--beta-version", cut.version, "--proof-ref", `https://github.com/dinkuskit/live-journeys/actions/runs/701 (${cut.version} @running pass)`],
       cliDeps(root, gitExec, env),
@@ -512,7 +512,6 @@ export async function runReleaseAuthorityProof() {
       cut.releaseBranch === "release/0.2.9" &&
       betaRun.registry.ok &&
       env.state.betaVersions.includes("0.2.9-beta.1") &&
-      recutError?.includes("release/0.2.9 is still on test") &&
       promoted.releaseBranch === "release/0.2.9" &&
       prFiles.every((path) => ["package.json", "package-lock.json", "emdash-plugin.jsonc", "CHANGELOG.md", ".changeset/add-feature.md"].includes(path)) &&
       finished.tagPushed &&
@@ -524,7 +523,7 @@ export async function runReleaseAuthorityProof() {
       !branchHasFeature;
     if (!ok) {
       throw new Error(
-        `Scenario (a) failed: ${JSON.stringify({ cut, recutError, prFiles, finished, mainVersion: mainPkg.version, mainPending, branchHasFeature })}`,
+        `Scenario (a) failed: ${JSON.stringify({ cut, prFiles, finished, mainVersion: mainPkg.version, mainPending, branchHasFeature })}`,
       );
     }
     scenarios.push({
@@ -984,6 +983,211 @@ export async function runReleaseAuthorityProof() {
       name: "patch_branch_waits_for_release_on_test_and_backport_keeps_consumed_changesets",
       status: "PASS",
       outcome: { onTestError, stableTag: done.tag, consumedChangesets: done.consumedChangesets, mainVersion: mainPkg.version },
+      sideEffects: events,
+    });
+  });
+
+  // Scenario (n): Cut beta pressed while a beta is on test re-cuts it through the release App
+  // (release-branch-recut-20261030). With nothing new on main it refuses. The same version moves
+  // forward to main, Add fix copies included (even of lines main changed again), and tags the next
+  // beta. A commit only on the branch, an Add fix copy amended with extra lines, another file mode,
+  // other binary bytes or another last newline, or a ci: release PR for it that is open or merged
+  // without its tag stops the run with nothing pushed. A new version drops the older branch (its
+  // beta tags stay) in the same atomic push.
+  await withSeededRepo("recut-on-test", async ({ events, root, gitExec }) => {
+    const env = createStubEnvironment({ events });
+    const first = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(first.version);
+    const target = first.version.replace(/-beta\.\d+$/, "");
+    const branch = first.releaseBranch;
+    const sameCodeError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
+
+    const fixSha = await commitOnMain(root, { ".changeset/fix-one.md": FIX_CHANGESET, "src/fix-one.ts": "export const one = 1;\n" }, "fix: one");
+    const firstTip = git(["rev-parse", branch], root);
+    events.length = 0;
+    const moved = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(moved.version);
+    const movedPush = events.find((e) => e.startsWith("git:push:")) ?? "";
+
+    const copySha = await commitOnMain(root, { "src/fix-two.ts": "export const two = 2;\n" }, "fix: two");
+    const copied = await runReleaseFlowCli(["add-fix", "--release-version", target, "--commit", copySha], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(copied.version);
+    git(["checkout", "-q", "-f", "main"], root);
+    const copiedSameCodeError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
+    await commitOnMain(root, { "src/fix-three.ts": "export const three = 3;\n" }, "fix: three");
+    const overCopy = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(overCopy.version);
+
+    // Two Add fix copies to the same line, then main edits that line again: both copies still count.
+    const lineOnceSha = await commitOnMain(root, { "src/fix-one.ts": "export const one = 11;\n" }, "fix: one again");
+    env.state.betaVersions.push((await runReleaseFlowCli(["add-fix", "--release-version", target, "--commit", lineOnceSha], cliDeps(root, gitExec, env))).version);
+    const lineTwiceSha = await commitOnMain(root, { "src/fix-one.ts": "export const one = 111;\n" }, "fix: one once more");
+    env.state.betaVersions.push((await runReleaseFlowCli(["add-fix", "--release-version", target, "--commit", lineTwiceSha], cliDeps(root, gitExec, env))).version);
+    git(["checkout", "-q", "-f", "main"], root);
+    const settledSha = await commitOnMain(root, { "src/fix-one.ts": "export const one = 1111;\n" }, "fix: one settled");
+    const overEdits = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(overEdits.version);
+
+    git(["checkout", "-q", "-f", branch], root);
+    await writeFile(join(root, "src/branch-only.ts"), "export const stray = 1;\n", "utf8");
+    git(["add", "-A"], root);
+    git(["commit", "-q", "-m", "branch-only edit"], root);
+    const strayTip = git(["rev-parse", "HEAD"], root);
+    await commitOnMain(root, { "src/fix-four.ts": "export const four = 4;\n" }, "fix: four");
+    events.length = 0;
+    const strayError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
+    const straySideEffects = events.filter(SIDE_EFFECT);
+    git(["branch", "-f", branch, `${strayTip}^`], root);
+
+    // An Add fix copy amended with extra changes keeps its trailer but is not a copy.
+    git(["checkout", "-q", "-f", branch], root);
+    await writeFile(join(root, "src/fix-two.ts"), "export const two = 2;\nexport const extra = true;\n", "utf8");
+    git(["add", "-A"], root);
+    git(["commit", "-q", "-m", `fix: two\n\n(cherry picked from commit ${copySha})`], root);
+    const amendedTip = git(["rev-parse", "HEAD"], root);
+    git(["checkout", "-q", "-f", "main"], root);
+    events.length = 0;
+    const amendedError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
+    const amendedSideEffects = events.filter(SIDE_EFFECT);
+    git(["branch", "-f", branch, `${amendedTip}^`], root);
+
+    // The same copy with only its file mode changed, and a copy of a binary file with other bytes.
+    git(["checkout", "-q", "-f", branch], root);
+    await writeFile(join(root, "src/fix-two.ts"), "export const two = 2;\n", "utf8");
+    git(["add", "-A"], root);
+    git(["update-index", "--chmod=+x", "src/fix-two.ts"], root);
+    git(["commit", "-q", "-m", `fix: two\n\n(cherry picked from commit ${copySha})`], root);
+    const modeTip = git(["rev-parse", "HEAD"], root);
+    git(["checkout", "-q", "-f", "main"], root);
+    const modeError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
+    git(["branch", "-f", branch, `${modeTip}^`], root);
+
+    // Bytes that decode to the same text (00 80 0a and 00 81 0a) still differ.
+    const binarySha = await commitOnMain(root, { "src/logo.bin": Buffer.from([0x00, 0x80, 0x0a]) }, "chore: logo");
+    git(["checkout", "-q", "-f", branch], root);
+    await writeFile(join(root, "src/logo.bin"), Buffer.from([0x00, 0x81, 0x0a]));
+    git(["add", "-A"], root);
+    git(["commit", "-q", "-m", `chore: logo\n\n(cherry picked from commit ${binarySha})`], root);
+    const binaryTip = git(["rev-parse", "HEAD"], root);
+    git(["checkout", "-q", "-f", "main"], root);
+    events.length = 0;
+    const binaryError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
+    const binarySideEffects = events.filter(SIDE_EFFECT);
+    git(["branch", "-f", branch, `${binaryTip}^`], root);
+
+    // A copy that differs only in the file's last newline.
+    const newlineSha = await commitOnMain(root, { "src/note.txt": "note\n" }, "docs: note");
+    git(["checkout", "-q", "-f", branch], root);
+    await writeFile(join(root, "src/note.txt"), "note", "utf8");
+    git(["add", "-A"], root);
+    git(["commit", "-q", "-m", `docs: note\n\n(cherry picked from commit ${newlineSha})`], root);
+    const newlineTip = git(["rev-parse", "HEAD"], root);
+    git(["checkout", "-q", "-f", "main"], root);
+    const newlineError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
+    git(["branch", "-f", branch, `${newlineTip}^`], root);
+
+    await runReleaseFlowCli(["promote", "--beta-version", overEdits.version, "--proof-ref", `run-730 (${overEdits.version} @running pass)`], cliDeps(root, gitExec, env));
+    git(["checkout", "-q", "-f", "main"], root);
+    events.length = 0;
+    const promotingError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
+    const promotingSideEffects = events.filter(SIDE_EFFECT);
+    // Merged, with publish-merged-release still to tag it: the branch stays where it is.
+    env.state.mergedPrs.push(...env.state.openPrs.splice(0));
+    events.length = 0;
+    const publishingError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
+    const publishingSideEffects = events.filter(SIDE_EFFECT);
+    env.state.mergedPrs.length = 0;
+
+    await commitOnMain(root, { ".changeset/minor.md": FEATURE_CHANGESET, "src/minor.ts": "export const minor = 1;\n" }, "feat: minor");
+    events.length = 0;
+    const next = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    const nextPush = events.find((e) => e.startsWith("git:push:")) ?? "";
+    const oldBranch = git(["branch", "--list", branch], root);
+    const oldTags = git(["tag", "--list", `v${target}-beta.*`], root).split("\n").filter(Boolean);
+    const mainSha = git(["rev-parse", "main"], root);
+
+    if (
+      !sameCodeError?.includes(`${branch} already has main's newest code`) ||
+      moved.version !== `${target}-beta.2` ||
+      moved.movedBranch !== branch ||
+      moved.betaSha !== git(["rev-parse", fixSha], root) ||
+      movedPush !== `git:push:--atomic --force-with-lease=refs/heads/${branch}:${firstTip} origin ${moved.betaSha}:refs/heads/${branch} refs/tags/v${target}-beta.2` ||
+      copied.version !== `${target}-beta.3` ||
+      !copiedSameCodeError?.includes(`${branch} already has main's newest code`) ||
+      overCopy.version !== `${target}-beta.4` ||
+      overCopy.movedBranch !== branch ||
+      overEdits.version !== `${target}-beta.7` ||
+      overEdits.movedBranch !== branch ||
+      overEdits.betaSha !== git(["rev-parse", settledSha], root) ||
+      !strayError?.includes("which is not on main or a copy of a main commit") ||
+      straySideEffects.length > 0 ||
+      !amendedError?.includes(`${amendedTip.slice(0, 7)}, which is not on main or a copy of a main commit`) ||
+      amendedSideEffects.length > 0 ||
+      !modeError?.includes(`${modeTip.slice(0, 7)}, which is not on main or a copy of a main commit`) ||
+      !binaryError?.includes(`${binaryTip.slice(0, 7)}, which is not on main or a copy of a main commit`) ||
+      binarySideEffects.length > 0 ||
+      !newlineError?.includes(`${newlineTip.slice(0, 7)}, which is not on main or a copy of a main commit`) ||
+      !promotingError?.includes(`"ci: release v${target}" is open to promote ${branch}`) ||
+      promotingSideEffects.length > 0 ||
+      !publishingError?.includes(`"ci: release v${target}" is merged and v${target} is not tagged yet`) ||
+      publishingSideEffects.length > 0 ||
+      next.targetVersion === target ||
+      next.version !== `${next.targetVersion}-beta.1` ||
+      next.releaseBranch !== `release/${next.targetVersion}` ||
+      next.droppedBranches !== branch ||
+      next.betaSha !== mainSha ||
+      !nextPush.includes(` :refs/heads/${branch} `) ||
+      !nextPush.startsWith(`git:push:--atomic --force-with-lease=refs/heads/${branch}:`) ||
+      oldBranch !== "" ||
+      oldTags.length !== 7
+    ) {
+      throw new Error(
+        `Scenario (n) failed: ${JSON.stringify({ sameCodeError, moved, movedPush, copied, copiedSameCodeError, overCopy, overEdits, strayError, straySideEffects, amendedError, amendedSideEffects, modeError, binaryError, binarySideEffects, newlineError, promotingError, publishingError, next, nextPush, oldBranch, oldTags })}`,
+      );
+    }
+    scenarios.push({
+      id: "n",
+      name: "cut_beta_recuts_the_beta_on_test_through_the_release_app",
+      status: "PASS",
+      outcome: { sameCodeError, moved: moved.version, overCopy: overCopy.version, overEdits: overEdits.version, strayError, amendedError, modeError, binaryError, newlineError, promotingError, publishingError, next: next.version, dropped: next.droppedBranches },
+      sideEffects: events,
+    });
+  });
+
+  // Scenario (o): a patch beta made by Add fix starts from the released tag, whose release commit
+  // never reaches main. Cut beta still moves it forward when main makes that patch version.
+  await withSeededRepo("recut-patch-beta", async ({ events, root, gitExec }) => {
+    const env = createStubEnvironment({ events });
+    const first = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(first.version);
+    await runReleaseFlowCli(["promote", "--beta-version", first.version, "--proof-ref", `run-740 (${first.version} @running pass)`], cliDeps(root, gitExec, env));
+    squashMergeReleasePr(root);
+    await runReleaseFlowCli(["publish-merged-release"], cliDeps(root, gitExec, env));
+    env.state.openPrs.length = 0;
+
+    const released = first.version.replace(/-beta\.\d+$/, "");
+    const patchVersion = released.replace(/\d+$/, (n) => String(Number(n) + 1));
+    const fixSha = await commitOnMain(root, { ".changeset/patch-one.md": FIX_CHANGESET, "src/patch-one.ts": "export const one = 1;\n" }, "fix: patch one");
+    const patch = await runReleaseFlowCli(["add-fix", "--release-version", patchVersion, "--commit", fixSha], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(patch.version);
+    await commitOnMain(root, { ".changeset/patch-two.md": FIX_CHANGESET.replace("shipping total", "tax line"), "src/patch-two.ts": "export const two = 2;\n" }, "fix: patch two");
+    const recut = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    const mainSha = git(["rev-parse", "main"], root);
+
+    if (
+      patch.version !== `${patchVersion}-beta.1` ||
+      patch.patchBase !== `v${released}` ||
+      recut.version !== `${patchVersion}-beta.2` ||
+      recut.movedBranch !== `release/${patchVersion}` ||
+      recut.betaSha !== mainSha
+    ) {
+      throw new Error(`Scenario (o) failed: ${JSON.stringify({ patch, recut, mainSha })}`);
+    }
+    scenarios.push({
+      id: "o",
+      name: "cut_beta_recuts_a_patch_beta_made_from_a_released_tag",
+      status: "PASS",
+      outcome: { patchBeta: patch.version, patchBase: patch.patchBase, recut: recut.version, moved: recut.movedBranch },
       sideEffects: events,
     });
   });

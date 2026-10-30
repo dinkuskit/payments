@@ -99,6 +99,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.action == 'cut-beta'
         env:
           BETA_VERSION: ${{ inputs.beta_version }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
           if [ -z "$BETA_VERSION" ]; then

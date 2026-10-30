@@ -820,6 +820,89 @@ function listReleaseBranches(root = repositoryRoot, gitExec = defaultGit) {
   return [...names].sort();
 }
 
+// Cut beta over unpromoted release branches (GrillTrack release-branch-recut-20261030). Returns
+// each one with the commit this run read, after checking it holds nothing main lacks: every commit
+// on it is on main or an exact Add fix copy (cherry-pick -x) of a main commit. It also refuses while a
+// ci: release PR for one of them is open, since merging it would release a beta this run replaces,
+// or is merged with its stable tag still to come.
+function planReleaseBranchRecut({ releaseBranch, headSha, root = repositoryRoot, gitExec = defaultGit, ghExec = defaultGh }) {
+  const unreleased = listReleaseBranches(root, gitExec).filter(
+    (branch) => !resolveTagCommitSha(`v${branch.slice(RELEASE_BRANCH_PREFIX.length)}`, root, gitExec),
+  );
+  if (unreleased.length === 0) return [];
+
+  const treeOf = (commit) => gitExec(["rev-parse", `${commit}^{tree}`], root);
+  // A commit is an exact copy of its source when replaying the source's change onto the copy's
+  // parent (a three-way merge with the source's parent as base) gives the copy's files. Git compares
+  // whole files, modes and bytes, so an amended copy never passes, and later main edits to the same
+  // lines do not matter.
+  const isExactCopy = (commit, source) => {
+    try {
+      const replayed = gitExec(["merge-tree", "--write-tree", `--merge-base=${source}^`, `${commit}^`, source], root);
+      return replayed.split("\n")[0].trim() === treeOf(commit);
+    } catch {
+      return false; // a conflict: the copy's parent differs where the source changes
+    }
+  };
+  // Released versions are already kept by their tags: a patch branch starts from one, so its
+  // history includes that release commit, which never reaches main.
+  const releasedTags = listGitTags("v*", root, gitExec).filter((tag) => /^v\d+\.\d+\.\d+$/.test(tag));
+  const replaced = [];
+  for (const branch of unreleased) {
+    const sha = resolveBranchSha(branch, root, gitExec);
+    // Same files as main (main's tip itself, or Add fix copies of everything new) would be a
+    // same-code beta.
+    if (branch === releaseBranch && treeOf(sha) === treeOf(headSha)) {
+      throw new Error(`${releaseBranch} already has main's newest code; nothing new has merged to cut a beta from.`);
+    }
+    const extra = gitExec(["rev-list", sha, "--not", headSha, ...releasedTags], root).split("\n").filter(Boolean);
+    for (const commit of extra) {
+      const message = gitExec(["log", "-1", "--format=%B", commit], root);
+      const copied = [...message.matchAll(/\(cherry picked from commit ([0-9a-f]{7,40})\)/g)].map((match) => match[1]);
+      const isCopy = copied.some(
+        (source) =>
+          resolveCommitSha(source, root, gitExec) &&
+          isAncestor(source, headSha, root, gitExec) &&
+          isExactCopy(commit, source),
+      );
+      if (!isCopy) {
+        throw new Error(
+          `Cannot cut ${releaseBranch}: ${branch} has ${commit.slice(0, 7)}, which is not on main or a copy of a main commit; nothing was pushed.`,
+        );
+      }
+    }
+    replaced.push({ branch, sha });
+  }
+
+  const releasePrTitle = (entry) => `${RELEASE_PR_TITLE_PREFIX} v${entry.branch.slice(RELEASE_BRANCH_PREFIX.length)}`;
+  const openReleasePr = ghExec(
+    ["pr", "list", "--head", RELEASE_PR_BRANCH, "--base", "main", "--state", "open", "--json", "title", "--jq", ".[0].title // empty"],
+    root,
+  ).trim();
+  const promoting = replaced.find((entry) => openReleasePr === releasePrTitle(entry));
+  if (promoting) {
+    throw new Error(
+      `Cannot cut ${releaseBranch}: "${openReleasePr}" is open to promote ${promoting.branch}. Merge it, or close it to drop that release, then press Cut beta again.`,
+    );
+  }
+  // A merged ci: release PR whose stable tag is not out yet (publish-merged-release still queued
+  // or failed) needs its branch exactly where the approved beta left it.
+  const mergedReleasePrs = ghExec(
+    ["pr", "list", "--head", RELEASE_PR_BRANCH, "--base", "main", "--state", "merged", "--limit", "30", "--json", "title", "--jq", ".[].title"],
+    root,
+  )
+    .split("\n")
+    .map((title) => title.trim());
+  const publishing = replaced.find((entry) => mergedReleasePrs.includes(releasePrTitle(entry)));
+  if (publishing) {
+    const version = publishing.branch.slice(RELEASE_BRANCH_PREFIX.length);
+    throw new Error(
+      `Cannot cut ${releaseBranch}: "${releasePrTitle(publishing)}" is merged and v${version} is not tagged yet. Wait for that stable release to publish, then press Cut beta again.`,
+    );
+  }
+  return replaced;
+}
+
 function isAncestor(ancestor, descendant, root = repositoryRoot, gitExec = defaultGit) {
   try {
     gitExec(["merge-base", "--is-ancestor", ancestor, descendant], root);
@@ -1072,20 +1155,17 @@ export async function runReleaseFlowCli(argv, deps = {}) {
       pending.map((entry) => entry.bump),
     );
     const releaseBranch = releaseBranchFor(targetVersion);
-    if (resolveBranchSha(releaseBranch, root, gitExec)) {
+    if (resolveTagCommitSha(`v${targetVersion}`, root, gitExec)) {
       throw new Error(
-        `${releaseBranch} is already cut. Add fix to beta puts a merged fix on it, and Promote releases it.`,
+        `v${targetVersion} is already released. A fix for it goes on ${releaseBranchFor(bumpPatch(targetVersion))} with Add fix to beta.`,
       );
     }
-    // One release on test at a time: the beta store runs the newest beta.
-    const unreleased = listReleaseBranches(root, gitExec).filter(
-      (branch) => !resolveTagCommitSha(`v${branch.slice(RELEASE_BRANCH_PREFIX.length)}`, root, gitExec),
-    );
-    if (unreleased.length > 0) {
-      throw new Error(
-        `${unreleased.join(", ")} is still on test. Promote it (or delete the branch to drop it) before cutting ${releaseBranch}.`,
-      );
-    }
+    // One release on test at a time: the beta store runs the newest beta. An unpromoted release
+    // branch is the beta on test, and pressing Cut beta again re-cuts it (GrillTrack
+    // release-branch-recut-20261030): the same version moves forward to main, an older version is
+    // dropped (its tags stay). The release App does both, so nobody deletes a release branch by hand.
+    const headSha = gitExec(["rev-parse", "HEAD"], root);
+    const replaced = planReleaseBranchRecut({ releaseBranch, headSha, root, gitExec, ghExec });
 
     let version = flags.version?.trim();
     if (version) {
@@ -1111,20 +1191,32 @@ export async function runReleaseFlowCli(argv, deps = {}) {
       releaseBranch,
       slug: BETA_REGISTRY_SLUG,
       changesetCount: pending.length,
+      movedBranch: replaced.find((entry) => entry.branch === releaseBranch)?.branch ?? "",
+      droppedBranches: replaced.filter((entry) => entry.branch !== releaseBranch).map((entry) => entry.branch).join(","),
     };
 
     if (command === "cut-beta") {
-      const headSha = gitExec(["rev-parse", "HEAD"], root);
       const existingTagSha = resolveTagCommitSha(tag, root, gitExec);
       if (existingTagSha && existingTagSha !== headSha) {
         throw new Error(`Tag ${tag} already exists at ${existingTagSha} (HEAD is ${headSha}).`);
       }
-      gitExec(["branch", releaseBranch, headSha], root);
       if (!existingTagSha) gitExec(["tag", tag, headSha], root);
       if (flags["no-push"] !== "true") {
-        // One atomic push: the branch and its beta tag land together or not at all, so a failed
-        // push leaves nothing behind and the button can simply be pressed again.
-        gitExec(["push", "--atomic", "origin", `${headSha}:refs/heads/${releaseBranch}`, `refs/tags/${tag}`], root);
+        // One atomic push: the moved or dropped branches, the new branch and its beta tag land
+        // together or not at all, so a failed push leaves nothing behind and the button can simply
+        // be pressed again. Each lease refuses if a branch changed since this run read it.
+        const leases = replaced.map((entry) => `--force-with-lease=refs/heads/${entry.branch}:${entry.sha}`);
+        const drops = replaced.filter((entry) => entry.branch !== releaseBranch).map((entry) => `:refs/heads/${entry.branch}`);
+        gitExec(
+          ["push", "--atomic", ...leases, "origin", `${headSha}:refs/heads/${releaseBranch}`, ...drops, `refs/tags/${tag}`],
+          root,
+        );
+      }
+      gitExec(["branch", "-f", releaseBranch, headSha], root);
+      for (const entry of replaced) {
+        if (entry.branch !== releaseBranch && resolveCommitSha(`refs/heads/${entry.branch}`, root, gitExec)) {
+          gitExec(["branch", "-D", entry.branch], root);
+        }
       }
       result.betaSha = headSha;
     }
@@ -1179,7 +1271,7 @@ export async function runReleaseFlowCli(argv, deps = {}) {
       );
       if (unreleased.length > 0) {
         throw new Error(
-          `${unreleased.join(", ")} is still on test. Promote it (or delete the branch to drop it) before starting ${releaseBranch}.`,
+          `${unreleased.join(", ")} is still on test. Promote it before starting ${releaseBranch}.`,
         );
       }
       patchBase = `v${parsedTarget.major}.${parsedTarget.minor}.${parsedTarget.patch - 1}`;

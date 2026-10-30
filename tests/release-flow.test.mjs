@@ -879,12 +879,12 @@ test("built sandbox plugin bundle exists and stays under the 128 KB limit", asyn
   assert.ok(result.bytes < MAX_PLUGIN_BUNDLE_BYTES);
 });
 
-test("release-authority-proof harness passes all 13 release-authority scenarios (a)-(m)", async () => {
+test("release-authority-proof harness passes all 15 release-authority scenarios (a)-(o)", async () => {
   const report = await runReleaseAuthorityProof();
   assert.equal(report.allPassed, true);
-  assert.equal(report.scenarioCount, 13);
+  assert.equal(report.scenarioCount, 15);
   assert.deepEqual(
     report.scenarios.map((s) => s.id),
-    ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m"],
+    ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o"],
   );
 });
