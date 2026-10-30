@@ -831,12 +831,13 @@ function planReleaseBranchRecut({ releaseBranch, headSha, root = repositoryRoot,
   );
   if (unreleased.length === 0) return [];
 
-  // The lines a commit adds and removes, so an Add fix copy can be checked against its source on
-  // main whatever the surrounding lines on the branch.
+  // What a commit changes: each file, its mode, and the lines it adds and removes (binary files
+  // as text), so an Add fix copy can be checked against its source on main whatever the
+  // surrounding lines on the branch.
   const changedLines = (commit) =>
-    gitExec(["diff", "--no-color", "--no-ext-diff", `${commit}^`, commit], root)
+    gitExec(["diff", "--no-color", "--no-ext-diff", "--no-renames", "--text", `${commit}^`, commit], root)
       .split("\n")
-      .filter((line) => /^(diff --git |[-+])/.test(line))
+      .filter((line) => /^(diff --git |[-+]|old mode |new mode |new file mode |deleted file mode )/.test(line))
       .join("\n");
   // Released versions are already kept by their tags: a patch branch starts from one, so its
   // history includes that release commit, which never reaches main.
