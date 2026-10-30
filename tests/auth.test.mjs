@@ -24,7 +24,7 @@ test('shared issuer identity is verified with audience, expiry, site, and separa
   // Composed with the hosted routes: the store's checkout pass reads status, never diagnostics.
   const checkoutPass = await issue({ scope: 'payments:checkout' });
   assert.equal((await verify(request(checkoutPass), hostedHttpRoutes['/v1/status'].scope)).siteId, 'site-a');
-  for (const path of ['/v1/connect', '/v1/connect/diagnostics', '/v1/connect/provider-identity', '/v1/connect/reconcile-legacy-rejection']) {
+  for (const path of ['/v1/connect', '/v1/connect/diagnostics', '/v1/connect/provider-identity']) {
     await assert.rejects(verify(request(checkoutPass), hostedHttpRoutes[path].scope));
   }
   await assert.rejects(verify(request(await issue({ site_id: '' })), 'payments:admin'));

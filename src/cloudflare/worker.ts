@@ -33,8 +33,6 @@ import { AuthorizeNetWebhookError, createAuthorizeNetWebhookHandler } from "../a
 import type { PaymentOutcome, PaymentRequest } from "../commerce/checkout-port.js";
 import { checkStripePlatformIdentity } from "../stripe/identity.js";
 import type { ProviderIdentityDiagnostic } from "../provider-identity.js";
-import { resolveMerchantCountry } from "../hosted/merchant-country.js";
-import { legacyRecoveryAdmission } from "../hosted/legacy-recovery.js";
 
 type WakeRow = Record<string, string | number | null> & WakeContext & { deliveryGeneration: number; wokeAt: number; acknowledgedAt: number | null; authorizeNetMerchantId: string | null };
 type PaidTestRow = Record<string, string | number> & { amountMinor: string; paidAt: number; noticed: number; recorded: number };
@@ -94,13 +92,6 @@ export class PaymentConnection extends DurableObject<Env> {
     const sql = this.ctx.storage.sql;
     return createConnectionService({
       mode: "test",
-      merchantCountry: siteId => resolveMerchantCountry(this.env.STRIPE_TEST_MERCHANT_COUNTRY_CONFIG, this.env.STRIPE_TEST_MERCHANT_COUNTRY_SITES, siteId),
-      legacyRecovery: () => legacyRecoveryAdmission(this.env.STRIPE_TEST_LEGACY_V2_RECOVERY, {
-        issuer: this.env.ACCOUNT_ISSUER,
-        operatorAccount: this.env.STRIPE_DIAGNOSTIC_OPERATOR_ACCOUNT,
-        operatorSite: this.env.STRIPE_DIAGNOSTIC_OPERATOR_SITE,
-        expectedPlatform: this.env.STRIPE_DIAGNOSTIC_EXPECTED_ACCOUNT,
-      }),
       store: { transaction: fn => this.ctx.storage.transactionSync(() => fn({
         read: () => {
           const row = sql.exec<{ value: string }>("SELECT value FROM connection_state WHERE id=1").toArray()[0];
@@ -230,7 +221,6 @@ export class PaymentConnection extends DurableObject<Env> {
     });
   }
   async connectionDiagnostics(principal: Principal) { return this.connection().diagnostics(principal); }
-  async prepareRejectedLegacyV2(principal: Principal) { return this.connection().prepareRejectedLegacyV2(principal); }
   async providerIdentityDiagnostic(principal: Principal): Promise<ProviderIdentityDiagnostic> {
     if ((this.env.PAYMENT_PROVIDER as string) === "authorize_net") {
       throw new ConnectionError("diagnostic_unavailable");
@@ -304,12 +294,13 @@ export class PaymentConnection extends DurableObject<Env> {
     if (after?.value !== row.value) throw new ConnectionError("connection_owner_mismatch");
     return { ...result, diagnostics: safeDiagnostics };
   }
-  async startOnboarding(principal: Principal) { return this.connection().connect(principal); }
+  async startOnboarding(principal: Principal, country?: unknown) { return this.connection().connect(principal, country); }
   async status(principal: Principal): Promise<Status> {
     const status = await this.connection().status(principal);
     const testOrder = await this.testOrder(principal, status);
     return testOrder ? { ...status, testOrder } : status;
   }
+  async businessCountry(principal: Principal) { return this.connection().businessCountry(principal); }
   async checkoutBinding(principal: Principal, bindingRef: string) { return this.connection().checkoutBinding(principal, bindingRef); }
   async existingBinding(principal: Principal, bindingRef: string) { return this.connection().existingBinding(principal, bindingRef); }
   async ensureSession(principal: Principal, request: PaymentRequest, origin?: string) {
@@ -597,10 +588,10 @@ export default {
         service: principal => {
           const stub = stubFor(env, principal.siteId);
           return {
-            connect: p => stub.startOnboarding(p),
+            connect: (p, country) => stub.startOnboarding(p, country),
             status: p => stub.status(p),
+            businessCountry: p => stub.businessCountry(p),
             diagnostics: p => stub.connectionDiagnostics(p),
-            prepareRejectedLegacyV2: p => stub.prepareRejectedLegacyV2(p),
             checkoutBinding: (p, ref) => stub.checkoutBinding(p, ref),
             existingBinding: (p, ref) => stub.existingBinding(p, ref),
             providerIdentityDiagnostic: p => stub.providerIdentityDiagnostic(p),

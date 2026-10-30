@@ -1,5 +1,5 @@
 import { decodeDiagnostics, type ConnectionDiagnostics } from "../connection-diagnostics.js";
-import { decodeLegacyRecoveryReceipt } from "../hosted/legacy-recovery.js";
+import { BUSINESS_COUNTRIES } from "../business-country.js";
 import { describeStatusCheckFailure } from "./check-failure.js";
 import type { PassRefusal, SetupRefusal } from "./connection.js";
 import {
@@ -115,7 +115,7 @@ function testOrderStep(status: PaymentsStatus | null, connectionState?: string):
 }
 
 const SETUP_REFUSAL_TEXT: Record<SetupRefusal, string> = {
-  merchant_country_required: "Payments couldn't start Stripe setup because DinkusKit Payments has no business country on file for this store. No Stripe account was created. Ask DinkusKit support to add the store's country, then select Check connection and Set up or resume Stripe.",
+  merchant_country_required: "Stripe setup needs your business country. No Stripe account was created. Select Check connection, choose the country where your business is registered, then select Set up Stripe.",
   payments_service_unconfigured: "Payments couldn't start Stripe setup because the DinkusKit Payments service isn't set up to create payment accounts right now. No Stripe account was created. Contact DinkusKit support.",
 };
 
@@ -126,9 +126,6 @@ function describeSetupRefusal(refusal: unknown): string {
 }
 
 function connectionStep(status: PaymentsStatus | null, connectionState?: string, diagnostics?: ConnectionDiagnostics, checkFailure?: unknown, pendingChecked = false, refusal?: unknown): SetupStep {
-  if (connectionState?.startsWith("legacy_recovery_")) {
-    return { title: "Connect payments", status: "incomplete", description: "Recovery preparation and Stripe setup are separate actions. Check the preparation result below before continuing." };
-  }
   if (connectionState === "provider_identity") {
     return { title: "Connect payments", status: "incomplete", description: "The identity diagnostic does not refresh payment readiness. Use Check connection to check setup status." };
   }
@@ -196,7 +193,8 @@ function connectionStep(status: PaymentsStatus | null, connectionState?: string,
     };
   }
   if (status?.state === "disconnected") {
-    return { title: "Connect payments", status: "incomplete", description: "DinkusKit Payments status was checked. No processor account is connected. Select Set up or resume Stripe to connect your processor account. Already have Stripe? Sign in during setup to reuse your details." };
+    const next = status.businessCountry === null ? "Choose your business country and select Set up Stripe" : "Select Set up or resume Stripe";
+    return { title: "Connect payments", status: "incomplete", description: `DinkusKit Payments status was checked. No processor account is connected. ${next} to connect your processor account. Already have Stripe? Sign in during setup to reuse your details.` };
   }
   if (!status?.connectionEvidence) {
     return {
@@ -366,22 +364,15 @@ export function renderSetupScreen(input: unknown) {
   const statusValue = nested && typeof nested === "object" && "status" in nested ? nested.status : null;
   const processorPending = statusValue && typeof statusValue === "object" && "state" in statusValue && ["connecting", "recovery_required"].includes(statusValue.state as string);
   const needsRecovery = statusValue && typeof statusValue === "object" && "state" in statusValue && statusValue.state === "recovery_required";
-  const recoveryState = state.startsWith("legacy_recovery_");
-  let recoveryText: string | undefined;
-  if (state === "legacy_recovery_confirmation") {
-    recoveryText = "Prepare the support-approved TEST connection for a new setup attempt? This preserves the rejected attempt and does not create a Stripe account. Continue only after support has approved this recovery.";
-  } else if (state === "legacy_recovery_prepared") {
-    try {
-      const receipt = decodeLegacyRecoveryReceipt((input as { receipt?: unknown }).receipt);
-      recoveryText = `Recovery preparation saved for ${receipt.bindingRef}. No Stripe account was created. Select Check connection, then start Stripe setup separately only when approved.`;
-    } catch { recoveryText = "Recovery preparation could not be confirmed. Ask support to check it before starting Stripe setup."; }
-  } else if (state === "legacy_recovery_unconfirmed") {
-    recoveryText = "Recovery preparation could not be confirmed. Ask support to check it before starting Stripe setup.";
-  }
   const evidence = statusValue && typeof statusValue === "object" && "connectionEvidence" in statusValue ? statusValue.connectionEvidence : null;
   const canSetup = !needsRecovery && (state === "ready" || state === "processor_setup") &&
     (!evidence || typeof evidence !== "object" || !("provider" in evidence) ||
       (evidence.provider === "stripe" && "result" in evidence && evidence.result !== "verified"));
+  // Payments says when Stripe still needs the owner's business country (null);
+  // once saved it is fixed and shown read-only. Authorize.net never asks.
+  const statusRecord = statusValue && typeof statusValue === "object" ? statusValue as { state?: unknown; businessCountry?: unknown } : undefined;
+  const savedCountry = statusRecord?.businessCountry;
+  const needsCountry = canSetup && savedCountry === null && statusRecord?.state === "disconnected";
   const actionLabel = action === "continue" ? "Continue" : action === "check" ? "Check connection" : keyProblem ? "Connect again" : state === "action_required" || state === "pass_refused" ? "Sign in again" : "Connect";
   const isConnected = state === "ready" || state === "processor_setup" || state === "provider_identity";
   const supportReference = (state === "ready" || state === "processor_setup") && input && typeof input === "object" && "diagnostics" in input
@@ -406,14 +397,27 @@ export function renderSetupScreen(input: unknown) {
         type: "section",
         text: `${step.title}: ${STEP_LABELS[step.status]}. ${step.description}`,
       })),
+      ...(typeof savedCountry === "string" && Object.hasOwn(BUSINESS_COUNTRIES, savedCountry)
+        ? [{ type: "section", text: `Business country: ${BUSINESS_COUNTRIES[savedCountry]}. Stripe can't change it.` }] : []),
       ...(supportReference ? [{ type: "section", text: `Setup support reference: ${supportReference}` }] : []),
       ...(providerIdentity ? [{
         type: "section",
         text: `Provider identity: ${describeProviderIdentity(providerIdentity)}`,
       }] : []),
-      ...(recoveryText ? [{ type: "section", text: recoveryText }] : []),
       ...(signIn ? [{ type: "section", text: "Changing your Stripe setup needs a fresh DinkusKit sign-in on this page. Select Sign in again, then try it again." }] : []),
       ...(detailSignIn && !signIn ? [{ type: "section", text: "What the last setup attempt recorded is shown only with a fresh DinkusKit sign-in on this page. Select Sign in again to see it." }] : []),
+      ...(needsCountry ? [{
+        type: "form",
+        block_id: "business-country",
+        fields: [{
+          type: "select",
+          action_id: "businessCountry",
+          label: "Business country (where your business is registered; Stripe can't change it later)",
+          options: [{ label: "Choose a country", value: "" }, ...Object.entries(BUSINESS_COUNTRIES).map(([value, label]) => ({ label, value }))],
+          initial_value: "",
+        }],
+        submit: { label: "Set up Stripe", action_id: "setup_processor" },
+      }] : []),
       {
         type: "actions",
         elements: [
@@ -421,12 +425,10 @@ export function renderSetupScreen(input: unknown) {
             ? [{ type: "link", label: "Authorize Payments at DinkusKit", target: { kind: "external", url: input.verificationUri } }] : []),
           ...(state === "processor_setup" && input && typeof input === "object" && "onboardingUrl" in input && typeof input.onboardingUrl === "string"
             ? [{ type: "link", label: "Continue setup at Stripe", target: { kind: "external", url: input.onboardingUrl } }] : []),
-          ...(canSetup ? [{ type: "button", label: "Set up or resume Stripe", action_id: "setup_processor" }] : []),
-          ...(state === "legacy_recovery_confirmation" ? [{ type: "button", label: "Confirm recovery preparation", action_id: "prepare_legacy_v2" }] : []),
-          { type: "button", label: recoveryState ? "Check connection" : actionLabel, action_id: recoveryState ? "check" : action },
+          ...(canSetup && !needsCountry ? [{ type: "button", label: "Set up or resume Stripe", action_id: "setup_processor" }] : []),
+          { type: "button", label: actionLabel, action_id: action },
           ...(action === "check" && !otherRefusal && (!processorPending || signIn || detailSignIn) ? [{ type: "button", label: signIn || detailSignIn ? "Sign in again" : "Reconnect", action_id: "connect" }] : []),
           ...(isConnected ? [{ type: "button", label: "Check provider identity", action_id: "check_provider_identity" }] : []),
-          ...(needsRecovery && "mode" in statusValue && statusValue.mode === "test" ? [{ type: "button", label: "Review support-approved recovery", action_id: "review_legacy_v2" }] : []),
         ],
       },
     ],

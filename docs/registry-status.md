@@ -265,6 +265,20 @@ calls. Diagnostics for a connecting or recovery status stay admin-only: they use
 the viewing admin's own live sign-in (nine calls in all), and without one the
 page asks for Sign in again to see the recorded failure detail.
 
+The plugin reads status with `X-Dinkus-Payments-Include: business-country`.
+Payments then adds `businessCountry` for Stripe only: `null` while no country
+is saved, or the saved code. Authorize.net and older Payments services send no
+field, and the page then shows no country form.
+
+While Payments says Stripe still needs a country (`businessCountry: null`) and
+the status is `disconnected`, the page shows a **Business country** select (Stripe's supported countries, "Choose a country"
+first, nothing preselected) with a **Set up Stripe** submit. The plugin sends
+only a listed code to `POST /v1/connect` as `{"country":"XX"}`; anything else
+goes without a body, which the service refuses for a new connection. Once a
+connection exists the country is fixed: the page shows "Business country:
+<name>. Stripe can't change it." and **Set up or resume Stripe** instead
+(`payments-business-country-047`).
+
 When `POST /v1/connect` refuses with `merchant_country_required` or
 `payments_service_unconfigured`, both of which create nothing, the page names
 that reason. Any other refusal still reads as unconfirmed, and no other

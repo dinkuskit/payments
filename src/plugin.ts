@@ -38,9 +38,12 @@ export function createPaymentsPlugin(config: PaymentsPluginConfig = DEFAULT_CONF
         const type = input.type;
         const actionId = input.action_id;
         try {
+          // The business-country form sends the owner's choice with Set up Stripe.
+          if (type === "form_submit" && actionId === "setup_processor") {
+            const values = input.values && typeof input.values === "object" ? input.values as Record<string, unknown> : {};
+            return renderSetupScreen(await connection.setupProcessor(user, values.businessCountry));
+          }
           if (type === "block_action" && typeof actionId === "string") {
-            if (actionId === "review_legacy_v2") return renderSetupScreen(await connection.prepareLegacyV2(user));
-            if (actionId === "prepare_legacy_v2") return renderSetupScreen(await connection.prepareLegacyV2(user, true));
             if (actionId === "check_provider_identity") return renderSetupScreen(await connection.providerIdentity(routeCtx.user));
             if (actionId === "setup_processor") return renderSetupScreen(await connection.setupProcessor(routeCtx.user));
             if (actionId === "connect") return renderSetupScreen(await connection.start(routeCtx.user));

@@ -1,7 +1,7 @@
 import { validOnboardingUrl } from "../onboarding-url.js";
 import { decodeProviderIdentityDiagnostic, type ProviderIdentityDiagnostic } from "../provider-identity.js";
 import { decodeDiagnostics, type ConnectionDiagnostics } from "../connection-diagnostics.js";
-import { decodeLegacyRecoveryReceipt, type LegacyRecoveryReceipt } from "../hosted/legacy-recovery.js";
+import { BUSINESS_COUNTRY_HEADER, businessCountry } from "../business-country.js";
 import { pluginResponse } from "emdash/plugin";
 import {
   betaRegistryInstallationIdentity,
@@ -96,9 +96,6 @@ type Control = {
   lastStatus?: { checkedAt: number; status: unknown };
 };
 export type RegistryFlowResult =
-  | { state: "legacy_recovery_confirmation" }
-  | { state: "legacy_recovery_prepared"; receipt: LegacyRecoveryReceipt }
-  | { state: "legacy_recovery_unconfirmed" }
   | { state: "provider_identity"; providerIdentity: ProviderIdentityDiagnostic }
   | { state: "unconfigured" | "disconnected" | "connecting" | "ready" | "checking" | "recovery_required"; receipt?: ProofReceipt; status?: unknown; diagnostics?: ConnectionDiagnostics; signIn?: true; detailSignIn?: true }
   | { state: "action_required" }
@@ -399,7 +396,7 @@ export function createRegistryConnection(options: {
   async function readStatus(c: Control, binding: Binding, token: string, url: URL, opts: { diagnostics?: boolean; remember?: boolean; storePass?: boolean; diagnosticsToken?: () => Promise<string | null> } = {}): Promise<RegistryFlowResult> {
     let stage: StatusCheckStage = "fetch_status";
     try {
-      const result = await options.http!.fetch(url.href, noRedirect({ headers: { Authorization: `Bearer ${token}`, "X-Dinkus-Site": binding.siteId } }));
+      const result = await options.http!.fetch(url.href, noRedirect({ headers: { Authorization: `Bearer ${token}`, "X-Dinkus-Site": binding.siteId, [BUSINESS_COUNTRY_HEADER.name]: BUSINESS_COUNTRY_HEADER.value } }));
       if (result.status === 401 || result.status === 403) return { state: "action_required" };
       if (!result.ok) return checkFailure(stage, result.status);
       stage = "decode_status";
@@ -424,7 +421,7 @@ export function createRegistryConnection(options: {
       return { state: "ready", status: { availability: "available", status: decoded, message: "Payments status checked." }, ...(diagnostics ? { diagnostics } : {}), ...(detailSignIn ? { detailSignIn: true as const } : {}) };
     } catch { return checkFailure(stage); }
   }
-  async function setupProcessor(user: UserInfo): Promise<RegistryFlowResult> {
+  async function setupProcessor(user: UserInfo, country?: unknown): Promise<RegistryFlowResult> {
     const prior = await current();
     const c = prior?.value;
     if (!origin || !options.http || !configured) return { state: "unconfigured" };
@@ -439,7 +436,11 @@ export function createRegistryConnection(options: {
       if (verified.subject !== c.binding.subject || c.binding.issuer !== REGISTRY_ISSUER) return { state: "action_required" };
       if ((await current())?.revision !== prior!.revision || c.expiresAt <= now()) return { state: "action_required" };
       requested = true;
-      const response = await options.http.fetch(`${endpoint.origin}/v1/connect`, noRedirect({ method: "POST", headers: { Authorization: `Bearer ${verified.token}`, "X-Dinkus-Site": c.binding.siteId } }));
+      // Only a listed business country is sent; without one the service refuses
+      // a new Stripe setup with merchant_country_required and creates nothing.
+      const response = await options.http.fetch(`${endpoint.origin}/v1/connect`, noRedirect(businessCountry(country)
+        ? { method: "POST", headers: { Authorization: `Bearer ${verified.token}`, "X-Dinkus-Site": c.binding.siteId, "Content-Type": "application/json" }, body: JSON.stringify({ country }) }
+        : { method: "POST", headers: { Authorization: `Bearer ${verified.token}`, "X-Dinkus-Site": c.binding.siteId } }));
       if (response.status === 401 || response.status === 403) return { state: "action_required" };
       if (!response.ok) {
         const refusal = await response.json().then(value => (value as { error?: unknown })?.error, () => undefined);
@@ -483,29 +484,6 @@ export function createRegistryConnection(options: {
       return { state: "provider_identity", providerIdentity: decodeProviderIdentityDiagnostic(await response.json(), now()) };
     } catch { return unavailable(); }
   }
-  async function prepareLegacyV2(user: UserInfo, confirmed = false): Promise<RegistryFlowResult> {
-    let requested = false;
-    try {
-      const prior = await current(), c = prior?.value;
-      const endpoint = statusUrl();
-      if (!origin || !options.http || !endpoint || endpoint.port) return { state: "unconfigured" };
-      if (!c || c.phase !== "complete" || c.adminId !== user?.id || c.origin !== origin || c.expiresAt <= now() || !c.binding) return signInFor(user);
-      const stored = await secret(c);
-      if (stored.parsed.kind !== "session") return { state: "action_required" };
-      const verified = await verifySessionToken(stored.parsed.token, c.binding.siteId);
-      if (verified.subject !== c.binding.subject || c.binding.issuer !== REGISTRY_ISSUER ||
-          (await current())?.revision !== prior!.revision || c.expiresAt <= now()) return { state: "action_required" };
-      if (!confirmed) return { state: "legacy_recovery_confirmation" };
-      requested = true;
-      const response = await options.http.fetch(`${endpoint.origin}/v1/connect/reconcile-legacy-rejection`, noRedirect({
-        method: "POST", headers: { Authorization: `Bearer ${verified.token}`, "X-Dinkus-Site": c.binding.siteId },
-      }));
-      if (!response.ok) return { state: "legacy_recovery_unconfirmed" };
-      const receipt = decodeLegacyRecoveryReceipt(await response.json(), now());
-      if ((await current())?.revision !== prior!.revision || c.expiresAt <= now()) return { state: "legacy_recovery_unconfirmed" };
-      return { state: "legacy_recovery_prepared", receipt };
-    } catch { return { state: requested ? "legacy_recovery_unconfirmed" : "action_required" }; }
-  }
   return {
     start,
     receipt,
@@ -513,7 +491,6 @@ export function createRegistryConnection(options: {
     status,
     setupProcessor,
     providerIdentity,
-    prepareLegacyV2,
     proofPath,
     callbackPath,
     installedPluginId: installation?.installedPluginId ?? null,

@@ -1,3 +1,5 @@
+import { businessCountry as listedCountry } from "../business-country.js";
+
 export const STATUS_STATES = [
   "disconnected",
   "connecting",
@@ -32,6 +34,8 @@ export interface PaymentsStatus {
   bindingRef?: string;
   connectionEvidence?: ConnectionEvidence;
   testOrder?: TestOrderEvidence;
+  /** Stripe's business country: saved, or null while Stripe still needs one. Absent when not asked for or not Stripe. */
+  businessCountry?: string | null;
 }
 
 export interface StatusProjection {
@@ -40,7 +44,7 @@ export interface StatusProjection {
   message: string;
 }
 
-const statusKeys = new Set(["state", "mode", "bindingRef", "connectionEvidence", "testOrder"]);
+const statusKeys = new Set(["state", "mode", "bindingRef", "connectionEvidence", "testOrder", "businessCountry"]);
 const evidenceKeys = new Set(["provider", "mode", "result", "accountRef"]);
 // Latest instant a JavaScript Date can show.
 const MAX_DATE_MS = 8_640_000_000_000_000;
@@ -122,6 +126,9 @@ export function decodeStatus(value: unknown): PaymentsStatus {
   const connectionEvidence = value.connectionEvidence === undefined
     ? undefined
     : decodeConnectionEvidence(value.connectionEvidence, { state: value.state as StatusState, mode: value.mode });
+  if (value.businessCountry !== undefined && value.businessCountry !== null && !listedCountry(value.businessCountry)) throw new Error("invalid_status");
+  // Only Stripe asks, so the field never sits beside Authorize.net evidence.
+  if (value.businessCountry !== undefined && connectionEvidence?.provider === "authorize_net") throw new Error("invalid_status");
   const testOrder = value.testOrder === undefined
     ? undefined
     : decodeTestOrder(value.testOrder, { mode: value.mode, bindingRef: value.bindingRef, connectionEvidence });
@@ -131,6 +138,7 @@ export function decodeStatus(value: unknown): PaymentsStatus {
     ...(value.bindingRef === undefined ? {} : { bindingRef: value.bindingRef }),
     ...(connectionEvidence === undefined ? {} : { connectionEvidence }),
     ...(testOrder === undefined ? {} : { testOrder }),
+    ...(value.businessCountry === undefined ? {} : { businessCountry: value.businessCountry as string | null }),
   };
 }
 

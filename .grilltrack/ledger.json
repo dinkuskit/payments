@@ -2811,6 +2811,20 @@
           "review_source_identity": null,
           "to": "verified",
           "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
+        },
+        {
+          "at": "2026-10-30T12:39:30+00:00",
+          "choice": "One confirmed operator-only TEST preparation fixes owner/site/binding and exact failure/rejection evidence, validates the actual stored start as a safe nonnegative integer no later than failure and at least 23 hours old, and captures full history and digest internally. Keep no-account/no-protocol/scope/recovery/repair admission, country/platform, expiry, one operation ID, full transactional snapshot comparison, replay integrity and late-writer fences. No external fingerprint or expectedStartedAt, new endpoint, consumer, reset or automatic Setup. An out-of-band start-only rewrite before invocation is outside this detection boundary.",
+          "from": "verified",
+          "implementation_ref": "src/hosted/connection.ts;src/hosted/legacy-recovery.ts;tests/legacy-v2-recovery.test.mjs;docs/rejected-legacy-recovery.md",
+          "note": "Owner-chosen Business country replaces the operator TEST country bindings; the one-time legacy v2 preparation that depended on them is removed (no real stores exist).",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "superseded",
+          "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
         }
       ],
       "id": "rejected-legacy-v2-preparation-038",
@@ -2838,9 +2852,9 @@
       "review_ref": null,
       "review_result": null,
       "review_source_identity": null,
-      "status": "verified",
-      "superseded_by": null,
-      "updated_at": "2026-10-19T19:56:35+00:00",
+      "status": "superseded",
+      "superseded_by": "payments-business-country-047",
+      "updated_at": "2026-10-30T12:39:30+00:00",
       "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
     },
     {
@@ -3365,6 +3379,77 @@
       "superseded_by": null,
       "updated_at": "2026-10-29T23:42:19+00:00",
       "verification_ref": "tests/registry-status.test.mjs ('a checked store with no Stripe account points owners who already have Stripe to Stripe's sign-in'); Stripe Sandbox dinkuskit-playground networked onboarding already ON (Ronald's Computer Use check, 29 Oct 2026 23:41 UTC, no settings changed)"
+    },
+    {
+      "baseline_ref": "git:4c567a1",
+      "candidate_refs": [],
+      "choice": "Payment settings asks every Stripe store for a required Business country (where the business is registered) before Set up or resume Stripe, in TEST and LIVE alike, with no operator list or store cap. The choice is a select of Stripe's supported business countries; nothing is preselected and nothing is inferred (not from IP, hosting, currency, email, browser, Commerce store or shipping countries). Set up or resume Stripe sends the chosen ISO alpha-2 code to hosted POST /v1/connect, which validates it against the same list, saves it as the connection's creationCountry before the Accounts v2 create call and sends it as identity.country. Once saved, the country is fixed: the page shows it read-only and later setup presses reuse it, since Stripe does not let an account change country. A missing or unsupported country is refused before any Stripe call and creates nothing. Authorize.net is unchanged and never asks: its owner brings an existing merchant account whose country the acquirer already set. The operator-only TEST country bindings (STRIPE_TEST_MERCHANT_COUNTRY_SITES, STRIPE_TEST_MERCHANT_COUNTRY_CONFIG, their 16-store cap) and the one-time rejected-legacy-v2 preparation path tied to them are removed; no real stores exist yet, so no compatibility path is kept.",
+      "context_ref": "https://github.com/dinkuskit/commerce/issues/222",
+      "created_at": "2026-10-30T12:39:22+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-existing-stripe-account-046"
+      ],
+      "domain": "Existing Stripe account attachment",
+      "history": [
+        {
+          "at": "2026-10-30T12:39:26+00:00",
+          "choice": "Payment settings asks every Stripe store for a required Business country (where the business is registered) before Set up or resume Stripe, in TEST and LIVE alike, with no operator list or store cap. The choice is a select of Stripe's supported business countries; nothing is preselected and nothing is inferred (not from IP, hosting, currency, email, browser, Commerce store or shipping countries). Set up or resume Stripe sends the chosen ISO alpha-2 code to hosted POST /v1/connect, which validates it against the same list, saves it as the connection's creationCountry before the Accounts v2 create call and sends it as identity.country. Once saved, the country is fixed: the page shows it read-only and later setup presses reuse it, since Stripe does not let an account change country. A missing or unsupported country is refused before any Stripe call and creates nothing. Authorize.net is unchanged and never asks: its owner brings an existing merchant account whose country the acquirer already set. The operator-only TEST country bindings (STRIPE_TEST_MERCHANT_COUNTRY_SITES, STRIPE_TEST_MERCHANT_COUNTRY_CONFIG, their 16-store cap) and the one-time rejected-legacy-v2 preparation path tied to them are removed; no real stores exist yet, so no compatibility path is kept.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-30T12:55:30+00:00",
+          "choice": "Payment settings asks every Stripe store for a required Business country (where the business is registered) before Set up or resume Stripe, in TEST and LIVE alike, with no operator list or store cap. The choice is a select of Stripe's supported business countries; nothing is preselected and nothing is inferred (not from IP, hosting, currency, email, browser, Commerce store or shipping countries). Set up or resume Stripe sends the chosen ISO alpha-2 code to hosted POST /v1/connect, which validates it against the same list, saves it as the connection's creationCountry before the Accounts v2 create call and sends it as identity.country. Once saved, the country is fixed: the page shows it read-only and later setup presses reuse it, since Stripe does not let an account change country. A missing or unsupported country is refused before any Stripe call and creates nothing. Authorize.net is unchanged and never asks: its owner brings an existing merchant account whose country the acquirer already set. The operator-only TEST country bindings (STRIPE_TEST_MERCHANT_COUNTRY_SITES, STRIPE_TEST_MERCHANT_COUNTRY_CONFIG, their 16-store cap) and the one-time rejected-legacy-v2 preparation path tied to them are removed; no real stores exist yet, so no compatibility path is kept.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-10-30T12:55:30+00:00",
+          "choice": "Payment settings asks every Stripe store for a required Business country (where the business is registered) before Set up or resume Stripe, in TEST and LIVE alike, with no operator list or store cap. The choice is a select of Stripe's supported business countries; nothing is preselected and nothing is inferred (not from IP, hosting, currency, email, browser, Commerce store or shipping countries). Set up or resume Stripe sends the chosen ISO alpha-2 code to hosted POST /v1/connect, which validates it against the same list, saves it as the connection's creationCountry before the Accounts v2 create call and sends it as identity.country. Once saved, the country is fixed: the page shows it read-only and later setup presses reuse it, since Stripe does not let an account change country. A missing or unsupported country is refused before any Stripe call and creates nothing. Authorize.net is unchanged and never asks: its owner brings an existing merchant account whose country the acquirer already set. The operator-only TEST country bindings (STRIPE_TEST_MERCHANT_COUNTRY_SITES, STRIPE_TEST_MERCHANT_COUNTRY_CONFIG, their 16-store cap) and the one-time rejected-legacy-v2 preparation path tied to them are removed; no real stores exist yet, so no compatibility path is kept.",
+          "from": "implemented",
+          "implementation_ref": "src/business-country.ts; src/hosted/connection.ts; src/hosted/http.ts; src/registry/setup.ts; src/registry/connection.ts; src/plugin.ts; removed src/hosted/merchant-country.ts and src/hosted/legacy-recovery.ts; docs/business-country.md; docs/website/reference/payments.md",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-business-country-047",
+      "implementation_ref": "src/business-country.ts; src/hosted/connection.ts; src/hosted/http.ts; src/registry/setup.ts; src/registry/connection.ts; src/plugin.ts; removed src/hosted/merchant-country.ts and src/hosted/legacy-recovery.ts; docs/business-country.md; docs/website/reference/payments.md",
+      "question": "How does a store owner give Stripe the business country it requires before Payments creates the store's Stripe account, in TEST and LIVE, for every store?",
+      "rationale": "Stripe Accounts v2 rejects account creation without identity.country (identity_country_required), and Payments had no source for it in LIVE and only an operator allowlist in TEST, which blocked independent stores (commerce#222). WooPayments asks for Business location on its payments settings page before onboarding and warns it cannot change later; Shopify takes it from the store's business address; Stripe-hosted onboarding fixes the country once set. Payments stays usable without Commerce, so it asks for the country itself instead of reading Commerce settings. Owner approved the shape, the supported-country list and removing the operator path on 2026-10-30.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "verified",
+      "superseded_by": null,
+      "updated_at": "2026-10-30T12:55:30+00:00",
+      "verification_ref": "tests/business-country.test.mjs; tests/registry-status.test.mjs ('a store with no Stripe connection picks its business country before setup'); tests/registry-connection.test.mjs ('Set up Stripe sends a listed business country and nothing else'); tests/registry-runtime.test.ts ('compiled business-country form ...'); tests/runtime/merchant-http.test.ts; bin/verify-payments full steps green locally 2026-10-30"
     }
   ],
   "last_activation": {
@@ -3387,5 +3472,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-29T23:42:19+00:00"
+  "updated_at": "2026-10-30T12:55:30+00:00"
 }
