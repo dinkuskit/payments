@@ -43,7 +43,34 @@ export function recordMatches(value, expected) {
     if (artifact.blob?.size !== expected.size) reasons.push("package blob size differs");
     if (artifact.blob?.mimeType !== "application/gzip") reasons.push("package blob is not gzip");
   }
+  if (expected.media) {
+    for (const [slot, images] of Object.entries(expected.media)) {
+      const published = slot === "screenshots" ? value.artifacts?.screenshots ?? [] : value.artifacts?.[slot] ? [value.artifacts[slot]] : [];
+      if (published.length !== images.length) reasons.push(`${slot} count differs`);
+      for (let index = 0; index < images.length; index += 1) {
+        const actual = published[index];
+        const image = images[index];
+        if (!actual || actual.checksum !== image.checksum || actual.blob?.size !== image.size || actual.blob?.mimeType !== image.contentType) {
+          reasons.push(`${slot}[${index}] media differs`);
+        }
+      }
+    }
+  }
   return { ok: reasons.length === 0, reasons };
+}
+
+export async function expectedListingMedia(manifestPath) {
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  const media = {};
+  for (const slot of ["icon", "banner", "screenshots"]) {
+    const entries = slot === "screenshots" ? manifest.release?.artifacts?.screenshots ?? [] : manifest.release?.artifacts?.[slot] ? [manifest.release.artifacts[slot]] : [];
+    media[slot] = await Promise.all(entries.map(async ({ file }) => {
+      const bytes = await readFile(file);
+      const contentType = /\.webp$/i.test(file) ? "image/webp" : /\.png$/i.test(file) ? "image/png" : "image/jpeg";
+      return { checksum: computePackageChecksum(bytes), size: bytes.length, contentType };
+    }));
+  }
+  return media;
 }
 
 export async function resolvePdsEndpoint(publisherDid, fetchImpl = fetch) {
@@ -88,6 +115,7 @@ function parseArgs(argv) {
     publisherDid: process.env.PUBLISHER_DID || undefined,
     selector: process.env.EMDASH_RELEASE_SELECTOR || undefined,
     bundleFile: process.env.BUNDLE_FILE || undefined,
+    mediaManifest: undefined,
     attempts: Number.parseInt(process.env.VERIFY_ATTEMPTS || "20", 10),
     delayMs: Number.parseInt(process.env.VERIFY_DELAY_MS || "15000", 10),
   };
@@ -128,6 +156,8 @@ function parseArgs(argv) {
     } else if (arg === "--attempts") {
       options.attempts = Number.parseInt(argv[index + 1] ?? "20", 10);
       index += 1;
+    } else if (arg === "--media-manifest") {
+      options.mediaManifest = argv[++index];
     } else if (arg.startsWith("--attempts=")) {
       options.attempts = Number.parseInt(arg.slice("--attempts=".length), 10);
     } else if (arg === "--delay-ms") {
@@ -199,6 +229,7 @@ async function verifyPdsRelease({
   slug,
   version,
   bundleFile,
+  mediaManifest,
   attempts,
   delayMs,
   fetchImpl = fetch,
@@ -209,6 +240,7 @@ async function verifyPdsRelease({
     version,
     checksum: computePackageChecksum(bytes),
     size: bytes.byteLength,
+    ...(mediaManifest ? { media: await expectedListingMedia(mediaManifest) } : {}),
   };
   const pds = await resolvePdsEndpoint(publisherDid, fetchImpl);
 
@@ -276,7 +308,7 @@ async function verifyRegistryHttp({ registryUrl, slug, version, attempts, delayM
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const { registryUrl, slug, version, publisherDid, bundleFile, attempts, delayMs } = parseArgs(
+  const { registryUrl, slug, version, publisherDid, bundleFile, mediaManifest, attempts, delayMs } = parseArgs(
     process.argv.slice(2),
   );
 
@@ -285,7 +317,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
 
   if (publisherDid && bundleFile) {
-    await verifyPdsRelease({ publisherDid, slug, version, bundleFile, attempts, delayMs });
+    await verifyPdsRelease({ publisherDid, slug, version, bundleFile, mediaManifest, attempts, delayMs });
   } else {
     await verifyRegistryHttp({ registryUrl, slug, version, attempts, delayMs });
   }

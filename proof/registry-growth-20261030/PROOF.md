@@ -38,6 +38,18 @@ Node `v24.22.0`; pinned plugin CLI `0.13.5`, EmDash `1.4.0`.
 - After adding the final screenshot,
   `node --test --test-name-pattern='prepareRegistryWorkspace|prepare-emdash-release.mjs' tests/release-flow.test.mjs`
   rechecks the changed staging paths.
+- The media transport pilot adds eight focused tests for source-record parsing,
+  checksummed image inclusion, pre-upload input rejection, matching-asset reuse,
+  conflict refusal, no-clobber uploads, upload races and missing beta releases.
+  GitHub calls are mocked. The 22 release-flow tests, including the 15 authority
+  scenarios, passed with the workflow's media step between attestation and the
+  pinned release action. No upload or release was performed by these tests.
+- A full local media preparation also used the real validated Payments 0.4.0
+  tarball and the actual icon/screenshot bytes with mocked GitHub transport.
+  The real source-record parser accepted the result, two artifact uploads were
+  simulated, and the record preserved the bundle's canonical network access.
+  The provenance file was a fixture for transport only; no live signature or
+  release-service publication is claimed.
 - `npm run audit:repo` and `git diff --check` passed before commit.
 - Section sizes: description 1,201 bytes / 1,199 graphemes; installation
   921 / 920; FAQ 1,326 / 1,326. Each is below 20,000 bytes / 2,000 graphemes.
@@ -75,14 +87,31 @@ The temporary wrapper is not distributed in the plugin.
 No registry update, release, deployment, live account connection or payment
 was performed. Source metadata does not update an existing package profile
 automatically: preview and approve `emdash-plugin update-package` separately
-for the stable listing. Artwork is release metadata and must go through the
-approved publisher path. The pinned CLI's direct `publish` uploads listing
-images separately; the existing delegated release workflow passes only the
-bundle and provenance to its action. Its tarball contains runtime files, not
-the listing images. Verify or extend the delegated action's image transport
-before claiming that a release will display this artwork. Merely validating
-the manifest does not prove that transport. Do not overwrite an existing
-release version.
+for the stable listing. Artwork is release metadata and uses the prepared
+delegated media path described in `RELEASING.md`. The source record keeps
+mandatory build provenance and declared access from the validated bundle;
+images are checksummed URLs pinned to the source commit. The unchanged pinned
+release action's `release-file` path and service materialization implement the
+media transfer. This is source and mocked-transport proof, not an observed
+published listing. Do not overwrite an existing release version.
+
+The pilot requests **contents: write** only for the reusable publish job and
+its caller to upload release assets with the existing job token. This is a
+reviewable workflow-permission change requiring merge approval, not a live
+account permission change. No new secret, App permission, PDS credential,
+dependency or direct-publish bypass is introduced. Existing equal assets are
+downloaded and byte-verified; different bytes fail closed. A missing beta
+GitHub Release is created as a prerelease only after the existing tag gate;
+stable release creation remains owned by that gate. GitHub immutability
+restrictions fail closed rather than being disabled.
+
+Upstream source checked at
+[`06f911b54f387a1284c767187042d7e11f6044fc`](https://github.com/emdash-cms/emdash/tree/06f911b54f387a1284c767187042d7e11f6044fc):
+`apps/release-action/src/run.ts`,
+`packages/registry-client/src/release-service/source-record.ts`, and
+`apps/release-service/src/publishing/materialize.ts`. The action accepts the
+full URL-source record, the parser requires provenance, and the service
+checks image bytes/MIME/dimensions before uploading PDS blobs.
 
 This work proves validated source and local packaging, not a newly indexed
 listing, completed merchant onboarding or live-payment availability.
