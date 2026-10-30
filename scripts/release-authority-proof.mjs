@@ -1010,6 +1010,8 @@ export async function runReleaseAuthorityProof() {
     const copySha = await commitOnMain(root, { "src/fix-two.ts": "export const two = 2;\n" }, "fix: two");
     const copied = await runReleaseFlowCli(["add-fix", "--release-version", target, "--commit", copySha], cliDeps(root, gitExec, env));
     env.state.betaVersions.push(copied.version);
+    git(["checkout", "-q", "-f", "main"], root);
+    const copiedSameCodeError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
     await commitOnMain(root, { "src/fix-three.ts": "export const three = 3;\n" }, "fix: three");
     const overCopy = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
     env.state.betaVersions.push(overCopy.version);
@@ -1053,12 +1055,13 @@ export async function runReleaseAuthorityProof() {
     const mainSha = git(["rev-parse", "main"], root);
 
     if (
-      !sameCodeError?.includes(`${branch} is already at main's newest commit`) ||
+      !sameCodeError?.includes(`${branch} already has main's newest code`) ||
       moved.version !== `${target}-beta.2` ||
       moved.movedBranch !== branch ||
       moved.betaSha !== git(["rev-parse", fixSha], root) ||
       movedPush !== `git:push:--atomic --force-with-lease=refs/heads/${branch}:${firstTip} origin ${moved.betaSha}:refs/heads/${branch} refs/tags/v${target}-beta.2` ||
       copied.version !== `${target}-beta.3` ||
+      !copiedSameCodeError?.includes(`${branch} already has main's newest code`) ||
       overCopy.version !== `${target}-beta.4` ||
       overCopy.movedBranch !== branch ||
       !strayError?.includes("which is not on main or a copy of a main commit") ||
@@ -1078,7 +1081,7 @@ export async function runReleaseAuthorityProof() {
       oldTags.length !== 4
     ) {
       throw new Error(
-        `Scenario (n) failed: ${JSON.stringify({ sameCodeError, moved, movedPush, copied, overCopy, strayError, straySideEffects, amendedError, amendedSideEffects, promotingError, next, nextPush, oldBranch, oldTags })}`,
+        `Scenario (n) failed: ${JSON.stringify({ sameCodeError, moved, movedPush, copied, copiedSameCodeError, overCopy, strayError, straySideEffects, amendedError, amendedSideEffects, promotingError, next, nextPush, oldBranch, oldTags })}`,
       );
     }
     scenarios.push({
@@ -1086,6 +1089,44 @@ export async function runReleaseAuthorityProof() {
       name: "cut_beta_recuts_the_beta_on_test_through_the_release_app",
       status: "PASS",
       outcome: { sameCodeError, moved: moved.version, overCopy: overCopy.version, strayError, amendedError, promotingError, next: next.version, dropped: next.droppedBranches },
+      sideEffects: events,
+    });
+  });
+
+  // Scenario (o): a patch beta made by Add fix starts from the released tag, whose release commit
+  // never reaches main. Cut beta still moves it forward when main makes that patch version.
+  await withSeededRepo("recut-patch-beta", async ({ events, root, gitExec }) => {
+    const env = createStubEnvironment({ events });
+    const first = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(first.version);
+    await runReleaseFlowCli(["promote", "--beta-version", first.version, "--proof-ref", `run-740 (${first.version} @running pass)`], cliDeps(root, gitExec, env));
+    squashMergeReleasePr(root);
+    await runReleaseFlowCli(["publish-merged-release"], cliDeps(root, gitExec, env));
+    env.state.openPrs.length = 0;
+
+    const released = first.version.replace(/-beta\.\d+$/, "");
+    const patchVersion = released.replace(/\d+$/, (n) => String(Number(n) + 1));
+    const fixSha = await commitOnMain(root, { ".changeset/patch-one.md": FIX_CHANGESET, "src/patch-one.ts": "export const one = 1;\n" }, "fix: patch one");
+    const patch = await runReleaseFlowCli(["add-fix", "--release-version", patchVersion, "--commit", fixSha], cliDeps(root, gitExec, env));
+    env.state.betaVersions.push(patch.version);
+    await commitOnMain(root, { ".changeset/patch-two.md": FIX_CHANGESET.replace("shipping total", "tax line"), "src/patch-two.ts": "export const two = 2;\n" }, "fix: patch two");
+    const recut = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
+    const mainSha = git(["rev-parse", "main"], root);
+
+    if (
+      patch.version !== `${patchVersion}-beta.1` ||
+      patch.patchBase !== `v${released}` ||
+      recut.version !== `${patchVersion}-beta.2` ||
+      recut.movedBranch !== `release/${patchVersion}` ||
+      recut.betaSha !== mainSha
+    ) {
+      throw new Error(`Scenario (o) failed: ${JSON.stringify({ patch, recut, mainSha })}`);
+    }
+    scenarios.push({
+      id: "o",
+      name: "cut_beta_recuts_a_patch_beta_made_from_a_released_tag",
+      status: "PASS",
+      outcome: { patchBeta: patch.version, patchBase: patch.patchBase, recut: recut.version, moved: recut.movedBranch },
       sideEffects: events,
     });
   });

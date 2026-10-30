@@ -838,13 +838,19 @@ function planReleaseBranchRecut({ releaseBranch, headSha, root = repositoryRoot,
       .split("\n")
       .filter((line) => /^(diff --git |[-+])/.test(line))
       .join("\n");
+  // Released versions are already kept by their tags: a patch branch starts from one, so its
+  // history includes that release commit, which never reaches main.
+  const releasedTags = listGitTags("v*", root, gitExec).filter((tag) => /^v\d+\.\d+\.\d+$/.test(tag));
+  const treeOf = (commit) => gitExec(["rev-parse", `${commit}^{tree}`], root);
   const replaced = [];
   for (const branch of unreleased) {
     const sha = resolveBranchSha(branch, root, gitExec);
-    if (branch === releaseBranch && sha === headSha) {
-      throw new Error(`${releaseBranch} is already at main's newest commit; nothing new has merged to cut a beta from.`);
+    // Same files as main (main's tip itself, or Add fix copies of everything new) would be a
+    // same-code beta.
+    if (branch === releaseBranch && treeOf(sha) === treeOf(headSha)) {
+      throw new Error(`${releaseBranch} already has main's newest code; nothing new has merged to cut a beta from.`);
     }
-    const extra = gitExec(["rev-list", sha, "--not", headSha], root).split("\n").filter(Boolean);
+    const extra = gitExec(["rev-list", sha, "--not", headSha, ...releasedTags], root).split("\n").filter(Boolean);
     for (const commit of extra) {
       const message = gitExec(["log", "-1", "--format=%B", commit], root);
       const copied = [...message.matchAll(/\(cherry picked from commit ([0-9a-f]{7,40})\)/g)].map((match) => match[1]);
