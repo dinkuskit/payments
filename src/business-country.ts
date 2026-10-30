@@ -17,3 +17,6 @@ export const BUSINESS_COUNTRIES: Readonly<Record<string, string>> = Object.freez
 export function businessCountry(value: unknown): value is string {
   return typeof value === "string" && Object.hasOwn(BUSINESS_COUNTRIES, value);
 }
+
+/** Asks /v1/status to add `businessCountry`; older Workers ignore the header. */
+export const BUSINESS_COUNTRY_HEADER = Object.freeze({ name: "X-Dinkus-Payments-Include", value: "business-country" });

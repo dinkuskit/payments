@@ -227,6 +227,18 @@ function withTestOrder(testOrder, overrides = {}) {
   return { state: "ready", mode: "test", bindingRef: "binding-1", connectionEvidence: stripeEvidence, testOrder, ...overrides };
 }
 
+test("decodes the business country only as null or a listed code, never beside Authorize.net", () => {
+  for (const businessCountry of [null, "GB"]) {
+    const value = { state: "disconnected", mode: "test", businessCountry };
+    assert.deepEqual(decodeStatus(value), value);
+  }
+  for (const businessCountry of ["", "gb", "XX", "toString", 44, ["GB"]]) {
+    assert.throws(() => decodeStatus({ state: "disconnected", mode: "test", businessCountry }), /invalid_status/);
+  }
+  assert.throws(() => decodeStatus({ state: "ready", mode: "test", bindingRef: "b", businessCountry: null,
+    connectionEvidence: { provider: "authorize_net", mode: "test", result: "unsupported" } }), /invalid_status/);
+});
+
 test("decodes TEST-order evidence only for the connected TEST binding and its provider", () => {
   for (const state of ["awaiting_notice", "awaiting_commerce", "recorded"]) {
     const value = withTestOrder({ ...recorded, state });
@@ -437,7 +449,7 @@ test("pending screen tells the owner the page checks on its own, and says so pla
 
 test("a store with no Stripe connection picks its business country before setup", () => {
   const status = (state, extra = {}) => ({ state: "ready", status: { availability: "available", status: { state, mode: "test", ...extra } } });
-  const fresh = renderSetupScreen(status("disconnected"));
+  const fresh = renderSetupScreen(status("disconnected", { businessCountry: null }));
   const form = fresh.blocks.find(block => block.type === "form");
   assert.equal(form.submit.action_id, "setup_processor");
   const select = form.fields[0];
@@ -450,6 +462,21 @@ test("a store with no Stripe connection picks its business country before setup"
     assert.equal(rendered.blocks.some(block => block.type === "form"), false);
     assert.match(JSON.stringify(rendered), /"label":"Set up or resume Stripe","action_id":"setup_processor"/);
   }
+  // An older Payments service sends no field and Authorize.net never gets one: no form.
+  for (const page of [status("disconnected"), status("disconnected", { connectionEvidence: { provider: "authorize_net", mode: "test", result: "unknown", accountRef: "anet_one" } })]) {
+    const rendered = renderSetupScreen(page);
+    assert.equal(rendered.blocks.some(block => block.type === "form"), false);
+    assert.doesNotMatch(JSON.stringify(rendered), /Business country/);
+  }
+});
+
+test("a saved business country shows read-only once Stripe setup starts", () => {
+  const page = (state, extra = {}) => renderSetupScreen({ state: "ready", status: { availability: "available", status: { state, mode: "test", bindingRef: "b", businessCountry: "GB", ...extra } } });
+  for (const rendered of [page("connecting"), page("disconnected"), page("setup_required", { connectionEvidence: { provider: "stripe", mode: "test", result: "unknown", accountRef: "acct_one" } })]) {
+    assert.equal(rendered.blocks.some(block => block.type === "form"), false);
+    assert.ok(rendered.blocks.some(block => block.type === "section" && block.text === "Business country: United Kingdom. Stripe can't change it."));
+  }
+  assert.doesNotMatch(JSON.stringify(page("connecting", { businessCountry: "ZZ" })), /Business country/);
 });
 
 test("a refused Stripe setup names its reason and that nothing was created", () => {
@@ -486,7 +513,7 @@ test("Stripe needing more information points the owner at Stripe's setup and off
 test("a checked store with no Stripe account points owners who already have Stripe to Stripe's sign-in", () => {
   const rendered = JSON.stringify(renderSetupScreen({
     state: "ready",
-    status: { availability: "available", status: { state: "disconnected", mode: "test" }, message: "Payments status checked." },
+    status: { availability: "available", status: { state: "disconnected", mode: "test", businessCountry: null }, message: "Payments status checked." },
   }));
   assert.match(rendered, /No processor account is connected\. Choose your business country and select Set up Stripe to connect your processor account\. Already have Stripe\? Sign in during setup to reuse your details\./);
   assert.match(rendered, /"submit":\{"label":"Set up Stripe","action_id":"setup_processor"\}/);

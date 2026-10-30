@@ -803,7 +803,12 @@ test("compiled business-country form sends the owner's choice with Set up Stripe
   try {
     await f.prepareStart("business-country"); await f.action("connect"); await f.pollDue();
     await f.prepareExchange(); await f.action("continue");
+    // An older Payments service sends no businessCountry: the plain button stays.
     host.http.clear(); await f.prepareStatus(true);
+    const older = JSON.stringify(await f.page());
+    assert.doesNotMatch(older, /businessCountry/);
+    assert.equal(host.http.requests().find(r => r.url === "https://payments.dinkuskit.com/v1/status")?.headers["x-dinkus-payments-include"], "business-country");
+    host.http.clear(); await f.prepareStatusResponse({ state: "disconnected", mode: "test", businessCountry: null });
     const page = JSON.stringify(await f.page());
     assert.match(page, /"type":"select","action_id":"businessCountry"/);
     assert.match(page, /\{"label":"Choose a country","value":""\}/);
@@ -817,9 +822,10 @@ test("compiled business-country form sends the owner's choice with Set up Stripe
     const posts = host.http.requests().filter(r => r.url === endpoint);
     assert.equal(posts.length, 1); assert.equal(new TextDecoder().decode(posts[0].body), '{"country":"US"}');
     // Once a Stripe connection exists the country is fixed and never asked again.
-    host.http.clear(); await f.prepareStatus("setup");
+    host.http.clear(); await f.prepareStatusResponse({ state: "setup_required", mode: "test", bindingRef: "synthetic-binding", businessCountry: "US", connectionEvidence: { provider: "stripe", mode: "test", result: "unknown", accountRef: "acct_synthetic" } });
     const resumed = JSON.stringify(await f.page());
-    assert.doesNotMatch(resumed, /businessCountry/);
+    assert.doesNotMatch(resumed, /"action_id":"businessCountry"/);
+    assert.match(resumed, /Business country: United States\. Stripe can't change it\./);
     assert.match(resumed, /"label":"Set up or resume Stripe","action_id":"setup_processor"/);
   } finally { await host.dispose(); }
 });

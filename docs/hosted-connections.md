@@ -24,9 +24,9 @@ that claim. The backend cannot make an untrusted identity issuer safe.
 
 | Endpoint | Scope | Result |
 | --- | --- | --- |
-| `POST /v1/connect` with no body or query | `payments:admin` | Resume the existing account or persist a new binding before starting creation; optionally return a fresh Stripe onboarding URL |
+| `POST /v1/connect` with no body or `{"country":"XX"}`, no query | `payments:admin` | Resume the existing account or persist a new binding before starting creation; optionally return a fresh Stripe onboarding URL |
 | `GET /v1/connect/diagnostics` with no body or query | `payments:admin` | Read-only local account-creation evidence for the authenticated site and stored owner; no provider calls or state writes |
-| `GET /v1/status` | `payments:admin` | Current provider-verified state; no cached ready fallback |
+| `GET /v1/status` | `payments:admin` | Current provider-verified state; no cached ready fallback; Stripe's `businessCountry` only with the opt-in header (see `docs/business-country.md`) |
 | `GET /v1/checkout-binding?bindingRef=...` | `payments:checkout` | Exact immutable recipient binding for a new checkout, or `409 payments_not_ready` |
 | `GET /v1/existing-binding?bindingRef=...` | `payments:checkout` | Exact stored recipient for an existing attempt, even if new checkout is not ready |
 | `GET /v1/checkout/wakes?bindingRef=...&limit=...` | `payments:checkout` | Non-destructive JSON list of canonical five-field Commerce wake snapshots; `limit` is `1..100`, default `25` |

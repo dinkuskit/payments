@@ -15,6 +15,8 @@ LIVE alike, for every store. There is no operator list and no store cap.
 - Payments never infers a country from IP, hosting, currency, email, the
   browser, or Commerce's store or shipping countries. Payments works without
   Commerce, so it does not read Commerce settings.
+- Once saved, Payment settings shows the country read-only ("Business country:
+  <name>. Stripe can't change it.") with **Set up or resume Stripe**.
 - Authorize.net stores are never asked: the owner brings an existing merchant
   account whose country the acquirer already set.
 
@@ -34,6 +36,11 @@ listed code (at most 64 bytes). Any other body or query is `unexpected_input`.
   scope or creation failure but no saved country) is never given one; it reads
   `recovery_required`.
 - A saved account resumes and reads status without a country.
+- `GET /v1/status` adds `businessCountry` (the saved code, or `null` while none
+  is saved) only for the server-selected Stripe provider and only when the
+  request carries `X-Dinkus-Payments-Include: business-country`. Released
+  plugins decode status strictly and never send that header; an older Worker
+  ignores it, and the plugin then shows the plain setup button.
 
 Stripe remains authoritative for eligibility. A listed country Stripe still
 refuses is recorded as a creation failure like any other.

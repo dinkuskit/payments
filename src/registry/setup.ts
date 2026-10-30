@@ -193,7 +193,8 @@ function connectionStep(status: PaymentsStatus | null, connectionState?: string,
     };
   }
   if (status?.state === "disconnected") {
-    return { title: "Connect payments", status: "incomplete", description: "DinkusKit Payments status was checked. No processor account is connected. Choose your business country and select Set up Stripe to connect your processor account. Already have Stripe? Sign in during setup to reuse your details." };
+    const next = status.businessCountry === null ? "Choose your business country and select Set up Stripe" : "Select Set up or resume Stripe";
+    return { title: "Connect payments", status: "incomplete", description: `DinkusKit Payments status was checked. No processor account is connected. ${next} to connect your processor account. Already have Stripe? Sign in during setup to reuse your details.` };
   }
   if (!status?.connectionEvidence) {
     return {
@@ -367,9 +368,11 @@ export function renderSetupScreen(input: unknown) {
   const canSetup = !needsRecovery && (state === "ready" || state === "processor_setup") &&
     (!evidence || typeof evidence !== "object" || !("provider" in evidence) ||
       (evidence.provider === "stripe" && "result" in evidence && evidence.result !== "verified"));
-  // A store with no Stripe connection yet picks its business country first;
-  // after that the country is fixed, so the form never shows again.
-  const needsCountry = canSetup && statusValue && typeof statusValue === "object" && "state" in statusValue && statusValue.state === "disconnected";
+  // Payments says when Stripe still needs the owner's business country (null);
+  // once saved it is fixed and shown read-only. Authorize.net never asks.
+  const statusRecord = statusValue && typeof statusValue === "object" ? statusValue as { state?: unknown; businessCountry?: unknown } : undefined;
+  const savedCountry = statusRecord?.businessCountry;
+  const needsCountry = canSetup && savedCountry === null && statusRecord?.state === "disconnected";
   const actionLabel = action === "continue" ? "Continue" : action === "check" ? "Check connection" : keyProblem ? "Connect again" : state === "action_required" || state === "pass_refused" ? "Sign in again" : "Connect";
   const isConnected = state === "ready" || state === "processor_setup" || state === "provider_identity";
   const supportReference = (state === "ready" || state === "processor_setup") && input && typeof input === "object" && "diagnostics" in input
@@ -394,6 +397,8 @@ export function renderSetupScreen(input: unknown) {
         type: "section",
         text: `${step.title}: ${STEP_LABELS[step.status]}. ${step.description}`,
       })),
+      ...(typeof savedCountry === "string" && Object.hasOwn(BUSINESS_COUNTRIES, savedCountry)
+        ? [{ type: "section", text: `Business country: ${BUSINESS_COUNTRIES[savedCountry]}. Stripe can't change it.` }] : []),
       ...(supportReference ? [{ type: "section", text: `Setup support reference: ${supportReference}` }] : []),
       ...(providerIdentity ? [{
         type: "section",

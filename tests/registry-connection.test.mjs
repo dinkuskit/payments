@@ -81,7 +81,7 @@ async function fixture({ testOnly, installedPluginId, pluginId, endpoint = { sta
         f.diagnosticScopes.push(JSON.parse(Buffer.from(init.headers.Authorization.split('.')[1], 'base64url')).scope);
         return json({ state: f.statusReply.state, mode: 'test', processorAccountPresent: false, evidence: 'observed', lastFailure: { category: 'unknown', status: 400, at: f.now - 1000 } });
       }
-      f.statuses++; assert.equal(init.headers['X-Dinkus-Site'], f.siteId); assert.match(init.headers.Authorization, /^Bearer /);
+      f.statuses++; assert.equal(init.headers['X-Dinkus-Site'], f.siteId); assert.equal(init.headers['X-Dinkus-Payments-Include'], 'business-country'); assert.match(init.headers.Authorization, /^Bearer /);
       if (f.statusCode) return json({ error: 'unauthorized' }, f.statusCode);
       return json(f.statusReply);
     } },
@@ -363,6 +363,16 @@ test('Set up Stripe sends a listed business country and nothing else', async () 
     assert.equal((await connection.setupProcessor({ id: 'admin' }, country)).state, 'setup_refused');
     const posts = f.calls.filter(call => call.url.endsWith('/v1/connect'));
     assert.equal(posts.length, 1); assert.equal(posts[0].init.body, body); assert.equal(new URL(posts[0].url).search, '');
+  }
+});
+
+test('a checked status keeps the business country Payments sends', async () => {
+  for (const businessCountry of [null, 'GB']) {
+    const { f, connection } = await fixture();
+    f.statusReply = { state: 'disconnected', mode: 'test', businessCountry };
+    await f.connect();
+    const result = await connection.status({ id: 'admin' });
+    assert.equal(result.status.status.businessCountry, businessCountry);
   }
 });
 

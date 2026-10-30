@@ -59,3 +59,19 @@ test('Set up Stripe accepts only an empty body or {"country":"XX"} from the list
  assert.equal(seen.length,2);
  assert.equal((await handler(new Request('https://payments.example/v1/connect?country=US',{method:'POST',headers:{Authorization:'Bearer t'}}))).status,400);
 });
+test('status names the business country only to a plugin that asks, and only for Stripe',async()=>{
+ const f=fixture();
+ assert.equal(f.service.businessCountry(owner),null);
+ await f.service.connect(owner,'GB');assert.equal(f.service.businessCountry(owner),'GB');
+ let record=null;
+ const anet=createConnectionService({store:{transaction:fn=>fn({read:()=>record,write:v=>record=v})},provider:{async createAccount(){throw Error('unused');},async accountStatus(){throw Error('unused');},async createLink(){throw Error('unused');}},mode:'test',providerId:'authorize_net',authorizeNetMerchantId:'merchant-1',newId:()=> 'new'});
+ assert.equal(anet.businessCountry(owner),undefined);
+ const handlerFor=country=>createHostedHandler({authenticate:async()=>owner,service:()=>({async connect(){throw Error('unused');},async status(){return{state:'disconnected',mode:'test'};},businessCountry:()=>country,async checkoutBinding(){return null;},async existingBinding(){return null;}})});
+ const read=(country,headers={})=>handlerFor(country)(new Request('https://payments.example/v1/status',{headers:{Authorization:'Bearer t',...headers}})).then(r=>r.json());
+ const ask={'X-Dinkus-Payments-Include':'business-country'};
+ assert.deepEqual(await read(null),{state:'disconnected',mode:'test'});
+ assert.deepEqual(await read(null,{'X-Dinkus-Payments-Include':'other'}),{state:'disconnected',mode:'test'});
+ assert.deepEqual(await read(null,ask),{state:'disconnected',mode:'test',businessCountry:null});
+ assert.deepEqual(await read('GB',ask),{state:'disconnected',mode:'test',businessCountry:'GB'});
+ assert.deepEqual(await read(undefined,ask),{state:'disconnected',mode:'test'});
+});

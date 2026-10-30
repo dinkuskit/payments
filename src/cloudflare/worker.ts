@@ -300,6 +300,7 @@ export class PaymentConnection extends DurableObject<Env> {
     const testOrder = await this.testOrder(principal, status);
     return testOrder ? { ...status, testOrder } : status;
   }
+  async businessCountry(principal: Principal) { return this.connection().businessCountry(principal); }
   async checkoutBinding(principal: Principal, bindingRef: string) { return this.connection().checkoutBinding(principal, bindingRef); }
   async existingBinding(principal: Principal, bindingRef: string) { return this.connection().existingBinding(principal, bindingRef); }
   async ensureSession(principal: Principal, request: PaymentRequest, origin?: string) {
@@ -589,6 +590,7 @@ export default {
           return {
             connect: (p, country) => stub.startOnboarding(p, country),
             status: p => stub.status(p),
+            businessCountry: p => stub.businessCountry(p),
             diagnostics: p => stub.connectionDiagnostics(p),
             checkoutBinding: (p, ref) => stub.checkoutBinding(p, ref),
             existingBinding: (p, ref) => stub.existingBinding(p, ref),

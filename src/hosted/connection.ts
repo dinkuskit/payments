@@ -268,6 +268,13 @@ export function createConnectionService(options: {
     if (providerId === "authorize_net" && record.authorizeNetMerchantId) return { bindingRef, providerId, authorizeNetMerchantId: record.authorizeNetMerchantId, mode };
     throw new ConnectionError("binding_missing_provider_field");
   }
+  // Stripe needs the owner's business country: the saved one, or null while none
+  // is saved. Undefined for a provider that never asks (Authorize.net).
+  function businessCountryOf(principal: Principal): string | null | undefined {
+    if (providerId !== "stripe" || provider.creationProtocol !== "accounts_v2") return undefined;
+    const country = read(principal)?.creationCountry;
+    return businessCountry(country) ? country : null;
+  }
   function diagnostics(principal: Principal): ConnectionDiagnostics {
     if (!principal.accountId || !principal.siteId) throw new ConnectionError("unauthorized");
     // Unlike read(), this never normalizes or writes a legacy connection.
@@ -282,5 +289,5 @@ export function createConnectionService(options: {
     };
     return decodeDiagnostics(result, now());
   }
-  return { connect, status, diagnostics, checkoutBinding, existingBinding };
+  return { connect, status, diagnostics, checkoutBinding, existingBinding, businessCountry: businessCountryOf };
 }

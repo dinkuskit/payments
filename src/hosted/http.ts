@@ -6,13 +6,14 @@ import { WebhookError } from "../checkout/webhook.js";
 import { assertCommercePaymentWake, WakeError, type CommercePaymentWake } from "../checkout/wakes.js";
 import type { PaymentOutcome, PaymentRequest } from "../commerce/checkout-port.js";
 import type { Principal, createConnectionService } from "./connection.js";
-import { businessCountry } from "../business-country.js";
+import { BUSINESS_COUNTRY_HEADER, businessCountry } from "../business-country.js";
 import { clientIpRateKey } from "./client-ip.js";
 import { hostedHttpRoutes, hostedPayRoutes, hostedWebhookRoutes, matchAuthorizeNetPaySession, matchAuthorizeNetWebhookSite } from "./manifest.js";
 
 type ConnectionApi = Pick<ReturnType<typeof createConnectionService>, "connect" | "status" | "checkoutBinding" | "existingBinding"> & {
   diagnostics?(principal: Principal): ReturnType<ReturnType<typeof createConnectionService>["diagnostics"]> | Promise<ReturnType<ReturnType<typeof createConnectionService>["diagnostics"]>>;
   providerIdentityDiagnostic?(principal: Principal): Promise<unknown>;
+  businessCountry?(principal: Principal): string | null | undefined | Promise<string | null | undefined>;
 };
 type CheckoutApi = {
   ensureSession(request: PaymentRequest): Promise<PaymentOutcome>;
@@ -259,7 +260,12 @@ export function createHostedHandler(options: {
       if (pathname === "/v1/status") {
         const service = options.service(principal);
         if (searchParams.size) return respond({ error: "unexpected_input" }, 400);
-        return respond(await service.status(principal));
+        const status = await service.status(principal);
+        // Only a plugin that asks gets the business country; older plugins
+        // decode status strictly and never send this header.
+        if (request.headers.get(BUSINESS_COUNTRY_HEADER.name) !== BUSINESS_COUNTRY_HEADER.value || !service.businessCountry) return respond(status);
+        const businessCountry = await service.businessCountry(principal);
+        return respond(businessCountry === undefined ? status : { ...status, businessCountry });
       }
       if (pathname === "/v1/checkout-binding" || pathname === "/v1/existing-binding") {
         const service = options.service(principal);
