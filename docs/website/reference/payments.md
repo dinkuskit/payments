@@ -15,7 +15,7 @@ One provider is active per store. A shopper cannot select a processor in checkou
 
 ## Release scope
 
-This reference describes Payments `{{version}}`, released on the EmDash Registry as `dinkus-payments` on {{release_date}} (tag `v{{version}}`). It requires EmDash `1.2.0`. Changes merged after that release are not described here until they ship in a stable release.
+This reference describes Payments `{{version}}`, released on the EmDash Registry as `dinkus-payments` on {{release_date}} (tag `v{{version}}`). It requires EmDash `1.4.0`. Changes merged after that release are not described here until they ship in a stable release.
 
 The Registry plugin, hosted Payments service and DinkusKit account service have separate versions. A connected account does not prove that a particular plugin version is installed or that live payments are enabled.
 
