@@ -822,7 +822,8 @@ function listReleaseBranches(root = repositoryRoot, gitExec = defaultGit) {
 
 // Cut beta over unpromoted release branches (GrillTrack release-branch-recut-20261030). Returns
 // each one with the commit this run read, after checking it holds nothing main lacks: every commit
-// on it is on main or an Add fix copy (cherry-pick -x) of a main commit. It also refuses while a
+// on it is on main or an Add fix copy (cherry-pick -x) of a main commit that changes exactly the
+// lines its source changes. It also refuses while a
 // ci: release PR for one of them is open, since merging it would release a beta this run replaces.
 function planReleaseBranchRecut({ releaseBranch, headSha, root = repositoryRoot, gitExec = defaultGit, ghExec = defaultGh }) {
   const unreleased = listReleaseBranches(root, gitExec).filter(
@@ -830,6 +831,13 @@ function planReleaseBranchRecut({ releaseBranch, headSha, root = repositoryRoot,
   );
   if (unreleased.length === 0) return [];
 
+  // The lines a commit adds and removes, so an Add fix copy can be checked against its source on
+  // main whatever the surrounding lines on the branch.
+  const changedLines = (commit) =>
+    gitExec(["diff", "--no-color", "--no-ext-diff", `${commit}^`, commit], root)
+      .split("\n")
+      .filter((line) => /^(diff --git |[-+])/.test(line))
+      .join("\n");
   const replaced = [];
   for (const branch of unreleased) {
     const sha = resolveBranchSha(branch, root, gitExec);
@@ -840,7 +848,13 @@ function planReleaseBranchRecut({ releaseBranch, headSha, root = repositoryRoot,
     for (const commit of extra) {
       const message = gitExec(["log", "-1", "--format=%B", commit], root);
       const copied = [...message.matchAll(/\(cherry picked from commit ([0-9a-f]{7,40})\)/g)].map((match) => match[1]);
-      if (!copied.some((source) => resolveCommitSha(source, root, gitExec) && isAncestor(source, headSha, root, gitExec))) {
+      const isCopy = copied.some(
+        (source) =>
+          resolveCommitSha(source, root, gitExec) &&
+          isAncestor(source, headSha, root, gitExec) &&
+          changedLines(source) === changedLines(commit),
+      );
+      if (!isCopy) {
         throw new Error(
           `Cannot cut ${releaseBranch}: ${branch} has ${commit.slice(0, 7)}, which is not on main or a copy of a main commit; nothing was pushed.`,
         );

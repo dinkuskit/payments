@@ -988,8 +988,9 @@ export async function runReleaseAuthorityProof() {
 
   // Scenario (n): Cut beta pressed while a beta is on test re-cuts it through the release App
   // (release-branch-recut-20261030). With nothing new on main it refuses. The same version moves
-  // forward to main, Add fix copies included, and tags the next beta. A commit only on the branch
-  // or an open ci: release PR for it stops the run with nothing pushed. A new version drops the
+  // forward to main, Add fix copies included, and tags the next beta. A commit only on the branch,
+  // an Add fix copy amended with extra changes, or an open ci: release PR for it stops the run with
+  // nothing pushed. A new version drops the
   // older branch (its beta tags stay) in the same atomic push.
   await withSeededRepo("recut-on-test", async ({ events, root, gitExec }) => {
     const env = createStubEnvironment({ events });
@@ -1024,6 +1025,18 @@ export async function runReleaseAuthorityProof() {
     const straySideEffects = events.filter(SIDE_EFFECT);
     git(["branch", "-f", branch, `${strayTip}^`], root);
 
+    // An Add fix copy amended with extra changes keeps its trailer but is not a copy.
+    git(["checkout", "-q", "-f", branch], root);
+    await writeFile(join(root, "src/fix-two.ts"), "export const two = 2;\nexport const extra = true;\n", "utf8");
+    git(["add", "-A"], root);
+    git(["commit", "-q", "-m", `fix: two\n\n(cherry picked from commit ${copySha})`], root);
+    const amendedTip = git(["rev-parse", "HEAD"], root);
+    git(["checkout", "-q", "-f", "main"], root);
+    events.length = 0;
+    const amendedError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
+    const amendedSideEffects = events.filter(SIDE_EFFECT);
+    git(["branch", "-f", branch, `${amendedTip}^`], root);
+
     await runReleaseFlowCli(["promote", "--beta-version", overCopy.version, "--proof-ref", `run-730 (${overCopy.version} @running pass)`], cliDeps(root, gitExec, env));
     git(["checkout", "-q", "-f", "main"], root);
     events.length = 0;
@@ -1050,6 +1063,8 @@ export async function runReleaseAuthorityProof() {
       overCopy.movedBranch !== branch ||
       !strayError?.includes("which is not on main or a copy of a main commit") ||
       straySideEffects.length > 0 ||
+      !amendedError?.includes(`${amendedTip.slice(0, 7)}, which is not on main or a copy of a main commit`) ||
+      amendedSideEffects.length > 0 ||
       !promotingError?.includes(`"ci: release v${target}" is open to promote ${branch}`) ||
       promotingSideEffects.length > 0 ||
       next.targetVersion === target ||
@@ -1063,14 +1078,14 @@ export async function runReleaseAuthorityProof() {
       oldTags.length !== 4
     ) {
       throw new Error(
-        `Scenario (n) failed: ${JSON.stringify({ sameCodeError, moved, movedPush, copied, overCopy, strayError, straySideEffects, promotingError, next, nextPush, oldBranch, oldTags })}`,
+        `Scenario (n) failed: ${JSON.stringify({ sameCodeError, moved, movedPush, copied, overCopy, strayError, straySideEffects, amendedError, amendedSideEffects, promotingError, next, nextPush, oldBranch, oldTags })}`,
       );
     }
     scenarios.push({
       id: "n",
       name: "cut_beta_recuts_the_beta_on_test_through_the_release_app",
       status: "PASS",
-      outcome: { sameCodeError, moved: moved.version, overCopy: overCopy.version, strayError, promotingError, next: next.version, dropped: next.droppedBranches },
+      outcome: { sameCodeError, moved: moved.version, overCopy: overCopy.version, strayError, amendedError, promotingError, next: next.version, dropped: next.droppedBranches },
       sideEffects: events,
     });
   });
