@@ -1,8 +1,11 @@
 # Registry listing artwork
 
-- `payments.webp` is the existing DinkusKit Payments icon, copied unchanged
-  from the public website repository at
-  [`920aea3f`](https://github.com/dinkuskit/dinkuskit/blob/920aea3f012a14beb90d1be7264121dd7a8dd105/public/brand/payments.webp).
+- `payments.webp` is the existing DinkusKit Payments icon from the public
+  website repository at
+  [`920aea3f`](https://github.com/dinkuskit/dinkuskit/blob/920aea3f012a14beb90d1be7264121dd7a8dd105/public/brand/payments.webp)
+  (246 × 256), centred on a transparent 256 × 256 square so the Registry's
+  square icon crop does not clip it. The artwork pixels are unchanged
+  (lossless WebP, 48,260 bytes, SHA-256 `ea718f674770f5a60414cf042956acbcf8bce07b2940a36eb9e90c0a7eb35305`).
 - `payment-setup-demo.jpg` is a browser capture of the real EmDash 1.4.0
   Payments setup page in a local synthetic fixture. It shows an initial,
   disconnected account, not completed onboarding or live-payment readiness.
