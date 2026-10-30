@@ -307,6 +307,7 @@ function createStubEnvironment({
     }
     if (args[0] === "pr" && args[1] === "list") {
       events.push(`gh:pr:list`);
+      if (args.includes("merged") && args.includes("title")) return state.mergedPrs.map((pr) => pr.title).join("\n");
       if (args.includes("title")) return state.openPrs[0]?.title ?? "";
       return state.openPrs[0]?.number ? String(state.openPrs[0].number) : "";
     }
@@ -988,10 +989,11 @@ export async function runReleaseAuthorityProof() {
 
   // Scenario (n): Cut beta pressed while a beta is on test re-cuts it through the release App
   // (release-branch-recut-20261030). With nothing new on main it refuses. The same version moves
-  // forward to main, Add fix copies included (even of lines main changed again), and tags the next beta. A commit only on the branch,
-  // an Add fix copy amended with extra lines, another file mode, other binary bytes or another last
-  // newline, or an open ci: release PR for it stops the run with nothing pushed. A new version drops the
-  // older branch (its beta tags stay) in the same atomic push.
+  // forward to main, Add fix copies included (even of lines main changed again), and tags the next
+  // beta. A commit only on the branch, an Add fix copy amended with extra lines, another file mode,
+  // other binary bytes or another last newline, or a ci: release PR for it that is open or merged
+  // without its tag stops the run with nothing pushed. A new version drops the older branch (its
+  // beta tags stay) in the same atomic push.
   await withSeededRepo("recut-on-test", async ({ events, root, gitExec }) => {
     const env = createStubEnvironment({ events });
     const first = await runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env));
@@ -1089,7 +1091,12 @@ export async function runReleaseAuthorityProof() {
     events.length = 0;
     const promotingError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
     const promotingSideEffects = events.filter(SIDE_EFFECT);
-    env.state.openPrs.length = 0;
+    // Merged, with publish-merged-release still to tag it: the branch stays where it is.
+    env.state.mergedPrs.push(...env.state.openPrs.splice(0));
+    events.length = 0;
+    const publishingError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
+    const publishingSideEffects = events.filter(SIDE_EFFECT);
+    env.state.mergedPrs.length = 0;
 
     await commitOnMain(root, { ".changeset/minor.md": FEATURE_CHANGESET, "src/minor.ts": "export const minor = 1;\n" }, "feat: minor");
     events.length = 0;
@@ -1122,6 +1129,8 @@ export async function runReleaseAuthorityProof() {
       !newlineError?.includes(`${newlineTip.slice(0, 7)}, which is not on main or a copy of a main commit`) ||
       !promotingError?.includes(`"ci: release v${target}" is open to promote ${branch}`) ||
       promotingSideEffects.length > 0 ||
+      !publishingError?.includes(`"ci: release v${target}" is merged and v${target} is not tagged yet`) ||
+      publishingSideEffects.length > 0 ||
       next.targetVersion === target ||
       next.version !== `${next.targetVersion}-beta.1` ||
       next.releaseBranch !== `release/${next.targetVersion}` ||
@@ -1133,14 +1142,14 @@ export async function runReleaseAuthorityProof() {
       oldTags.length !== 7
     ) {
       throw new Error(
-        `Scenario (n) failed: ${JSON.stringify({ sameCodeError, moved, movedPush, copied, copiedSameCodeError, overCopy, overEdits, strayError, straySideEffects, amendedError, amendedSideEffects, modeError, binaryError, binarySideEffects, newlineError, promotingError, next, nextPush, oldBranch, oldTags })}`,
+        `Scenario (n) failed: ${JSON.stringify({ sameCodeError, moved, movedPush, copied, copiedSameCodeError, overCopy, overEdits, strayError, straySideEffects, amendedError, amendedSideEffects, modeError, binaryError, binarySideEffects, newlineError, promotingError, publishingError, next, nextPush, oldBranch, oldTags })}`,
       );
     }
     scenarios.push({
       id: "n",
       name: "cut_beta_recuts_the_beta_on_test_through_the_release_app",
       status: "PASS",
-      outcome: { sameCodeError, moved: moved.version, overCopy: overCopy.version, overEdits: overEdits.version, strayError, amendedError, modeError, binaryError, newlineError, promotingError, next: next.version, dropped: next.droppedBranches },
+      outcome: { sameCodeError, moved: moved.version, overCopy: overCopy.version, overEdits: overEdits.version, strayError, amendedError, modeError, binaryError, newlineError, promotingError, publishingError, next: next.version, dropped: next.droppedBranches },
       sideEffects: events,
     });
   });

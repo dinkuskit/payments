@@ -823,7 +823,8 @@ function listReleaseBranches(root = repositoryRoot, gitExec = defaultGit) {
 // Cut beta over unpromoted release branches (GrillTrack release-branch-recut-20261030). Returns
 // each one with the commit this run read, after checking it holds nothing main lacks: every commit
 // on it is on main or an exact Add fix copy (cherry-pick -x) of a main commit. It also refuses while a
-// ci: release PR for one of them is open, since merging it would release a beta this run replaces.
+// ci: release PR for one of them is open, since merging it would release a beta this run replaces,
+// or is merged with its stable tag still to come.
 function planReleaseBranchRecut({ releaseBranch, headSha, root = repositoryRoot, gitExec = defaultGit, ghExec = defaultGh }) {
   const unreleased = listReleaseBranches(root, gitExec).filter(
     (branch) => !resolveTagCommitSha(`v${branch.slice(RELEASE_BRANCH_PREFIX.length)}`, root, gitExec),
@@ -873,16 +874,30 @@ function planReleaseBranchRecut({ releaseBranch, headSha, root = repositoryRoot,
     replaced.push({ branch, sha });
   }
 
+  const releasePrTitle = (entry) => `${RELEASE_PR_TITLE_PREFIX} v${entry.branch.slice(RELEASE_BRANCH_PREFIX.length)}`;
   const openReleasePr = ghExec(
     ["pr", "list", "--head", RELEASE_PR_BRANCH, "--base", "main", "--state", "open", "--json", "title", "--jq", ".[0].title // empty"],
     root,
   ).trim();
-  const promoting = replaced.find(
-    (entry) => openReleasePr === `${RELEASE_PR_TITLE_PREFIX} v${entry.branch.slice(RELEASE_BRANCH_PREFIX.length)}`,
-  );
+  const promoting = replaced.find((entry) => openReleasePr === releasePrTitle(entry));
   if (promoting) {
     throw new Error(
       `Cannot cut ${releaseBranch}: "${openReleasePr}" is open to promote ${promoting.branch}. Merge it, or close it to drop that release, then press Cut beta again.`,
+    );
+  }
+  // A merged ci: release PR whose stable tag is not out yet (publish-merged-release still queued
+  // or failed) needs its branch exactly where the approved beta left it.
+  const mergedReleasePrs = ghExec(
+    ["pr", "list", "--head", RELEASE_PR_BRANCH, "--base", "main", "--state", "merged", "--limit", "30", "--json", "title", "--jq", ".[].title"],
+    root,
+  )
+    .split("\n")
+    .map((title) => title.trim());
+  const publishing = replaced.find((entry) => mergedReleasePrs.includes(releasePrTitle(entry)));
+  if (publishing) {
+    const version = publishing.branch.slice(RELEASE_BRANCH_PREFIX.length);
+    throw new Error(
+      `Cannot cut ${releaseBranch}: "${releasePrTitle(publishing)}" is merged and v${version} is not tagged yet. Wait for that stable release to publish, then press Cut beta again.`,
     );
   }
   return replaced;
