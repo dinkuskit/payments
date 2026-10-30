@@ -822,8 +822,8 @@ function listReleaseBranches(root = repositoryRoot, gitExec = defaultGit) {
 
 // Cut beta over unpromoted release branches (GrillTrack release-branch-recut-20261030). Returns
 // each one with the commit this run read, after checking it holds nothing main lacks: every commit
-// on it is on main or an Add fix copy (cherry-pick -x) of a main commit that changes exactly the
-// lines its source changes. It also refuses while a
+// on it is on main or an Add fix copy (cherry-pick -x) of a main commit whose changes main already
+// holds. It also refuses while a
 // ci: release PR for one of them is open, since merging it would release a beta this run replaces.
 function planReleaseBranchRecut({ releaseBranch, headSha, root = repositoryRoot, gitExec = defaultGit, ghExec = defaultGh }) {
   const unreleased = listReleaseBranches(root, gitExec).filter(
@@ -831,18 +831,21 @@ function planReleaseBranchRecut({ releaseBranch, headSha, root = repositoryRoot,
   );
   if (unreleased.length === 0) return [];
 
-  // What a commit changes: each file, its mode, and the lines it adds and removes (binary files
-  // as text), so an Add fix copy can be checked against its source on main whatever the
-  // surrounding lines on the branch.
-  const changedLines = (commit) =>
-    gitExec(["diff", "--no-color", "--no-ext-diff", "--no-renames", "--text", `${commit}^`, commit], root)
-      .split("\n")
-      .filter((line) => /^(diff --git |[-+]|old mode |new mode |new file mode |deleted file mode )/.test(line))
-      .join("\n");
+  const treeOf = (commit) => gitExec(["rev-parse", `${commit}^{tree}`], root);
+  // Main already holds everything a commit changes when replaying that commit onto main (a
+  // three-way merge with the commit's parent as base) leaves main's files exactly as they are.
+  // Git compares whole files, modes and bytes, so an amended copy never passes.
+  const alreadyOnMain = (commit) => {
+    try {
+      const merged = gitExec(["merge-tree", "--write-tree", `--merge-base=${commit}^`, headSha, commit], root);
+      return merged.split("\n")[0].trim() === treeOf(headSha);
+    } catch {
+      return false; // a conflict: the commit changes something main does differently
+    }
+  };
   // Released versions are already kept by their tags: a patch branch starts from one, so its
   // history includes that release commit, which never reaches main.
   const releasedTags = listGitTags("v*", root, gitExec).filter((tag) => /^v\d+\.\d+\.\d+$/.test(tag));
-  const treeOf = (commit) => gitExec(["rev-parse", `${commit}^{tree}`], root);
   const replaced = [];
   for (const branch of unreleased) {
     const sha = resolveBranchSha(branch, root, gitExec);
@@ -858,9 +861,8 @@ function planReleaseBranchRecut({ releaseBranch, headSha, root = repositoryRoot,
       const isCopy = copied.some(
         (source) =>
           resolveCommitSha(source, root, gitExec) &&
-          isAncestor(source, headSha, root, gitExec) &&
-          changedLines(source) === changedLines(commit),
-      );
+          isAncestor(source, headSha, root, gitExec),
+      ) && alreadyOnMain(commit);
       if (!isCopy) {
         throw new Error(
           `Cannot cut ${releaseBranch}: ${branch} has ${commit.slice(0, 7)}, which is not on main or a copy of a main commit; nothing was pushed.`,

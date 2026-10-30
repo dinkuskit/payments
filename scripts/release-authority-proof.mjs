@@ -989,8 +989,8 @@ export async function runReleaseAuthorityProof() {
   // Scenario (n): Cut beta pressed while a beta is on test re-cuts it through the release App
   // (release-branch-recut-20261030). With nothing new on main it refuses. The same version moves
   // forward to main, Add fix copies included, and tags the next beta. A commit only on the branch,
-  // an Add fix copy amended with extra lines, another file mode or other binary bytes, or an open
-  // ci: release PR for it stops the run with nothing pushed. A new version drops the
+  // an Add fix copy amended with extra lines, another file mode, other binary bytes or another last
+  // newline, or an open ci: release PR for it stops the run with nothing pushed. A new version drops the
   // older branch (its beta tags stay) in the same atomic push.
   await withSeededRepo("recut-on-test", async ({ events, root, gitExec }) => {
     const env = createStubEnvironment({ events });
@@ -1050,9 +1050,10 @@ export async function runReleaseAuthorityProof() {
     const modeError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
     git(["branch", "-f", branch, `${modeTip}^`], root);
 
-    const binarySha = await commitOnMain(root, { "src/logo.bin": "\u0000\u0001main\u0000" }, "chore: logo");
+    // Bytes that decode to the same text (00 80 0a and 00 81 0a) still differ.
+    const binarySha = await commitOnMain(root, { "src/logo.bin": Buffer.from([0x00, 0x80, 0x0a]) }, "chore: logo");
     git(["checkout", "-q", "-f", branch], root);
-    await writeFile(join(root, "src/logo.bin"), "\u0000\u0001branch\u0000", "utf8");
+    await writeFile(join(root, "src/logo.bin"), Buffer.from([0x00, 0x81, 0x0a]));
     git(["add", "-A"], root);
     git(["commit", "-q", "-m", `chore: logo\n\n(cherry picked from commit ${binarySha})`], root);
     const binaryTip = git(["rev-parse", "HEAD"], root);
@@ -1061,6 +1062,17 @@ export async function runReleaseAuthorityProof() {
     const binaryError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
     const binarySideEffects = events.filter(SIDE_EFFECT);
     git(["branch", "-f", branch, `${binaryTip}^`], root);
+
+    // A copy that differs only in the file's last newline.
+    const newlineSha = await commitOnMain(root, { "src/note.txt": "note\n" }, "docs: note");
+    git(["checkout", "-q", "-f", branch], root);
+    await writeFile(join(root, "src/note.txt"), "note", "utf8");
+    git(["add", "-A"], root);
+    git(["commit", "-q", "-m", `docs: note\n\n(cherry picked from commit ${newlineSha})`], root);
+    const newlineTip = git(["rev-parse", "HEAD"], root);
+    git(["checkout", "-q", "-f", "main"], root);
+    const newlineError = await captureError(() => runReleaseFlowCli(["cut-beta"], cliDeps(root, gitExec, env)));
+    git(["branch", "-f", branch, `${newlineTip}^`], root);
 
     await runReleaseFlowCli(["promote", "--beta-version", overCopy.version, "--proof-ref", `run-730 (${overCopy.version} @running pass)`], cliDeps(root, gitExec, env));
     git(["checkout", "-q", "-f", "main"], root);
@@ -1094,6 +1106,7 @@ export async function runReleaseAuthorityProof() {
       !modeError?.includes(`${modeTip.slice(0, 7)}, which is not on main or a copy of a main commit`) ||
       !binaryError?.includes(`${binaryTip.slice(0, 7)}, which is not on main or a copy of a main commit`) ||
       binarySideEffects.length > 0 ||
+      !newlineError?.includes(`${newlineTip.slice(0, 7)}, which is not on main or a copy of a main commit`) ||
       !promotingError?.includes(`"ci: release v${target}" is open to promote ${branch}`) ||
       promotingSideEffects.length > 0 ||
       next.targetVersion === target ||
@@ -1107,14 +1120,14 @@ export async function runReleaseAuthorityProof() {
       oldTags.length !== 4
     ) {
       throw new Error(
-        `Scenario (n) failed: ${JSON.stringify({ sameCodeError, moved, movedPush, copied, copiedSameCodeError, overCopy, strayError, straySideEffects, amendedError, amendedSideEffects, modeError, binaryError, binarySideEffects, promotingError, next, nextPush, oldBranch, oldTags })}`,
+        `Scenario (n) failed: ${JSON.stringify({ sameCodeError, moved, movedPush, copied, copiedSameCodeError, overCopy, strayError, straySideEffects, amendedError, amendedSideEffects, modeError, binaryError, binarySideEffects, newlineError, promotingError, next, nextPush, oldBranch, oldTags })}`,
       );
     }
     scenarios.push({
       id: "n",
       name: "cut_beta_recuts_the_beta_on_test_through_the_release_app",
       status: "PASS",
-      outcome: { sameCodeError, moved: moved.version, overCopy: overCopy.version, strayError, amendedError, modeError, binaryError, promotingError, next: next.version, dropped: next.droppedBranches },
+      outcome: { sameCodeError, moved: moved.version, overCopy: overCopy.version, strayError, amendedError, modeError, binaryError, newlineError, promotingError, next: next.version, dropped: next.droppedBranches },
       sideEffects: events,
     });
   });
