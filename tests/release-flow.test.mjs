@@ -758,6 +758,22 @@ test("prepareRegistryWorkspace stages isolated beta and stable manifests without
 
     const rootManifest = JSON.parse(await readFile(join(repositoryRoot, "emdash-plugin.jsonc"), "utf8"));
     assert.equal(rootManifest.slug, STABLE_REGISTRY_SLUG);
+    for (const stagedDir of [betaDir, stableDir]) {
+      for (const section of Object.values(rootManifest.sections)) {
+        assert.equal(
+          await readFile(join(stagedDir, section.file), "utf8"),
+          await readFile(join(repositoryRoot, section.file), "utf8"),
+        );
+      }
+      const icon = rootManifest.release.artifacts.icon.file;
+      assert.deepEqual(await readFile(join(stagedDir, icon)), await readFile(join(repositoryRoot, icon)));
+      for (const screenshot of rootManifest.release.artifacts.screenshots) {
+        assert.deepEqual(
+          await readFile(join(stagedDir, screenshot.file)),
+          await readFile(join(repositoryRoot, screenshot.file)),
+        );
+      }
+    }
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

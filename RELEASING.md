@@ -20,8 +20,17 @@ Registry publishing uses GitHub OIDC, Sigstore build provenance (`actions/attest
 
 1. `.github/scripts/prepare-emdash-release.mjs` copies the audited Cloudflare sandbox prebundle (`dist/sandbox/plugin.mjs`) into an isolated temporary directory and invokes the official `emdash-plugin release prepare <slug@version>` command there, producing `.emdash-release/<slug>-<version>.tar.gz` plus the `publisher-did`, `bundle-file`, and `selector` outputs.
 2. `actions/attest-build-provenance` signs build provenance over the prepared bundle tarball (`id-token: write`, `attestations: write`).
-3. `emdash-cms/emdash/apps/release-action` submits the bundle and provenance to `https://releases.emdashcms.com` for `publisher-did` (`did:plc:ekk4pjmkh3k3ql2kfoex3qt4`).
-4. Because the delegated release service can currently end successful publishes in `RELEASE_CONFLICT` ([`emdash-cms/emdash#4159`](https://github.com/emdash-cms/emdash/issues/4159)), the publish step uses `continue-on-error: true` and `.github/scripts/verify-registry-release.mjs` acts as the fail-closed gate by resolving the publisher PDS endpoint directly and verifying that the `com.emdashcms.experimental.package.release` record for `<slug>:<version>` carries the exact multihash checksum and byte size of the prepared tarball.
+3. `scripts/registry-release-media.mjs` validates that bundle and prepares a complete URL-source release record. It uploads content-addressed bundle and provenance files to the tag's GitHub Release without replacement. A rebuilt gzip with different bytes gets a different filename; an identical retry reuses its verified asset. Existing same-name assets must have identical bytes; conflicts fail closed. A missing beta release is created as a prerelease, while a missing stable release is an error because the preceding tag gate creates it. Listing images use raw URLs pinned to the same source commit and checksums computed from their bytes.
+4. The pinned `emdash-cms/emdash/apps/release-action` receives only `release-file` and submits that record through the same OIDC workload, provenance verification and approval policy. The service fetches and validates the images before storing them as publisher PDS blobs. It does not receive a direct PDS credential.
+5. Because the delegated release service can currently end successful publishes in `RELEASE_CONFLICT` ([`emdash-cms/emdash#4159`](https://github.com/emdash-cms/emdash/issues/4159)), the publish step uses `continue-on-error: true` and `.github/scripts/verify-registry-release.mjs` acts as the fail-closed gate. It resolves the publisher PDS endpoint and verifies the exact bundle checksum and size plus the expected icon, banner and screenshot checksums, byte sizes and MIME types.
+
+The `publish-emdash` caller and reusable `publish` job request `contents: write`
+solely for these release asset uploads, in addition to their existing OIDC and
+attestation permissions. No App token or new secret is introduced. They do not
+move tags, replace assets, or alter the publisher profile. A GitHub release
+whose immutability policy refuses additional uploads fails rather than being
+unlocked or recreated. Existing package-profile copy still requires its own
+approved `update-package`; publishing a version does not overwrite it.
 
 ### One-Time Publisher Profile Setup (`dinkus-payments-beta`)
 

@@ -36,7 +36,7 @@ jobs:
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && inputs.version != '' && github.ref == format('refs/tags/v{0}', inputs.version) && ((inputs.release_mode == 'beta' && contains(inputs.version, '-beta.')) || (inputs.release_mode == 'stable' && !contains(inputs.version, '-beta.')))
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write # Required only for no-clobber release artifact uploads.
       id-token: write # Required for the audience-bound GitHub OIDC token.
       attestations: write # Required to sign build provenance.
     outputs:
@@ -142,6 +142,18 @@ jobs:
         with:
           subject-path: ${{ steps.prepare.outputs.bundle-file }}
 
+      - name: Prepare delegated release with listing media
+        id: media
+        if: steps.registry-check.outputs.already_published != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE_FILE: ${{ steps.prepare.outputs.bundle-file }}
+          PROVENANCE_FILE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          node scripts/registry-release-media.mjs \
+            --bundle-file "$BUNDLE_FILE" \
+            --provenance-file "$PROVENANCE_FILE"
+
       # The release service currently ends successful publishes in
       # RELEASE_CONFLICT (emdash-cms/emdash#4159), so this step's
       # outcome is not the gate. The verify step below is: the job
@@ -155,8 +167,7 @@ jobs:
         with:
           service-url: https://releases.emdashcms.com
           publisher-did: ${{ steps.prepare.outputs.publisher-did }}
-          bundle-file: ${{ steps.prepare.outputs.bundle-file }}
-          provenance-file: ${{ steps.attest.outputs.bundle-path }}
+          release-file: ${{ steps.media.outputs.release-file }}
 
       - name: Verify release is indexed in EmDash Registry
         id: verify
@@ -167,7 +178,8 @@ jobs:
         run: |
           set -euo pipefail
           node .github/scripts/verify-registry-release.mjs \
-            "$PUBLISHER_DID" "$EMDASH_RELEASE_SELECTOR" "$BUNDLE_FILE"
+            "$PUBLISHER_DID" "$EMDASH_RELEASE_SELECTOR" "$BUNDLE_FILE" \
+            --media-manifest .emdash-release/emdash-plugin.jsonc
 
       - name: Note intent outcome
         if: ${{ always() && steps.publish.outcome == 'failure' && steps.verify.outcome == 'success' }}
