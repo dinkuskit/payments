@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { appendFile, copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -143,6 +143,13 @@ try {
     const stats = await stat(sourcePath).catch(() => null);
     if (stats?.isFile()) {
       await copyFile(sourcePath, join(tempDir, filename));
+    }
+  }
+  for (const directory of ["docs/registry", "assets/registry"]) {
+    const sourcePath = resolve(rootDir, directory);
+    const stats = await stat(sourcePath).catch(() => null);
+    if (stats?.isDirectory()) {
+      await cp(sourcePath, join(tempDir, directory), { recursive: true });
     }
   }
 

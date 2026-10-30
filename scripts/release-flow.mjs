@@ -741,6 +741,11 @@ export async function prepareRegistryWorkspace({
   for (const entry of ["src", "README.md", "LICENSE", "tsconfig.json", "tsconfig.plugin.json"]) {
     await cp(join(root, entry), join(workspaceDir, entry), { recursive: true });
   }
+  for (const entry of ["docs/registry", "assets/registry"]) {
+    if (existsSync(join(root, entry))) {
+      await cp(join(root, entry), join(workspaceDir, entry), { recursive: true });
+    }
+  }
 
   const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
   pkg.version = version;
