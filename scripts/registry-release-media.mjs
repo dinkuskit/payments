@@ -150,7 +150,7 @@ export async function prepareMediaRelease({ root = ROOT, bundleFile, provenanceF
   createSourceRelease({ ...template, packageArtifact: { url: `https://github.com/${repository}/releases/download/v${version}/bundle.tar.gz`, checksum: computePackageChecksum(bundle.bytes), contentType: "application/gzip" }, provenanceArtifact: { url: `https://github.com/${repository}/releases/download/v${version}/provenance.json`, checksum: computePackageChecksum(provenance.bytes) } });
   const tag = `v${version}`;
   ensureGithubRelease({ repository, tag, beta, gh });
-  const packageArtifact = await ensureReleaseAsset({ repository, tag, name: `${config.slug}-${version}.tar.gz`, ...bundle, gh });
+  const packageArtifact = await ensureReleaseAsset({ repository, tag, name: `${config.slug}-${version}-package-${sha256(bundle.bytes)}.tar.gz`, ...bundle, gh });
   const provenanceArtifact = await ensureReleaseAsset({ repository, tag, name: `${config.slug}-${version}-provenance-${sha256(provenance.bytes)}.json`, ...provenance, gh });
   const release = createSourceRelease({ ...template, packageArtifact: { ...packageArtifact, contentType: "application/gzip" }, provenanceArtifact });
   await writeFile(resolve(root, outputFile), `${JSON.stringify(release, null, 2)}\n`);

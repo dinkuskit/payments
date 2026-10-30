@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { gzipSync } from "node:zlib";
+import { validatePluginBundle } from "@emdash-cms/registry-verification/bundle";
 import test from "node:test";
 import { createSourceRelease, ensureReleaseAsset, ensureGithubRelease, prepareMediaRelease } from "../scripts/registry-release-media.mjs";
 import { computePackageChecksum, recordMatches } from "../.github/scripts/verify-registry-release.mjs";
@@ -136,6 +139,59 @@ test("preparation binds all media to the source commit and checks input before u
     calls = 0;
     await assert.rejects(prepareMediaRelease({ ...options, ref: "refs/heads/main" }), /workflow identity|gated tag/);
     assert.equal(calls, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("same-tag rebuilt packages get distinct content addresses and identical retry reuses assets", async () => {
+  const root = await mkdtemp(join(tmpdir(), "payments-package-retry-"));
+  try {
+    await mkdir(join(root, "out"));
+    await mkdir(join(root, "fixture"));
+    await writeFile(join(root, "fixture/manifest.json"), JSON.stringify({ id: "dinkus-payments", version: "0.5.0", capabilities: [], allowedHosts: [], storage: {}, hooks: [], routes: [], admin: { pages: [], widgets: [] } }));
+    await writeFile(join(root, "fixture/backend.js"), `export default {}; /* ${"same source ".repeat(1000)} */`);
+    execFileSync("tar", ["--format=ustar", "-cf", join(root, "fixture.tar"), "-C", join(root, "fixture"), "manifest.json", "backend.js"]);
+    const tar = await readFile(join(root, "fixture.tar"));
+    const firstBytes = gzipSync(tar, { level: 1 });
+    const rebuiltBytes = gzipSync(tar, { level: 9 });
+    assert.notDeepEqual(firstBytes, rebuiltBytes);
+    for (const compressed of [firstBytes, rebuiltBytes]) {
+      const checked = await validatePluginBundle(new Uint8Array(compressed));
+      assert.equal(checked.success, true, JSON.stringify(checked));
+    }
+    await writeFile(join(root, "manifest.json"), JSON.stringify({ slug: "dinkus-payments", version: "0.5.0", repo: `https://github.com/${repository}` }));
+    await writeFile(join(root, "provenance.json"), "{}");
+    const assets = [];
+    const uploaded = new Map();
+    let uploads = 0;
+    const gh = (args) => {
+      assert.equal(args.includes("--clobber"), false);
+      if (args[1] === "upload") {
+        const name = basename(args[3]);
+        assert.equal(assets.some((entry) => entry.name === name), false);
+        const id = ++uploads;
+        uploaded.set(id, readFileSync(args[3]));
+        assets.push({ id, name, browser_download_url: `https://github.com/${repository}/releases/download/v0.5.0/${name}` });
+        return Buffer.alloc(0);
+      }
+      if (args[1].includes("/assets/")) return uploaded.get(Number(args[1].split("/").at(-1)));
+      return Buffer.from(JSON.stringify({ assets }));
+    };
+    const options = { root, bundleFile: "bundle.tar.gz", provenanceFile: "provenance.json", runnerTemp: root, manifestFile: "manifest.json", repository, sha: "b".repeat(40), ref: "refs/tags/v0.5.0", workflowRef: `${repository}/.github/workflows/release.yml@refs/tags/v0.5.0`, outputFile: "out/release.json", gh };
+    await writeFile(join(root, "bundle.tar.gz"), firstBytes);
+    const first = await prepareMediaRelease(options);
+    await writeFile(join(root, "bundle.tar.gz"), rebuiltBytes);
+    const rebuilt = await prepareMediaRelease(options);
+    const retried = await prepareMediaRelease(options);
+    assert.notEqual(first.artifacts.package.url, rebuilt.artifacts.package.url);
+    assert.equal(first.artifacts.package.checksum, computePackageChecksum(firstBytes));
+    assert.equal(rebuilt.artifacts.package.checksum, computePackageChecksum(rebuiltBytes));
+    assert.deepEqual(retried, rebuilt);
+    assert.equal(uploads, 3, "two package byte identities and one shared provenance asset");
+    for (const entry of assets.filter((entry) => entry.name.endsWith(".tar.gz"))) {
+      assert.match(entry.name, /-package-[a-f0-9]{64}\.tar\.gz$/);
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

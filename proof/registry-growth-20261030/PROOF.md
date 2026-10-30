@@ -38,12 +38,18 @@ Node `v24.22.0`; pinned plugin CLI `0.13.5`, EmDash `1.4.0`.
 - After adding the final screenshot,
   `node --test --test-name-pattern='prepareRegistryWorkspace|prepare-emdash-release.mjs' tests/release-flow.test.mjs`
   rechecks the changed staging paths.
-- The media transport pilot adds eight focused tests for source-record parsing,
+- The media transport pilot adds nine focused tests for source-record parsing,
   checksummed image inclusion, pre-upload input rejection, matching-asset reuse,
   conflict refusal, no-clobber uploads, upload races and missing beta releases.
   GitHub calls are mocked. The 22 release-flow tests, including the 15 authority
   scenarios, passed with the workflow's media step between attestation and the
   pinned release action. No upload or release was performed by these tests.
+- The retry regression creates two valid gzip representations of the same
+  USTAR bundle and validates both with the real bundle verifier. Under one
+  tag they produce different SHA-256 package filenames; a third preparation
+  with identical bytes reuses the second package and provenance assets.
+  Mocked transport observes exactly two package uploads and one provenance
+  upload, with no overwrite option. Same-name hash conflicts still fail.
 - A full local media preparation also used the real validated Payments 0.4.0
   tarball and the actual icon/screenshot bytes with mocked GitHub transport.
   The real source-record parser accepted the result, two artifact uploads were
@@ -85,7 +91,9 @@ The temporary wrapper is not distributed in the plugin.
 ## Publication boundaries
 
 No registry update, release, deployment, live account connection or payment
-was performed. Source metadata does not update an existing package profile
+was performed by this worker's source validation. The campaign separately
+applied its approved stable profile copy; artwork still requires the reviewed
+release path. Source metadata does not update an existing package profile
 automatically: preview and approve `emdash-plugin update-package` separately
 for the stable listing. Artwork is release metadata and uses the prepared
 delegated media path described in `RELEASING.md`. The source record keeps
