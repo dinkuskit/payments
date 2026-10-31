@@ -2,7 +2,7 @@
 
 Date: 2026-10-31.
 Repository: `dinkuskit/payments`.
-Base: `30d48d0d70ee8b91bd8f5f6f1af141c51ff4645d`.
+Base: `17131a7463e9f09144bf1bda815901a5f879c3c3` (merged over initial base `30d48d0d70ee8b91bd8f5f6f1af141c51ff4645d`).
 Branch: `oracle-fix/authority-revocation-at-final-effect-20261031-134545-d339`.
 
 ## Authorization lifetime decision (Option 1)
