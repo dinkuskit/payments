@@ -3,9 +3,17 @@ import { execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import test from "node:test";
+import { ReleaseServiceClient } from "@emdash-cms/registry-client/release-service";
+import { NSID } from "@emdash-cms/registry-lexicons";
+import { validatePluginBundle } from "@emdash-cms/registry-verification/bundle";
+import {
+  fetchGithubOidcToken,
+  parseWorkflowConnectionArgs,
+} from "../.github/scripts/ensure-emdash-workflow-connection.mjs";
 import {
   classifyPkgPrNewOutput,
   runPkgPrNewPreview,
@@ -1742,4 +1750,592 @@ test("release.yml and emdash-release.yml carry and re-verify human release autho
       }),
     /secrets: inherit/,
   );
+  assert.throws(
+    () =>
+      verifyEmDashWorkflowContract({
+        emdashWorkflowText: emdashWorkflow.replace(
+          '          wait-for-approval: "false"',
+          '          wait-for-approval: "true"',
+        ),
+        releaseWorkflowText: workflow,
+      }),
+    /wait-for-approval: "false"/,
+  );
+  assert.throws(
+    () =>
+      verifyEmDashWorkflowContract({
+        emdashWorkflowText: emdashWorkflow.replace(
+          '          timeout-minutes: "2"',
+          '          timeout-minutes: "30"',
+        ),
+        releaseWorkflowText: workflow,
+      }),
+    /timeout-minutes <= 5/,
+  );
+  assert.throws(
+    () =>
+      verifyEmDashWorkflowContract({
+        emdashWorkflowText: emdashWorkflow.replace(
+          "      - name: Ensure EmDash workflow connection before final authority check\n",
+          "      - name: Ensure EmDash workflow connection before final authority check\n        continue-on-error: true\n",
+        ),
+        releaseWorkflowText: workflow,
+      }),
+    /without continue-on-error/,
+  );
+  assert.throws(
+    () =>
+      verifyEmDashWorkflowContract({
+        emdashWorkflowText: emdashWorkflow.replace(
+          "node .github/scripts/ensure-emdash-workflow-connection.mjs",
+          "# removed workflow-connection preflight",
+        ),
+        releaseWorkflowText: workflow,
+      }),
+    /EmDash workflow-connection preflight/,
+  );
+});
+
+test("ensure-emdash-workflow-connection completes pending approval waits before verify-authority and blocks delegated ReleaseServiceClient publication when revoked during the wait", async () => {
+  // Argument & OIDC validation fail-closed checks
+  assert.throws(() => parseWorkflowConnectionArgs(["--slug"]), /Missing value for --slug/);
+  assert.throws(() => parseWorkflowConnectionArgs(["--unknown", "x"]), /Unknown argument: --unknown/);
+  await assert.rejects(
+    () =>
+      fetchGithubOidcToken("https://releases.emdashcms.com", {
+        env: {
+          ACTIONS_ID_TOKEN_REQUEST_URL: "http://insecure.example/oidc",
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: "req-tok",
+        },
+      }),
+    /GitHub OIDC is unavailable/,
+  );
+  await assert.rejects(
+    () =>
+      fetchGithubOidcToken("https://releases.emdashcms.com", {
+        env: {
+          ACTIONS_ID_TOKEN_REQUEST_URL: "https://user:pass@oidc.example/oidc",
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: "req-tok",
+        },
+      }),
+    /GitHub OIDC is unavailable/,
+  );
+
+  if (!existsSync(join(repositoryRoot, "dist/sandbox/plugin.mjs"))) {
+    execFileSync("npm", ["run", "plugin:build"], { cwd: repositoryRoot, stdio: "inherit" });
+  }
+
+  const sandboxDir = await mkdtemp(join(tmpdir(), "payments-delegated-wait-"));
+  let server = null;
+  try {
+    const keyPath = join(sandboxDir, "tls-key.pem");
+    const certPath = join(sandboxDir, "tls-cert.pem");
+    execFileSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "ec",
+        "-pkeyopt",
+        "ec_paramgen_curve:prime256v1",
+        "-nodes",
+        "-days",
+        "1",
+        "-subj",
+        "/CN=127.0.0.1",
+        "-addext",
+        "subjectAltName=IP:127.0.0.1,DNS:localhost",
+        "-keyout",
+        keyPath,
+        "-out",
+        certPath,
+      ],
+      { stdio: "ignore" },
+    );
+
+    const preparedDir = join(sandboxDir, "prepared-beta");
+    execFileSync(
+      process.execPath,
+      [
+        join(repositoryRoot, ".github/scripts/prepare-emdash-release.mjs"),
+        "--version",
+        "0.2.9-beta.1",
+        "--out-dir",
+        preparedDir,
+      ],
+      { cwd: repositoryRoot, stdio: "pipe" },
+    );
+    const packageBytes = new Uint8Array(
+      await readFile(join(preparedDir, "dinkus-payments-beta-0.2.9-beta.1.tar.gz")),
+    );
+    const packageChecksum = computePackageChecksum(packageBytes);
+    const validatedBundle = await validatePluginBundle(packageBytes);
+    assert.equal(validatedBundle.success, true);
+    const provenanceBytes = new TextEncoder().encode(
+      JSON.stringify({ mediaType: "application/vnd.dev.sigstore.bundle.v0.3+json", subject: packageChecksum }),
+    );
+    const provenanceChecksum = computePackageChecksum(provenanceBytes);
+    const publisherDid = "did:plc:ekk4pjmkh3k3ql2kfoex3qt4";
+    const packageSlug = BETA_REGISTRY_SLUG;
+    const version = "0.2.9-beta.1";
+
+    const state = {
+      collaborators: new Map([["alice", "write"]]),
+      connectionPolls: 0,
+      revokeDuringPendingWait: false,
+      stagedArtifactUploads: [],
+      submittedIntents: [],
+      httpTrace: [],
+    };
+
+    const REQUEST_ID = "01JGWK9B7R3M2N4P5Q6R7S8T9V";
+    const INTENT_ID = "01JGWK9C8S4N3P5Q6R7S8T9V0W";
+    const WORKFLOW_ID = "01JGWK9D9T5P4Q6R7S8T9V0W1X";
+    const OIDC_REQUEST_TOKEN = "actions-oidc-request-token";
+    const OIDC_JWT = "oidc-workload-jwt-token";
+    const READONLY_APP_TOKEN = "app-contents-read-token";
+
+    let serviceOrigin = "";
+    server = createHttpsServer(
+      { key: await readFile(keyPath), cert: await readFile(certPath) },
+      async (req, res) => {
+        const chunks = [];
+        for await (const chunk of req) chunks.push(chunk);
+        const bodyBuf = Buffer.concat(chunks);
+        const url = new URL(req.url ?? "/", serviceOrigin);
+        const auth = req.headers.authorization ?? "";
+        const sendJson = (status, payload) => {
+          res.writeHead(status, { "content-type": "application/json" });
+          res.end(JSON.stringify(payload));
+        };
+
+        if (req.method === "GET" && url.pathname === "/oidc") {
+          if (auth !== `Bearer ${OIDC_REQUEST_TOKEN}` || url.searchParams.get("audience") !== serviceOrigin) {
+            return sendJson(401, { error: "unauthorized_oidc" });
+          }
+          state.httpTrace.push(`GET /oidc?audience=${url.searchParams.get("audience")} -> 200`);
+          return sendJson(200, { value: OIDC_JWT });
+        }
+
+        const collabMatch = /^\/repos\/dinkuskit\/payments\/collaborators\/([^/]+)\/permission$/.exec(
+          url.pathname,
+        );
+        if (req.method === "GET" && collabMatch) {
+          if (auth !== `Bearer ${READONLY_APP_TOKEN}`) {
+            return sendJson(403, { message: "Forbidden" });
+          }
+          const permission = state.collaborators.get(collabMatch[1]) ?? "none";
+          state.httpTrace.push(`GET ${url.pathname} -> 200 (${permission})`);
+          return sendJson(200, { permission });
+        }
+
+        if (auth !== `Bearer ${OIDC_JWT}`) {
+          return sendJson(401, {
+            error: { code: "AUTH_INVALID", message: "Invalid workload token" },
+            requestId: "req-unauth",
+          });
+        }
+
+        if (req.method === "POST" && url.pathname === "/v1/workflow-connections") {
+          state.connectionPolls += 1;
+          const payload = JSON.parse(bodyBuf.toString("utf8"));
+          if (state.connectionPolls === 1) {
+            if (state.revokeDuringPendingWait) {
+              state.collaborators.set("alice", "read");
+              state.httpTrace.push("EVENT alice permission downgraded write -> read while workflow-connection is pending");
+            }
+            state.httpTrace.push(`POST /v1/workflow-connections [poll=${state.connectionPolls}] -> 200 (pending)`);
+            return sendJson(200, {
+              data: {
+                status: "pending",
+                replayed: false,
+                approvalUrl: `${serviceOrigin}/publisher?connection=${REQUEST_ID}`,
+                request: {
+                  id: REQUEST_ID,
+                  packageSlug: payload.packageSlug,
+                  state: "pending",
+                  refScope: null,
+                  createdAt: 1793458000000,
+                  expiresAt: 1793459800000,
+                  confirmedAt: null,
+                  claim: {
+                    repository: "dinkuskit/payments",
+                    repositoryId: "1351728314",
+                    repositoryOwner: "dinkuskit",
+                    repositoryOwnerId: "200000001",
+                    repositoryVisibility: "public",
+                    workflowRef: "dinkuskit/payments/.github/workflows/release.yml@refs/tags/v0.2.9-beta.1",
+                    ref: "refs/tags/v0.2.9-beta.1",
+                    environment: null,
+                  },
+                },
+              },
+            });
+          }
+          state.httpTrace.push(`POST /v1/workflow-connections [poll=${state.connectionPolls}] -> 200 (connected)`);
+          return sendJson(200, {
+            data: {
+              status: "connected",
+              policy: {
+                packageSlug: payload.packageSlug,
+                repository: "dinkuskit/payments",
+                repositoryId: "1351728314",
+                repositoryOwnerId: "200000001",
+                workflowRef: "dinkuskit/payments/.github/workflows/release.yml",
+                allowedRefs: ["refs/tags/v*"],
+                allowedEnvironments: [],
+                repositoryConnection: true,
+                active: true,
+                stateVersion: 1,
+                authorizedBy: payload.publisherDid,
+                createdAt: 1793458000000,
+                updatedAt: 1793458001000,
+              },
+            },
+          });
+        }
+
+        if (req.method === "POST" && url.pathname === "/v1/staged-artifacts") {
+          const slot = String(req.headers["x-emdash-artifact-slot"] ?? "");
+          const checksum = String(req.headers["x-emdash-checksum"] ?? "");
+          const contentType = String(req.headers["content-type"] ?? "");
+          const stagedPath =
+            slot === "provenance"
+              ? `/v1/provenance/${checksum}`
+              : `/v1/staged-artifacts/${slot.replaceAll("[", "-").replaceAll("]", "")}/${checksum}`;
+          state.stagedArtifactUploads.push({ slot, checksum, size: bodyBuf.byteLength });
+          state.httpTrace.push(`POST /v1/staged-artifacts [slot=${slot}] -> 200`);
+          return sendJson(200, {
+            data: {
+              replayed: false,
+              artifact: {
+                slot,
+                checksum,
+                contentType,
+                size: bodyBuf.byteLength,
+                sourceUrl: `${serviceOrigin}${stagedPath}`,
+              },
+            },
+          });
+        }
+
+        if (req.method === "POST" && url.pathname === "/v1/release-intents") {
+          const payload = JSON.parse(bodyBuf.toString("utf8"));
+          state.submittedIntents.push(payload);
+          state.httpTrace.push(`POST /v1/release-intents [${payload.packageSlug}@${payload.version}] -> 200`);
+          return sendJson(200, {
+            data: {
+              replayed: false,
+              intent: {
+                id: INTENT_ID,
+                publisherDid: payload.publisherDid,
+                packageSlug: payload.packageSlug,
+                version: payload.version,
+                state: "publishing",
+                stateGeneration: 1,
+                reasonCode: null,
+                reasonMessage: null,
+                workflowId: WORKFLOW_ID,
+                expiresAt: 1793459800000,
+                createdAt: 1793458002000,
+                updatedAt: 1793458002000,
+                result: null,
+                approvalUrl: null,
+              },
+            },
+          });
+        }
+
+        if (req.method === "GET" && url.pathname === `/v1/release-intents/${INTENT_ID}`) {
+          state.httpTrace.push(`GET ${url.pathname} -> 200 (published)`);
+          return sendJson(200, {
+            data: {
+              intent: {
+                id: INTENT_ID,
+                publisherDid,
+                packageSlug,
+                version,
+                state: "published",
+                stateGeneration: 2,
+                reasonCode: null,
+                reasonMessage: null,
+                workflowId: WORKFLOW_ID,
+                expiresAt: 1793459800000,
+                createdAt: 1793458002000,
+                updatedAt: 1793458003000,
+                result: {
+                  uri: `at://${publisherDid}/com.emdashcms.experimental.package.release/${packageSlug}:${version}`,
+                  cid: "bafyreigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+                },
+                approvalUrl: null,
+              },
+            },
+          });
+        }
+
+        return sendJson(404, { error: { code: "NOT_FOUND", message: "Not found" }, requestId: "req-404" });
+      },
+    );
+
+    await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+    serviceOrigin = `https://127.0.0.1:${server.address().port}`;
+
+    // Executable gh shim exclusively for collaborator permission endpoint in unit test
+    const binDir = join(sandboxDir, "bin");
+    await mkdir(binDir, { recursive: true });
+    const ghBin = join(binDir, "gh");
+    await writeFile(
+      ghBin,
+      [
+        `#!${process.execPath}`,
+        `const args = process.argv.slice(2);`,
+        `const endpoint = args[1];`,
+        `const res = await fetch(\`\${process.env.TEST_HTTPS_ORIGIN}/\${endpoint}\`, {`,
+        `  headers: { authorization: \`Bearer \${process.env.GH_TOKEN || ""}\` },`,
+        `});`,
+        `if (!res.ok) process.exit(1);`,
+        `const data = await res.json();`,
+        `process.stdout.write(String(data.permission ?? "") + "\\n");`,
+      ].join("\n"),
+      "utf8",
+    );
+    await chmod(ghBin, 0o755);
+
+    const spawnNode = (scriptRelPath, args, extraEnv = {}) =>
+      new Promise((resolveChild, rejectChild) => {
+        const child = spawn(process.execPath, [join(repositoryRoot, scriptRelPath), ...args], {
+          cwd: repositoryRoot,
+          env: {
+            ...process.env,
+            PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`,
+            NODE_EXTRA_CA_CERTS: certPath,
+            TEST_HTTPS_ORIGIN: serviceOrigin,
+            ACTIONS_ID_TOKEN_REQUEST_URL: `${serviceOrigin}/oidc`,
+            ACTIONS_ID_TOKEN_REQUEST_TOKEN: OIDC_REQUEST_TOKEN,
+            ...extraEnv,
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        let stdout = "";
+        let stderr = "";
+        child.stdout.setEncoding("utf8");
+        child.stderr.setEncoding("utf8");
+        child.stdout.on("data", (chunk) => {
+          stdout += chunk;
+        });
+        child.stderr.on("data", (chunk) => {
+          stderr += chunk;
+        });
+        child.on("error", rejectChild);
+        child.on("close", (code) => resolveChild({ status: code ?? 1, stdout: stdout.trim(), stderr: stderr.trim() }));
+      });
+
+    const publishRunnerPath = join(sandboxDir, "delegated-publish-runner.mjs");
+    const registryClientModuleUrl = new URL(
+      "../node_modules/@emdash-cms/registry-client/dist/release-service/index.js",
+      import.meta.url,
+    ).href;
+    const oidcHelperUrl = new URL(
+      "../.github/scripts/ensure-emdash-workflow-connection.mjs",
+      import.meta.url,
+    ).href;
+    await writeFile(
+      publishRunnerPath,
+      [
+        `import { readFile } from "node:fs/promises";`,
+        `import { ReleaseServiceClient } from ${JSON.stringify(registryClientModuleUrl)};`,
+        `import { fetchGithubOidcToken } from ${JSON.stringify(oidcHelperUrl)};`,
+        `const cfg = JSON.parse(process.argv[2]);`,
+        `const packageBytes = new Uint8Array(await readFile(cfg.packageFile));`,
+        `const provenanceBytes = new Uint8Array(Buffer.from(cfg.provenanceJson, "utf8"));`,
+        `const client = new ReleaseServiceClient({`,
+        `  serviceUrl: cfg.serviceOrigin,`,
+        `  workloadToken: () => fetchGithubOidcToken(cfg.serviceOrigin),`,
+        `});`,
+        `await client.waitForWorkflowConnection(`,
+        `  { publisherDid: cfg.publisherDid, packageSlug: cfg.packageSlug },`,
+        `  { idempotencyKey: \`github-connection-\${cfg.runId}-\${cfg.packageSlug}\`, pollIntervalMs: 25, maxWaitMs: 120000 },`,
+        `);`,
+        `const pkgUploaded = await client.uploadReleaseArtifact(`,
+        `  { publisherDid: cfg.publisherDid, packageSlug: cfg.packageSlug, version: cfg.version, slot: "package", checksum: cfg.packageChecksum, contentType: "application/gzip", bytes: packageBytes },`,
+        `  { idempotencyKey: \`github-upload-\${cfg.runId}-\${cfg.packageSlug}-package\` },`,
+        `);`,
+        `const provUploaded = await client.uploadReleaseArtifact(`,
+        `  { publisherDid: cfg.publisherDid, packageSlug: cfg.packageSlug, version: cfg.version, slot: "provenance", checksum: cfg.provenanceChecksum, contentType: "application/json", bytes: provenanceBytes },`,
+        `  { idempotencyKey: \`github-upload-\${cfg.runId}-\${cfg.packageSlug}-provenance\` },`,
+        `);`,
+        `const submitted = await client.submitIntent(`,
+        `  { publisherDid: cfg.publisherDid, packageSlug: cfg.packageSlug, version: cfg.version, release: {`,
+        `      $type: cfg.nsidRelease,`,
+        `      package: cfg.packageSlug,`,
+        `      version: cfg.version,`,
+        `      artifacts: { package: { url: pkgUploaded.artifact.sourceUrl, checksum: cfg.packageChecksum, contentType: "application/gzip" } },`,
+        `      extensions: { [cfg.nsidExt]: { $type: cfg.nsidExt, declaredAccess: cfg.declaredAccess, provenance: { url: provUploaded.artifact.sourceUrl, checksum: cfg.provenanceChecksum, predicateType: "https://slsa.dev/provenance/v1", sourceRepository: "https://github.com/dinkuskit/payments", builderId: "https://github.com/dinkuskit/payments/.github/workflows/release.yml@refs/tags/v0.2.9-beta.1" } } },`,
+        `    }`,
+        `  },`,
+        `  { idempotencyKey: \`github-run-\${cfg.runId}\` },`,
+        `);`,
+        `const finalIntent = await client.waitForIntent(cfg.publisherDid, submitted.intent.id, { pollIntervalMs: 25, maxWaitMs: 120000, stopOnApproval: true });`,
+        `console.log(JSON.stringify(finalIntent));`,
+      ].join("\n"),
+      "utf8",
+    );
+    assert.equal(typeof ReleaseServiceClient, "function");
+
+    // Case 1: Allowed actor across pending workflow-connection approval wait -> delegated ReleaseServiceClient publishes.
+    const allowedOut = join(sandboxDir, "allowed-conn.out");
+    const allowedSummary = join(sandboxDir, "allowed-conn.summary.md");
+    const connAllowed = await spawnNode(
+      ".github/scripts/ensure-emdash-workflow-connection.mjs",
+      [
+        "--service-url",
+        serviceOrigin,
+        "--publisher-did",
+        publisherDid,
+        "--slug",
+        packageSlug,
+        "--poll-interval-ms",
+        "25",
+        "--timeout-minutes",
+        "1",
+        "--github-output",
+        allowedOut,
+        "--step-summary",
+        allowedSummary,
+      ],
+      { GITHUB_RUN_ID: "910001" },
+    );
+    assert.equal(connAllowed.status, 0, connAllowed.stderr);
+    assert.match(connAllowed.stdout, /Approve this GitHub workflow to continue:/);
+    assert.match(connAllowed.stdout, /EmDash workflow connection ready for dinkus-payments-beta/);
+    assert.match(await readFile(allowedOut, "utf8"), /connection-url<</);
+    assert.match(await readFile(allowedSummary, "utf8"), /## Approve this GitHub workflow/);
+
+    const authAllowed = await spawnNode(
+      "scripts/release-flow.mjs",
+      [
+        "verify-authority",
+        "--actor",
+        "alice",
+        "--effect",
+        `publish ${packageSlug}@${version} to EmDash Registry`,
+      ],
+      { GH_TOKEN: READONLY_APP_TOKEN },
+    );
+    assert.equal(authAllowed.status, 0, authAllowed.stderr);
+
+    const publishAllowed = await new Promise((resolveChild, rejectChild) => {
+      const child = spawn(
+        process.execPath,
+        [
+          publishRunnerPath,
+          JSON.stringify({
+            serviceOrigin,
+            publisherDid,
+            packageSlug,
+            version,
+            runId: "910001",
+            packageFile: join(preparedDir, "dinkus-payments-beta-0.2.9-beta.1.tar.gz"),
+            packageChecksum,
+            provenanceJson: new TextDecoder().decode(provenanceBytes),
+            provenanceChecksum,
+            nsidRelease: NSID.packageRelease,
+            nsidExt: NSID.packageReleaseExtension,
+            declaredAccess: validatedBundle.value.declaredAccess,
+          }),
+        ],
+        {
+          cwd: repositoryRoot,
+          env: {
+            ...process.env,
+            NODE_EXTRA_CA_CERTS: certPath,
+            ACTIONS_ID_TOKEN_REQUEST_URL: `${serviceOrigin}/oidc`,
+            ACTIONS_ID_TOKEN_REQUEST_TOKEN: OIDC_REQUEST_TOKEN,
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      let stdout = "";
+      let stderr = "";
+      child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
+      child.stdout.on("data", (c) => {
+        stdout += c;
+      });
+      child.stderr.on("data", (c) => {
+        stderr += c;
+      });
+      child.on("error", rejectChild);
+      child.on("close", (code) => resolveChild({ status: code ?? 1, stdout: stdout.trim(), stderr: stderr.trim() }));
+    });
+    assert.equal(publishAllowed.status, 0, publishAllowed.stderr);
+    const publishedIntent = JSON.parse(publishAllowed.stdout);
+    assert.equal(publishedIntent.state, "published");
+    assert.equal(
+      publishedIntent.result?.uri,
+      `at://${publisherDid}/com.emdashcms.experimental.package.release/${packageSlug}:${version}`,
+    );
+    assert.equal(state.stagedArtifactUploads.length, 2);
+    assert.equal(state.submittedIntents.length, 1);
+
+    // Case 2: Actor starts with "write", enters workflow-connection pending wait, and is downgraded
+    // to "read" DURING that wait before connection becomes "connected" -> verify-authority fails closed
+    // before ReleaseServiceClient / release-action can upload any artifact or submit any release intent.
+    state.collaborators.set("alice", "write");
+    state.connectionPolls = 0;
+    state.revokeDuringPendingWait = true;
+    state.stagedArtifactUploads = [];
+    state.submittedIntents = [];
+    state.httpTrace = [];
+
+    const revokedConnOut = join(sandboxDir, "revoked-conn.out");
+    const connBeforeRevokeCheck = await spawnNode(
+      ".github/scripts/ensure-emdash-workflow-connection.mjs",
+      [
+        "--service-url",
+        serviceOrigin,
+        "--publisher-did",
+        publisherDid,
+        "--slug",
+        packageSlug,
+        "--poll-interval-ms",
+        "25",
+        "--timeout-minutes",
+        "1",
+        "--github-output",
+        revokedConnOut,
+      ],
+      { GITHUB_RUN_ID: "910002" },
+    );
+    assert.equal(connBeforeRevokeCheck.status, 0, connBeforeRevokeCheck.stderr);
+    assert.equal(state.collaborators.get("alice"), "read");
+    assert.ok(
+      state.httpTrace.some((line) => line.includes("alice permission downgraded write -> read while workflow-connection is pending")),
+    );
+
+    const authAfterPendingRevoke = await spawnNode(
+      "scripts/release-flow.mjs",
+      [
+        "verify-authority",
+        "--actor",
+        "alice",
+        "--effect",
+        `publish ${packageSlug}@${version} to EmDash Registry`,
+      ],
+      { GH_TOKEN: READONLY_APP_TOKEN },
+    );
+    assert.equal(authAfterPendingRevoke.status, 1);
+    assert.match(
+      authAfterPendingRevoke.stderr,
+      /Refusing to publish dinkus-payments-beta@0\.2\.9-beta\.1 to EmDash Registry: alice no longer has write access to dinkuskit\/payments \(permission "read"\)\./,
+    );
+    assert.equal(state.stagedArtifactUploads.length, 0);
+    assert.equal(state.submittedIntents.length, 0);
+  } finally {
+    if (server) {
+      await new Promise((resolveClose) => server.close(resolveClose));
+    }
+    await rm(sandboxDir, { recursive: true, force: true });
+  }
 });

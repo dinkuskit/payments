@@ -49,6 +49,9 @@ export function verifyEmDashWorkflowContract({ emdashWorkflowText, releaseWorkfl
   const prepareIdx = emdashWorkflowText.indexOf("node .github/scripts/prepare-emdash-release.mjs");
   const attestIdx = emdashWorkflowText.indexOf("actions/attest-build-provenance@");
   const mediaIdx = emdashWorkflowText.indexOf("node scripts/registry-release-media.mjs");
+  const workflowConnectionIdx = emdashWorkflowText.indexOf(
+    "node .github/scripts/ensure-emdash-workflow-connection.mjs",
+  );
   const authorityTokenIdx = emdashWorkflowText.indexOf("actions/create-github-app-token@");
   const authorityIdx = emdashWorkflowText.indexOf("node scripts/release-flow.mjs verify-authority");
   const releaseActionIdx = emdashWorkflowText.indexOf("emdash-cms/emdash/apps/release-action@");
@@ -58,6 +61,7 @@ export function verifyEmDashWorkflowContract({ emdashWorkflowText, releaseWorkfl
     prepareIdx === -1 ||
     attestIdx === -1 ||
     mediaIdx === -1 ||
+    workflowConnectionIdx === -1 ||
     authorityTokenIdx === -1 ||
     authorityIdx === -1 ||
     releaseActionIdx === -1 ||
@@ -66,20 +70,33 @@ export function verifyEmDashWorkflowContract({ emdashWorkflowText, releaseWorkfl
       gateIdx < prepareIdx &&
       prepareIdx < attestIdx &&
       attestIdx < mediaIdx &&
-      mediaIdx < authorityTokenIdx &&
+      mediaIdx < workflowConnectionIdx &&
+      workflowConnectionIdx < authorityTokenIdx &&
       authorityTokenIdx < authorityIdx &&
       authorityIdx < releaseActionIdx &&
       releaseActionIdx < verifyIdx
     )
   ) {
     throw new Error(
-      "emdash-release.yml must run .github/scripts/emdash-dispatch-gate.mjs before bundle preparation, build provenance attestation, listing media, final release-actor authority check, delegated release-action publish, and PDS verification",
+      "emdash-release.yml must run .github/scripts/emdash-dispatch-gate.mjs before bundle preparation, build provenance attestation, listing media, EmDash workflow-connection preflight, final release-actor authority check, delegated release-action publish, and PDS verification",
     );
   }
 
   // emdash-release.yml never pushes branches, tags, PRs, or GitHub Releases; any GitHub App token
   // minted there is strictly permission-contents: read for collaborator permission verification.
   const emdashSteps = emdashWorkflowText.split(/\n(?=      - (?:name|uses): )/);
+  const workflowConnectionStep = emdashSteps.find((step) =>
+    step.includes("node .github/scripts/ensure-emdash-workflow-connection.mjs"),
+  );
+  if (
+    !workflowConnectionStep ||
+    !/--service-url\s+https:\/\/releases\.emdashcms\.com\b/.test(workflowConnectionStep) ||
+    /continue-on-error:\s*true/m.test(workflowConnectionStep)
+  ) {
+    throw new Error(
+      "emdash-release.yml workflow-connection step must run ensure-emdash-workflow-connection.mjs against https://releases.emdashcms.com without continue-on-error",
+    );
+  }
   const appTokenSteps = emdashSteps.filter((step) => step.includes("actions/create-github-app-token@"));
   if (appTokenSteps.length === 0) {
     throw new Error("emdash-release.yml must mint a read-only release App token before final authority verification");
@@ -106,6 +123,24 @@ export function verifyEmDashWorkflowContract({ emdashWorkflowText, releaseWorkfl
   ) {
     throw new Error(
       "emdash-release.yml verify-authority step must enforce inputs.release_actor via steps.authority-token.outputs.token without continue-on-error",
+    );
+  }
+  const releaseActionStep = emdashSteps.find((step) =>
+    step.includes("emdash-cms/emdash/apps/release-action@"),
+  );
+  const timeoutMatch = releaseActionStep
+    ? /^\s+timeout-minutes:\s*["']?([1-9][0-9]*)["']?\s*(?:#.*)?$/m.exec(releaseActionStep)
+    : null;
+  const releaseActionTimeoutMinutes = timeoutMatch ? Number(timeoutMatch[1]) : Number.NaN;
+  if (
+    !releaseActionStep ||
+    !/^\s+wait-for-approval:\s*["']?false["']?\s*(?:#.*)?$/m.test(releaseActionStep) ||
+    !Number.isInteger(releaseActionTimeoutMinutes) ||
+    releaseActionTimeoutMinutes < 1 ||
+    releaseActionTimeoutMinutes > 5
+  ) {
+    throw new Error(
+      "emdash-release.yml release-action step must set wait-for-approval: \"false\" and timeout-minutes <= 5 so no approval wait outlives verify-authority",
     );
   }
   if (/(?:contents|pull-requests|issues|actions):\s*write\b/.test(emdashWorkflowText)) {

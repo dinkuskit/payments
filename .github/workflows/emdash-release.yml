@@ -158,6 +158,19 @@ jobs:
         if: steps.registry-check.outputs.already_published != 'true'
         run: node scripts/registry-release-media.mjs
 
+      - name: Ensure EmDash workflow connection before final authority check
+        id: workflow-connection
+        if: steps.registry-check.outputs.already_published != 'true'
+        env:
+          PUBLISHER_DID: ${{ steps.prepare.outputs.publisher-did }}
+          EMDASH_PLUGIN_SLUG: ${{ steps.meta.outputs.slug }}
+        run: >-
+          node .github/scripts/ensure-emdash-workflow-connection.mjs
+          --service-url https://releases.emdashcms.com
+          --publisher-did "$PUBLISHER_DID"
+          --slug "$EMDASH_PLUGIN_SLUG"
+          --timeout-minutes 30
+
       - name: Mint read-only release App token for final authority check
         id: authority-token
         if: steps.registry-check.outputs.already_published != 'true'
@@ -197,6 +210,8 @@ jobs:
           bundle-file: ${{ steps.prepare.outputs.bundle-file }}
           provenance-file: ${{ steps.attest.outputs.bundle-path }}
           plugin-directory: ${{ steps.media.outputs.plugin-directory }}
+          wait-for-approval: "false"
+          timeout-minutes: "2"
 
       - name: Verify release is indexed in EmDash Registry
         id: verify
