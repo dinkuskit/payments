@@ -13,6 +13,7 @@ const requiredFiles = [
   ".gitattributes",
   ".github/scripts/check-changeset.mjs",
   ".github/scripts/emdash-dispatch-gate.mjs",
+  ".github/scripts/ensure-emdash-workflow-connection.mjs",
   ".github/scripts/prepare-emdash-release.mjs",
   ".github/scripts/publish-pkg-pr-new.mjs",
   ".github/scripts/verify-registry-release.mjs",

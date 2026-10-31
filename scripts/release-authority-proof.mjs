@@ -27,16 +27,7 @@ function git(args, cwd) {
   }).trim();
 }
 
-export async function verifyShippedEmDashWorkflowGateBinding() {
-  const emdashWorkflowText = await readFile(
-    join(repositoryRoot, ".github/workflows/emdash-release.yml"),
-    "utf8",
-  );
-  const releaseWorkflowText = await readFile(
-    join(repositoryRoot, ".github/workflows/release.yml"),
-    "utf8",
-  );
-
+export function verifyEmDashWorkflowContract({ emdashWorkflowText, releaseWorkflowText }) {
   const expectedIfLine = `if: ${EMDASH_PUBLISH_JOB_IF}`;
   if (!emdashWorkflowText.includes(expectedIfLine)) {
     throw new Error(
@@ -58,6 +49,11 @@ export async function verifyShippedEmDashWorkflowGateBinding() {
   const prepareIdx = emdashWorkflowText.indexOf("node .github/scripts/prepare-emdash-release.mjs");
   const attestIdx = emdashWorkflowText.indexOf("actions/attest-build-provenance@");
   const mediaIdx = emdashWorkflowText.indexOf("node scripts/registry-release-media.mjs");
+  const workflowConnectionIdx = emdashWorkflowText.indexOf(
+    "node .github/scripts/ensure-emdash-workflow-connection.mjs",
+  );
+  const authorityTokenIdx = emdashWorkflowText.indexOf("actions/create-github-app-token@");
+  const authorityIdx = emdashWorkflowText.indexOf("node scripts/release-flow.mjs verify-authority");
   const releaseActionIdx = emdashWorkflowText.indexOf("emdash-cms/emdash/apps/release-action@");
   const verifyIdx = emdashWorkflowText.indexOf("node .github/scripts/verify-registry-release.mjs");
   if (
@@ -65,18 +61,90 @@ export async function verifyShippedEmDashWorkflowGateBinding() {
     prepareIdx === -1 ||
     attestIdx === -1 ||
     mediaIdx === -1 ||
+    workflowConnectionIdx === -1 ||
+    authorityTokenIdx === -1 ||
+    authorityIdx === -1 ||
     releaseActionIdx === -1 ||
     verifyIdx === -1 ||
-    !(gateIdx < prepareIdx && prepareIdx < attestIdx && attestIdx < mediaIdx && mediaIdx < releaseActionIdx && releaseActionIdx < verifyIdx)
+    !(
+      gateIdx < prepareIdx &&
+      prepareIdx < attestIdx &&
+      attestIdx < mediaIdx &&
+      mediaIdx < workflowConnectionIdx &&
+      workflowConnectionIdx < authorityTokenIdx &&
+      authorityTokenIdx < authorityIdx &&
+      authorityIdx < releaseActionIdx &&
+      releaseActionIdx < verifyIdx
+    )
   ) {
     throw new Error(
-      "emdash-release.yml must run .github/scripts/emdash-dispatch-gate.mjs before bundle preparation, build provenance attestation, delegated release-action publish, and PDS verification",
+      "emdash-release.yml must run .github/scripts/emdash-dispatch-gate.mjs before bundle preparation, build provenance attestation, listing media, EmDash workflow-connection preflight, final release-actor authority check, delegated release-action publish, and PDS verification",
     );
   }
 
-  // Release artifact uploads use the job token; tag/branch changes remain in release.yml.
-  if (emdashWorkflowText.includes("actions/create-github-app-token@") || emdashWorkflowText.includes("RELEASE_APP_PRIVATE_KEY")) {
-    throw new Error("emdash-release.yml must not mint a GitHub App token; the version tag already exists when it runs");
+  // emdash-release.yml never pushes branches, tags, PRs, or GitHub Releases; any GitHub App token
+  // minted there is strictly permission-contents: read for collaborator permission verification.
+  const emdashSteps = emdashWorkflowText.split(/\n(?=      - (?:name|uses): )/);
+  const workflowConnectionStep = emdashSteps.find((step) =>
+    step.includes("node .github/scripts/ensure-emdash-workflow-connection.mjs"),
+  );
+  if (
+    !workflowConnectionStep ||
+    !/--service-url\s+https:\/\/releases\.emdashcms\.com\b/.test(workflowConnectionStep) ||
+    /continue-on-error:\s*true/m.test(workflowConnectionStep)
+  ) {
+    throw new Error(
+      "emdash-release.yml workflow-connection step must run ensure-emdash-workflow-connection.mjs against https://releases.emdashcms.com without continue-on-error",
+    );
+  }
+  const appTokenSteps = emdashSteps.filter((step) => step.includes("actions/create-github-app-token@"));
+  if (appTokenSteps.length === 0) {
+    throw new Error("emdash-release.yml must mint a read-only release App token before final authority verification");
+  }
+  for (const step of appTokenSteps) {
+    if (
+      !/^\s+permission-contents:\s*read\s*(?:#.*)?$/m.test(step) ||
+      /:\s*write\b/m.test(step) ||
+      /^\s+permission-(?!contents:\s*read\s*(?:#.*)?$)/m.test(step) ||
+      /continue-on-error:\s*true/m.test(step)
+    ) {
+      throw new Error(
+        "Any actions/create-github-app-token step in emdash-release.yml must set permission-contents: read only and never grant write permissions or continue-on-error",
+      );
+    }
+  }
+  const authorityStep = emdashSteps.find((step) => step.includes("node scripts/release-flow.mjs verify-authority"));
+  if (
+    !authorityStep ||
+    !/GH_TOKEN:\s*\$\{\{\s*steps\.authority-token\.outputs\.token\s*\}\}/.test(authorityStep) ||
+    !/RELEASE_ACTOR:\s*\$\{\{\s*inputs\.release_actor\s*\}\}/.test(authorityStep) ||
+    !/--actor\s+"\$RELEASE_ACTOR"/.test(authorityStep) ||
+    /continue-on-error:\s*true/m.test(authorityStep)
+  ) {
+    throw new Error(
+      "emdash-release.yml verify-authority step must enforce inputs.release_actor via steps.authority-token.outputs.token without continue-on-error",
+    );
+  }
+  const releaseActionStep = emdashSteps.find((step) =>
+    step.includes("emdash-cms/emdash/apps/release-action@"),
+  );
+  const timeoutMatch = releaseActionStep
+    ? /^\s+timeout-minutes:\s*["']?([1-9][0-9]*)["']?\s*(?:#.*)?$/m.exec(releaseActionStep)
+    : null;
+  const releaseActionTimeoutMinutes = timeoutMatch ? Number(timeoutMatch[1]) : Number.NaN;
+  if (
+    !releaseActionStep ||
+    !/^\s+wait-for-approval:\s*["']?false["']?\s*(?:#.*)?$/m.test(releaseActionStep) ||
+    !Number.isInteger(releaseActionTimeoutMinutes) ||
+    releaseActionTimeoutMinutes < 1 ||
+    releaseActionTimeoutMinutes > 5
+  ) {
+    throw new Error(
+      "emdash-release.yml release-action step must set wait-for-approval: \"false\" and timeout-minutes <= 5 so no approval wait outlives verify-authority",
+    );
+  }
+  if (/(?:contents|pull-requests|issues|actions):\s*write\b/.test(emdashWorkflowText)) {
+    throw new Error("emdash-release.yml must never request write permissions on repository contents, PRs, issues, or actions");
   }
 
   if (
@@ -103,20 +171,30 @@ export async function verifyShippedEmDashWorkflowGateBinding() {
   if (
     !releaseWorkflowText.includes("uses: ./.github/workflows/emdash-release.yml") ||
     !releaseWorkflowText.includes("release_mode: ${{ needs.release-tag.outputs.release_mode }}") ||
+    !releaseWorkflowText.includes("release_actor: ${{ needs.release-tag.outputs.release_actor }}") ||
+    !releaseWorkflowText.includes("release_actor: ${{ steps.tag.outputs.release_actor }}") ||
+    !releaseWorkflowText.includes("RELEASE_APP_ID: ${{ secrets.RELEASE_APP_ID }}") ||
+    !releaseWorkflowText.includes("RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}") ||
     !/^\s+tags: \["v\*\.\*\.\*"\]$/m.test(releaseWorkflowText) ||
     !releaseWorkflowText.includes("needs: release-tag")
   ) {
-    throw new Error("release.yml must publish only from its version-tag run, delegating to emdash-release.yml with the tag's release_mode");
+    throw new Error("release.yml must publish only from its version-tag run, delegating release_mode, release_actor, and explicit App secrets to emdash-release.yml");
   }
 
   // Cut beta is release.yml's button too: emdash-release.yml has none of its own, so the release
   // service connects both listings through release.yml.
   const emdashTriggers = /^on:\n([\s\S]*?)^\S/m.exec(emdashWorkflowText)?.[1] ?? "";
-  if (!emdashTriggers.includes("workflow_call:") || emdashTriggers.includes("workflow_dispatch")) {
-    throw new Error("emdash-release.yml must be workflow_call-only; Cut beta is a release.yml workflow_dispatch");
+  if (
+    !emdashTriggers.includes("workflow_call:") ||
+    emdashTriggers.includes("workflow_dispatch") ||
+    !emdashTriggers.includes("release_actor:") ||
+    !emdashTriggers.includes("RELEASE_APP_ID:") ||
+    !emdashTriggers.includes("RELEASE_APP_PRIVATE_KEY:")
+  ) {
+    throw new Error("emdash-release.yml must be workflow_call-only with required release_actor input and explicit RELEASE_APP_* secrets");
   }
-  if (!releaseWorkflowText.includes("node scripts/release-flow.mjs verify-release-tag")) {
-    throw new Error("release.yml's tag run must check the tag sits on its release branch before the Registry job");
+  if (!/node scripts\/release-flow\.mjs verify-release-tag\b[^\n]*--require-actor\b/.test(releaseWorkflowText)) {
+    throw new Error("release.yml's tag run must check the tag sits on its release branch and enforce --require-actor before the Registry job");
   }
 
   return {
@@ -125,7 +203,21 @@ export async function verifyShippedEmDashWorkflowGateBinding() {
     callerPassesStableReleaseMode: true,
     callerPassesBetaReleaseMode: true,
     delegatedOidcReleaseConfigured: true,
+    finalAuthorityRecheckBeforePublish: true,
+    emdashAppTokenReadOnly: true,
   };
+}
+
+export async function verifyShippedEmDashWorkflowGateBinding() {
+  const emdashWorkflowText = await readFile(
+    join(repositoryRoot, ".github/workflows/emdash-release.yml"),
+    "utf8",
+  );
+  const releaseWorkflowText = await readFile(
+    join(repositoryRoot, ".github/workflows/release.yml"),
+    "utf8",
+  );
+  return verifyEmDashWorkflowContract({ emdashWorkflowText, releaseWorkflowText });
 }
 
 export function runExtractedGateScriptProcess({
@@ -171,7 +263,7 @@ export function runExtractedGateScriptProcess({
   };
 }
 
-async function createSeededRepo(prefix, events) {
+export async function createSeededRepo(prefix, events) {
   const root = await mkdtemp(join(tmpdir(), `payments-release-proof-${prefix}-`));
   await mkdir(join(root, ".changeset"), { recursive: true });
   await mkdir(join(root, "src"), { recursive: true });
@@ -239,7 +331,8 @@ async function createSeededRepo(prefix, events) {
       return "";
     }
     if (args[0] === "tag" && args[1] !== "--list") {
-      events.push(`git:tag:${args[1]}`);
+      const tagName = args.find((arg, i) => i > 0 && !arg.startsWith("-") && args[i - 1] !== "-m") ?? args[1];
+      events.push(`git:tag:${tagName}`);
     }
     if (args[0] === "commit") {
       events.push(`git:commit:${args[2]?.split("\n")[0] || ""}`);
@@ -250,7 +343,7 @@ async function createSeededRepo(prefix, events) {
   return { root, gitExec };
 }
 
-function createStubEnvironment({
+export function createStubEnvironment({
   events,
   betaVersions = [],
   stableVersions = [],
@@ -397,7 +490,7 @@ function cliDeps(root, gitExec, env, logs = []) {
   };
 }
 
-async function commitOnMain(root, files, message) {
+export async function commitOnMain(root, files, message) {
   git(["checkout", "-q", "-f", "main"], root);
   for (const [path, content] of Object.entries(files)) {
     if (content === null) {
@@ -419,7 +512,7 @@ function mergeCommitReleasePr(root) {
 }
 
 // Squash-merges the ci: release PR into main with the PR's message, the way the owner merges it.
-function squashMergeReleasePr(root) {
+export function squashMergeReleasePr(root) {
   const message = git(["log", "-1", "--format=%B", "changeset-release/main"], root);
   git(["checkout", "-q", "-f", "main"], root);
   git(["merge", "-q", "--squash", "changeset-release/main"], root);
