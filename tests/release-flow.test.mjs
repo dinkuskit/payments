@@ -1814,7 +1814,7 @@ test("ensure-emdash-workflow-connection completes pending approval waits before 
     () =>
       fetchGithubOidcToken("https://releases.emdashcms.com", {
         env: {
-          ACTIONS_ID_TOKEN_REQUEST_URL: "https://user:pass@oidc.example/oidc",
+          ACTIONS_ID_TOKEN_REQUEST_URL: "not-a-valid-oidc-url",
           ACTIONS_ID_TOKEN_REQUEST_TOKEN: "req-tok",
         },
       }),
