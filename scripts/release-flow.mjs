@@ -785,6 +785,33 @@ function defaultGh(args, root = repositoryRoot) {
   }).trim();
 }
 
+export const RELEASE_REPOSITORY = "dinkuskit/payments";
+export const WRITE_AUTHORITY_PERMISSIONS = Object.freeze(["admin", "maintain", "write"]);
+const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+
+// A run's pusher had write access when GitHub queued the run, and the release App token pushes
+// whatever the run asks. Neither is the pusher's authority now: it is read from GitHub again right
+// before each push, tag, PR or GitHub Release, never remembered, so access removed while the run
+// waited leaves nothing behind.
+export function verifyWriteAuthority(actor, { root = repositoryRoot, ghExec = defaultGh, effect = "release" } = {}) {
+  const login = String(actor ?? "").trim();
+  if (!GITHUB_LOGIN.test(login)) {
+    throw new Error(`Refusing to ${effect}: "${login || "(empty)"}" is not a GitHub login whose write access can be checked.`);
+  }
+  let permission = "";
+  try {
+    permission = ghExec(["api", `repos/${RELEASE_REPOSITORY}/collaborators/${login}/permission`, "--jq", ".permission"], root).trim();
+  } catch {
+    permission = "";
+  }
+  if (!WRITE_AUTHORITY_PERMISSIONS.includes(permission)) {
+    throw new Error(
+      `Refusing to ${effect}: ${login} no longer has write access to ${RELEASE_REPOSITORY} (permission "${permission || "unknown"}").`,
+    );
+  }
+  return permission;
+}
+
 function listGitTags(pattern, root = repositoryRoot, gitExec = defaultGit) {
   const out = gitExec(["tag", "--list", pattern], root);
   return out ? out.split("\n").map((line) => line.trim()).filter(Boolean) : [];
@@ -1102,6 +1129,10 @@ export async function runReleaseFlowCli(argv, deps = {}) {
     deps.npmExec ||
     ((args, cwd) => execFileSync("npm", args, { cwd, stdio: "inherit" }));
   const log = deps.log || ((line) => console.log(line));
+  // release.yml names the run's pusher with --actor; their write access is checked before each effect.
+  const requireWriteAuthority = (effect) => {
+    if (flags.actor !== undefined) verifyWriteAuthority(flags.actor, { root, ghExec, effect });
+  };
 
   if (command === "validate-emdash-dispatch") {
     const eventName = flags["event-name"] ?? process.env.EVENT_NAME ?? process.env.GITHUB_EVENT_NAME ?? "";
@@ -1205,6 +1236,7 @@ export async function runReleaseFlowCli(argv, deps = {}) {
       if (existingTagSha && existingTagSha !== headSha) {
         throw new Error(`Tag ${tag} already exists at ${existingTagSha} (HEAD is ${headSha}).`);
       }
+      requireWriteAuthority(`cut ${tag}`);
       if (!existingTagSha) gitExec(["tag", tag, headSha], root);
       if (flags["no-push"] !== "true") {
         // One atomic push: the moved or dropped branches, the new branch and its beta tag land
@@ -1313,6 +1345,7 @@ export async function runReleaseFlowCli(argv, deps = {}) {
     const headSha = gitExec(["rev-parse", "HEAD"], root);
     const next = await nextBetaFor(targetVersion, { root, gitExec, fetchImpl });
     const tag = next.tag;
+    requireWriteAuthority(`tag ${tag} on ${releaseBranch}`);
     gitExec(["tag", tag, headSha], root);
     if (flags["no-push"] !== "true") {
       gitExec(["push", "--atomic", "origin", `${headSha}:refs/heads/${releaseBranch}`, `refs/tags/${tag}`], root);
@@ -1414,6 +1447,7 @@ export async function runReleaseFlowCli(argv, deps = {}) {
     gitExec(["commit", "-m", commitBody], root);
 
     if (flags["no-push"] !== "true") {
+      requireWriteAuthority(`push ${RELEASE_PR_BRANCH}`);
       gitExec(["push", "--force-with-lease", "origin", `HEAD:refs/heads/${RELEASE_PR_BRANCH}`], root);
       const prBody = [
         `## Release \`${PACKAGE_NAME}@${targetVersion}\``,
@@ -1446,6 +1480,7 @@ export async function runReleaseFlowCli(argv, deps = {}) {
         root,
       );
 
+      requireWriteAuthority(`open the ${prTitle} PR`);
       if (existingPr) {
         ghExec(["pr", "edit", existingPr, "--title", prTitle, "--body", prBody], root);
       } else {
@@ -1583,6 +1618,7 @@ export async function runReleaseFlowCli(argv, deps = {}) {
       throw new Error(sourceCheck.message);
     }
 
+    requireWriteAuthority(`tag ${tag} on ${releaseBranch}`);
     gitExec(["tag", tag, releaseSha], root);
     if (flags["no-push"] !== "true") {
       gitExec(["push", "--atomic", "origin", `${releaseSha}:refs/heads/${releaseBranch}`, `refs/tags/${tag}`], root);
@@ -1657,13 +1693,17 @@ export async function runReleaseFlowCli(argv, deps = {}) {
         throw new Error(sourceCheck.message);
       }
       result.betaVersion = proof.betaVersion;
-      if (flags["no-gh"] !== "true" && !checkGithubReleaseExists(tag, root, ghExec)) {
-        const notes =
-          extractChangelogSection(gitExec(["show", `${tagSha}:CHANGELOG.md`], root), version) ||
-          `Release ${PACKAGE_NAME} ${version}`;
-        ghExec(["release", "create", tag, "--title", tag, "--notes", notes, "--verify-tag"], root);
-        result.githubReleaseCreated = true;
-      }
+    }
+
+    // Retry the publish names its presser: the GitHub Release and the Registry job this run hands
+    // the tag to wait on their write access, read again here.
+    requireWriteAuthority(`publish ${tag}`);
+    if (!isBeta && flags["no-gh"] !== "true" && !checkGithubReleaseExists(tag, root, ghExec)) {
+      const notes =
+        extractChangelogSection(gitExec(["show", `${tagSha}:CHANGELOG.md`], root), version) ||
+        `Release ${PACKAGE_NAME} ${version}`;
+      ghExec(["release", "create", tag, "--title", tag, "--notes", notes, "--verify-tag"], root);
+      result.githubReleaseCreated = true;
     }
 
     await writeGithubOutputs(flags["github-output"], {

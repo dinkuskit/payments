@@ -99,13 +99,14 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.action == 'cut-beta'
         env:
           BETA_VERSION: ${{ inputs.beta_version }}
+          RELEASE_ACTOR: ${{ github.triggering_actor }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
           if [ -z "$BETA_VERSION" ]; then
-            node scripts/release-flow.mjs cut-beta --github-output "$GITHUB_OUTPUT"
+            node scripts/release-flow.mjs cut-beta --actor "$RELEASE_ACTOR" --github-output "$GITHUB_OUTPUT"
           else
-            node scripts/release-flow.mjs cut-beta --version "$BETA_VERSION" --github-output "$GITHUB_OUTPUT"
+            node scripts/release-flow.mjs cut-beta --version "$BETA_VERSION" --actor "$RELEASE_ACTOR" --github-output "$GITHUB_OUTPUT"
           fi
 
       - name: Add fix to beta (manual workflow_dispatch)
@@ -113,6 +114,8 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
           FIX_COMMIT: ${{ inputs.fix_commit }}
+          RELEASE_ACTOR: ${{ github.triggering_actor }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           if [ -z "$RELEASE_VERSION" ] || [ -z "$FIX_COMMIT" ]; then
             echo "::error title=Add fix to beta needs a version and a commit::Fill in release_version (the X.Y.Z of release/X.Y.Z) and fix_commit (the fix's merge commit on main)."
@@ -121,6 +124,7 @@ jobs:
           node scripts/release-flow.mjs add-fix \
             --release-version "$RELEASE_VERSION" \
             --commit "$FIX_COMMIT" \
+            --actor "$RELEASE_ACTOR" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Promote verified beta to release PR (manual workflow_dispatch)
@@ -128,6 +132,7 @@ jobs:
         env:
           BETA_VERSION: ${{ inputs.beta_version }}
           PROOF_REF: ${{ inputs.proof_ref }}
+          RELEASE_ACTOR: ${{ github.triggering_actor }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -137,14 +142,16 @@ jobs:
           fi
           node scripts/release-flow.mjs promote \
             --beta-version "$BETA_VERSION" \
-            --proof-ref "$PROOF_REF"
+            --proof-ref "$PROOF_REF" \
+            --actor "$RELEASE_ACTOR"
 
       - name: "Tag a merged ci: release PR on its release branch"
         if: github.event_name == 'push'
         env:
+          RELEASE_ACTOR: ${{ github.triggering_actor }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: node scripts/release-flow.mjs publish-merged-release --github-output "$GITHUB_OUTPUT"
+        run: node scripts/release-flow.mjs publish-merged-release --actor "$RELEASE_ACTOR" --github-output "$GITHUB_OUTPUT"
 
   # A version tag's run: the tag's push, or retry-publish pressed with "Use workflow from" set to the
   # tag (a re-run of a failed run reuses its expired dashboard request, a fresh run asks again). The
@@ -185,9 +192,12 @@ jobs:
         id: tag
         env:
           TAG_REF: ${{ github.ref }}
+          # Retry the publish is pressed by a person, whose write access is read again before the
+          # publish. A tag push comes from the release App, right after it checked the presser's.
+          RELEASE_ACTOR: ${{ github.event_name == 'workflow_dispatch' && github.triggering_actor || '' }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: node scripts/release-flow.mjs verify-release-tag --ref "$TAG_REF" --github-output "$GITHUB_OUTPUT"
+        run: node scripts/release-flow.mjs verify-release-tag --ref "$TAG_REF" ${RELEASE_ACTOR:+--actor "$RELEASE_ACTOR"} --github-output "$GITHUB_OUTPUT"
 
   publish-emdash:
     name: Publish to EmDash Registry from the version tag

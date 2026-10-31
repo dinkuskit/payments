@@ -16,8 +16,12 @@ import {
   resolvePdsEndpoint,
 } from "../.github/scripts/verify-registry-release.mjs";
 import {
+  commitOnMain,
+  createSeededRepo,
+  createStubEnvironment,
   runExtractedGateScriptProcess,
   runReleaseAuthorityProof,
+  squashMergeReleasePr,
   verifyShippedEmDashWorkflowGateBinding,
 } from "../scripts/release-authority-proof.mjs";
 import {
@@ -55,6 +59,7 @@ import {
   verifyApprovedBetaSourceTree,
   verifyBuiltPluginBundleSize,
   verifyVersionOnlyPackageMetadata,
+  verifyWriteAuthority,
 } from "../scripts/release-flow.mjs";
 
 test("locked stable and beta EmDash Registry identities match release-branches-079", () => {
@@ -903,4 +908,161 @@ test("release-authority-proof harness passes all 15 release-authority scenarios 
     report.scenarios.map((s) => s.id),
     ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o"],
   );
+});
+
+// Pushes, local tags made to be pushed, PR writes and GitHub Releases: what a release run changes.
+const RELEASE_EFFECT = (event) =>
+  event.startsWith("git:push:") ||
+  event.startsWith("git:tag:") ||
+  event.startsWith("gh:pr:create:") ||
+  event.startsWith("gh:pr:edit:") ||
+  event.startsWith("gh:release:create:");
+// Reads a run may make between its authority check and the effect it guards.
+const RELEASE_LOOKUP = (event) => event === "gh:pr:list" || event.startsWith("gh:release:view:");
+
+test("test_revoked_between_enqueue_and_publish_yields_zero_effects: write access removed while a release run waits stops every push, tag, PR and GitHub Release", async () => {
+  const actor = "release-presser";
+  const events = [];
+  const { root } = await createSeededRepo("revoked-authority", []);
+  const git = (args, cwd = root) =>
+    execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  try {
+    // GitHub's collaborator permission, read on every call; nothing is remembered between reads.
+    const permissions = new Map([[actor, "write"]]);
+    let revokeOnNextGit = false;
+    // Real git for the run's checkout; pushes are recorded as the run's effects on origin.
+    const gitExec = (args, cwd = root) => {
+      if (revokeOnNextGit) {
+        revokeOnNextGit = false;
+        permissions.set(actor, "read");
+        events.push(`authority:revoked:${actor}`);
+      }
+      if (args[0] === "push") {
+        events.push(`git:push:${args.slice(1).join(" ")}`);
+        return "";
+      }
+      if (args[0] === "tag" && args[1] !== "--list") events.push(`git:tag:${args[1]}`);
+      return git(args, cwd);
+    };
+    const env = createStubEnvironment({ events });
+    const ghExec = (args, cwd) => {
+      const permission = /^repos\/dinkuskit\/payments\/collaborators\/([^/]+)\/permission$/.exec(args[1] ?? "");
+      if (args[0] === "api" && permission) {
+        events.push(`gh:api:permission:${permission[1]}`);
+        if (!permissions.has(permission[1])) throw new Error("gh: Not Found (HTTP 404)");
+        return permissions.get(permission[1]);
+      }
+      return env.ghExec(args, cwd);
+    };
+    const deps = { root, gitExec, ghExec, fetchImpl: env.fetchImpl, npmExec: env.npmExec, log: () => {} };
+
+    // Pressing Run workflow (or merging the release PR) needs write access when GitHub queues the run.
+    const enqueue = (argv) => {
+      verifyWriteAuthority(actor, { root, ghExec, effect: "queue the release run" });
+      return [...argv, "--actor", actor];
+    };
+    const runRevoked = async (argv) => {
+      const queued = enqueue(argv);
+      const from = events.length;
+      // Revoked after the run starts, so a check made only when the run began would not see it.
+      revokeOnNextGit = true;
+      await assert.rejects(
+        () => runReleaseFlowCli(queued, deps),
+        /release-presser no longer has write access to dinkuskit\/payments \(permission "read"\)/,
+        argv[0],
+      );
+      const run = events.slice(from);
+      assert.ok(run.includes(`authority:revoked:${actor}`), `${argv[0]} was revoked mid-run`);
+      assert.deepEqual(run.filter(RELEASE_EFFECT), [], `${argv[0]} made no effect after revocation`);
+      permissions.set(actor, "write");
+    };
+    const runAuthorized = async (argv) => {
+      const from = events.length;
+      const result = await runReleaseFlowCli(enqueue(argv), deps);
+      const run = events.slice(from);
+      assert.ok(run.some((event) => event.startsWith("git:push:") || event.startsWith("gh:release:create:")), `${argv[0]} made its effects`);
+      // Each effect follows a fresh read of the actor's access, with only its own local tag or a
+      // lookup in between.
+      run.forEach((event, index) => {
+        if (!RELEASE_EFFECT(event)) return;
+        let previous = index - 1;
+        while (previous >= 0 && (RELEASE_LOOKUP(run[previous]) || run[previous].startsWith("git:tag:"))) previous -= 1;
+        assert.equal(run[previous], `gh:api:permission:${actor}`, `${argv[0]}: ${event} follows a fresh authority read`);
+      });
+      return { result, pushes: run.filter((event) => event.startsWith("git:push:")) };
+    };
+
+    // Cut beta.
+    await runRevoked(["cut-beta"]);
+    assert.equal(git(["tag", "--list", "v0.2.9-beta.*"]), "");
+    const { result: cut, pushes: cutPushes } = await runAuthorized(["cut-beta"]);
+    assert.match(cutPushes.join("\n"), /refs\/heads\/release\/0\.2\.9 refs\/tags\/v0\.2\.9-beta\.1$/m);
+    env.state.betaVersions.push(cut.version);
+
+    // Promote.
+    const promote = [
+      "promote",
+      "--beta-version",
+      cut.version,
+      "--proof-ref",
+      `https://github.com/dinkuskit/live-journeys/actions/runs/701 (${cut.version} @running pass)`,
+    ];
+    await runRevoked(promote);
+    assert.deepEqual(env.state.openPrs, []);
+    const { pushes: promotePushes } = await runAuthorized(promote);
+    assert.equal(env.state.openPrs.length, 1);
+    assert.match(promotePushes.join("\n"), /HEAD:refs\/heads\/changeset-release\/main$/m);
+
+    // The merged ci: release PR's push to main tags v0.2.9.
+    squashMergeReleasePr(root);
+    await runRevoked(["publish-merged-release"]);
+    // The next run starts from a fresh checkout: main, and release/0.2.9 still at the beta on origin.
+    git(["checkout", "-q", "-f", "main"]);
+    git(["branch", "-f", "release/0.2.9", cut.betaSha]);
+    const { pushes: mergedPushes } = await runAuthorized(["publish-merged-release"]);
+    assert.match(mergedPushes.join("\n"), /refs\/heads\/release\/0\.2\.9 refs\/tags\/v0\.2\.9$/m);
+
+    // Retry the publish on v0.2.9: its GitHub Release and the Registry job's go-ahead.
+    await runRevoked(["verify-release-tag", "--ref", "refs/tags/v0.2.9"]);
+    assert.equal(env.state.githubReleases.has("v0.2.9"), false);
+    await runAuthorized(["verify-release-tag", "--ref", "refs/tags/v0.2.9"]);
+    assert.equal(env.state.githubReleases.has("v0.2.9"), true);
+
+    // Add fix to beta makes the release/0.2.10 patch branch from v0.2.9.
+    const fixSha = await commitOnMain(root, { "src/shipping.ts": "export const keepTotal = true;\n" }, "fix: keep the shipping total");
+    const addFix = ["add-fix", "--release-version", "0.2.10", "--commit", fixSha];
+    await runRevoked(addFix);
+    // The next run starts from a fresh checkout, without the refused run's local branch.
+    git(["checkout", "-q", "-f", "main"]);
+    git(["branch", "-D", "release/0.2.10"]);
+    const { pushes: fixPushes } = await runAuthorized(addFix);
+    assert.match(fixPushes.join("\n"), /refs\/heads\/release\/0\.2\.10 refs\/tags\/v0\.2\.10-beta\.1$/m);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("release.yml names the run's pusher on every release-flow command that pushes, tags, opens a PR or publishes", async () => {
+  const workflow = await readFile(join(repositoryRoot, ".github/workflows/release.yml"), "utf8");
+  const steps = workflow.split(/\n(?=      - name: )/);
+  const expected = { "cut-beta": 2, "add-fix": 1, promote: 1, "publish-merged-release": 1, "verify-release-tag": 1 };
+  for (const [command, count] of Object.entries(expected)) {
+    const invocations = steps.flatMap((step) =>
+      [...step.replace(/\\\n\s*/g, " ").matchAll(new RegExp(`node scripts/release-flow\\.mjs ${command}\\b[^\\n]*`, "g"))].map(
+        (match) => ({ step, invocation: match[0] }),
+      ),
+    );
+    assert.equal(invocations.length, count, `${command} invocations`);
+    for (const { step, invocation } of invocations) {
+      assert.match(invocation, /--actor "\$RELEASE_ACTOR"/, invocation);
+      assert.match(step, /GH_TOKEN: \$\{\{ steps\.app-token\.outputs\.token \}\}/, `${command} can read the actor's access`);
+      if (command === "verify-release-tag") {
+        // A tag push's run comes from the release App; Retry the publish is a person's press.
+        assert.match(step, /RELEASE_ACTOR: \$\{\{ github\.event_name == 'workflow_dispatch' && github\.triggering_actor \|\| '' \}\}/);
+        assert.match(invocation, /\$\{RELEASE_ACTOR:\+--actor "\$RELEASE_ACTOR"\}/);
+      } else {
+        assert.match(step, /RELEASE_ACTOR: \$\{\{ github\.triggering_actor \}\}/, `${command} names its pusher`);
+      }
+    }
+  }
 });

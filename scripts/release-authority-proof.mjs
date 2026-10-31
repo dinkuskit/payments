@@ -171,7 +171,7 @@ export function runExtractedGateScriptProcess({
   };
 }
 
-async function createSeededRepo(prefix, events) {
+export async function createSeededRepo(prefix, events) {
   const root = await mkdtemp(join(tmpdir(), `payments-release-proof-${prefix}-`));
   await mkdir(join(root, ".changeset"), { recursive: true });
   await mkdir(join(root, "src"), { recursive: true });
@@ -250,7 +250,7 @@ async function createSeededRepo(prefix, events) {
   return { root, gitExec };
 }
 
-function createStubEnvironment({
+export function createStubEnvironment({
   events,
   betaVersions = [],
   stableVersions = [],
@@ -397,7 +397,7 @@ function cliDeps(root, gitExec, env, logs = []) {
   };
 }
 
-async function commitOnMain(root, files, message) {
+export async function commitOnMain(root, files, message) {
   git(["checkout", "-q", "-f", "main"], root);
   for (const [path, content] of Object.entries(files)) {
     if (content === null) {
@@ -419,7 +419,7 @@ function mergeCommitReleasePr(root) {
 }
 
 // Squash-merges the ci: release PR into main with the PR's message, the way the owner merges it.
-function squashMergeReleasePr(root) {
+export function squashMergeReleasePr(root) {
   const message = git(["log", "-1", "--format=%B", "changeset-release/main"], root);
   git(["checkout", "-q", "-f", "main"], root);
   git(["merge", "-q", "--squash", "changeset-release/main"], root);
