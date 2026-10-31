@@ -1,5 +1,42 @@
 # @dinkuskit/payments
 
+## 0.5.0
+
+### Minor Changes
+
+- [#106](https://github.com/dinkuskit/payments/pull/106) [`266e5e4`](https://github.com/dinkuskit/payments/commit/266e5e437df00db276d4752501be593792b5ec93) Thanks [@saariuslystoned](https://github.com/saariuslystoned)! - Payment settings asks a store with no Stripe connection for its business country (from Stripe's supported countries) before Set up Stripe, in test and live mode, so any store can set up Stripe without DinkusKit support. The hosted service saves the country before creating the Stripe account and no longer reads operator-configured test countries; the support-only legacy test recovery route is removed. Authorize.net setup is unchanged.
+
+- [#108](https://github.com/dinkuskit/payments/pull/108) [`5400688`](https://github.com/dinkuskit/payments/commit/5400688aa68629ea5054e5707fcc9fee15abc1e5) Thanks [@saariuslystoned](https://github.com/saariuslystoned)! - Add clearer Registry listing copy, setup and FAQ sections, relevant search
+  keywords, a branded icon, an initial-setup screenshot, and a DinkusKit website
+  link while retaining the source repository link. Explain Commerce setup and
+  test-versus-live payment readiness. Carry the listing files into both release
+  staging paths.
+  
+  Carry listing images through the existing delegated release service with
+  checksummed source records and no-clobber GitHub release assets. Keep build
+  provenance and approval checks, and verify the published images alongside the
+  bundle.
+
+- [#86](https://github.com/dinkuskit/payments/pull/86) [`6b5dc1f`](https://github.com/dinkuskit/payments/commit/6b5dc1ffc87e7b7ba831d55c35fa55b734e54721) Thanks [@saariuslystoned](https://github.com/saariuslystoned)! - Put the Payments admin page in a "Dinkus Payments" sidebar folder and label it "Payment settings". The page path stays `/status`.
+
+### Patch Changes
+
+- [#87](https://github.com/dinkuskit/payments/pull/87) [`8bec82f`](https://github.com/dinkuskit/payments/commit/8bec82f73814b24565b8b87487851f4724dd39a1) Thanks [@saariuslystoned](https://github.com/saariuslystoned)! - Validate winning Authorize.net attempt records inside the session-creation transaction and rethrow `attempt_mismatch` on concurrent mismatched calls.
+
+- [#95](https://github.com/dinkuskit/payments/pull/95) [`e38dcc7`](https://github.com/dinkuskit/payments/commit/e38dcc767b615f37b88afb6cd320b6679fb94478) Thanks [@saariuslystoned](https://github.com/saariuslystoned)! - Keep the last 20 Authorize.net transactions notified for a checkout instead of only the latest. A shopper declined on one card who pays with another stays paid even when the declined try's notice arrives last, a checkout reads unpaid only when every try is unpaid, and a try the provider cannot answer for right now keeps the checkout open without hiding a later paid try.
+
+- [#100](https://github.com/dinkuskit/payments/pull/100) [`d9cdee6`](https://github.com/dinkuskit/payments/commit/d9cdee68be8e5b470d5e564bfea1672485d6eb2a) Thanks [@saariuslystoned](https://github.com/saariuslystoned)! - Authorize.net shoppers reach the card form through a Payments pay page that posts a fresh form token. Authorize.net opens its form only for a POST, and a token lasts 15 minutes, so the old link could not open it. A declined shopper can retry at once (duplicate window 0), and the checkout stays open until it ends. Unpaid becomes final only after the last card form can no longer be used, and fraud holds stay undecided. Hosted service change; Commerce is unchanged.
+
+- [#105](https://github.com/dinkuskit/payments/pull/105) [`fcad5de`](https://github.com/dinkuskit/payments/commit/fcad5ded1b12ec687868302bd66881e92c04153f) Thanks [@saariuslystoned](https://github.com/saariuslystoned)! - Build and test against EmDash 1.4.0 (plugin CLI 0.13.5, plugin test 0.2.11). The Payments plugin and the Payments Worker do not change; the reference article now names EmDash 1.4.0.
+
+- [#104](https://github.com/dinkuskit/payments/pull/104) [`4c567a1`](https://github.com/dinkuskit/payments/commit/4c567a1291f3491a9aebd4b6c316e391f0dd9b7a) Thanks [@saariuslystoned](https://github.com/saariuslystoned)! - Payment settings tells a store with no Stripe account that owners who already have Stripe can sign in during setup to reuse their details (Stripe's networked onboarding). Payments does not attach an existing account through Connect OAuth.
+
+- [#110](https://github.com/dinkuskit/payments/pull/110) [`4bdcb3e`](https://github.com/dinkuskit/payments/commit/4bdcb3e470f0c42522f7310822d0c7ac2f42e7f6) Thanks [@saariuslystoned](https://github.com/saariuslystoned)! - Publish the Registry icon and screenshots through the EmDash release-action
+  from emdash-cms/emdash#4467, so a new release carries its listing artwork.
+
+- [#109](https://github.com/dinkuskit/payments/pull/109) [`a6bf910`](https://github.com/dinkuskit/payments/commit/a6bf9100259541f94025917e0d2c1bbe64ec6e99) Thanks [@saariuslystoned](https://github.com/saariuslystoned)! - Centre the Registry icon on a transparent 256 × 256 square so the listing's
+  square crop shows the whole Payments logo.
+
 ## 0.4.0
 
 ### Minor Changes
