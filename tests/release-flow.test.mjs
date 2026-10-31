@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import test from "node:test";
 import {
   classifyPkgPrNewOutput,
@@ -22,6 +23,7 @@ import {
   runExtractedGateScriptProcess,
   runReleaseAuthorityProof,
   squashMergeReleasePr,
+  verifyEmDashWorkflowContract,
   verifyShippedEmDashWorkflowGateBinding,
 } from "../scripts/release-authority-proof.mjs";
 import {
@@ -32,6 +34,7 @@ import {
   BETA_REGISTRY_SLUG,
   MAX_PLUGIN_BUNDLE_BYTES,
   PACKAGE_NAME,
+  RELEASE_ACTOR_TRAILER,
   RELEASE_PR_BRANCH,
   RELEASE_PR_TITLE_PREFIX,
   STABLE_INSTALLED_PLUGIN_ID,
@@ -53,6 +56,7 @@ import {
   prepareRegistryWorkspace,
   readPendingChangesets,
   repositoryRoot,
+  resolveTagActor,
   runReleaseFlowCli,
   validateBetaPromotionGate,
   validateEmDashDispatchGate,
@@ -920,17 +924,644 @@ const RELEASE_EFFECT = (event) =>
 // Reads a run may make between its authority check and the effect it guards.
 const RELEASE_LOOKUP = (event) => event === "gh:pr:list" || event.startsWith("gh:release:view:");
 
-test("test_revoked_between_enqueue_and_publish_yields_zero_effects: write access removed while a release run waits stops every push, tag, PR and GitHub Release", async () => {
+async function startReleaseAuthorityTestRig(sandboxDir, bareOriginDir) {
+  const state = {
+    collaborators: new Map(),
+    prs: [],
+    releases: new Map(),
+    pdsBetaVersions: [],
+    pdsStableVersions: [],
+    httpLog: [],
+  };
+
+  const server = createServer(async (req, res) => {
+    const url = new URL(req.url || "/", "http://127.0.0.1");
+    const method = req.method || "GET";
+    const auth = String(req.headers.authorization || "");
+    const token = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length).trim() : "";
+
+    let rawBody = "";
+    for await (const chunk of req) rawBody += chunk;
+    const body = rawBody ? JSON.parse(rawBody) : null;
+
+    const send = (status, payload, summary = "") => {
+      state.httpLog.push({ method, path: url.pathname, token, status, summary });
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify(payload));
+    };
+
+    if (url.pathname.startsWith("/plc/")) {
+      return send(200, { service: [{ id: "#atproto_pds", serviceEndpoint: "https://pds.test" }] }, "did-doc");
+    }
+    if (url.pathname === "/xrpc/com.atproto.repo.listRecords") {
+      const records = [
+        ...state.pdsBetaVersions.map((version) => ({ version, package: BETA_REGISTRY_SLUG })),
+        ...state.pdsStableVersions.map((version) => ({ version, package: STABLE_REGISTRY_SLUG })),
+      ].map((value) => ({
+        uri: `at://did:plc:release-proof/${RELEASE_COLLECTION}/${value.package}:${value.version}`,
+        value,
+      }));
+      return send(200, { records }, `records:${records.length}`);
+    }
+
+    const permMatch = /^\/repos\/dinkuskit\/payments\/collaborators\/([^/]+)\/permission$/.exec(url.pathname);
+    if (method === "GET" && permMatch) {
+      if (token !== "app-write-token" && token !== "app-contents-read-token") {
+        return send(403, { message: "Resource not accessible by integration" }, "forbidden-token");
+      }
+      const login = decodeURIComponent(permMatch[1]);
+      if (!state.collaborators.has(login)) {
+        return send(404, { message: "Not Found" }, `${login}:404`);
+      }
+      const permission = state.collaborators.get(login);
+      return send(200, { permission, user: { login } }, `${login}:${permission}`);
+    }
+
+    if (method !== "GET" && token !== "app-write-token") {
+      return send(403, { message: "Resource not accessible by integration" }, "write-denied-for-read-token");
+    }
+
+    if (url.pathname === "/repos/dinkuskit/payments/pulls" && method === "GET") {
+      const wantState = url.searchParams.get("state") || "open";
+      const head = url.searchParams.get("head") || "";
+      const search = url.searchParams.get("search") || "";
+      const filtered = state.prs.filter((pr) => {
+        if (wantState === "merged" && pr.state !== "merged") return false;
+        if (wantState === "open" && pr.state !== "open") return false;
+        if (head && pr.head !== head) return false;
+        if (search && !pr.mergeSha?.includes(search) && !pr.body.includes(search)) return false;
+        return true;
+      });
+      return send(200, filtered, `prs:${filtered.length}`);
+    }
+
+    if (url.pathname === "/repos/dinkuskit/payments/pulls" && method === "POST") {
+      const pr = {
+        number: state.prs.length + 1,
+        state: "open",
+        base: body.base,
+        head: body.head,
+        title: body.title,
+        body: body.body,
+        html_url: `https://github.com/dinkuskit/payments/pull/${state.prs.length + 1}`,
+      };
+      state.prs.push(pr);
+      return send(201, pr, `pr:create:${pr.number}`);
+    }
+
+    const prEditMatch = /^\/repos\/dinkuskit\/payments\/pulls\/(\d+)$/.exec(url.pathname);
+    if (prEditMatch && method === "PATCH") {
+      const pr = state.prs.find((entry) => entry.number === Number(prEditMatch[1]));
+      if (!pr) return send(404, { message: "Not Found" }, "pr:missing");
+      if (body.title !== undefined) pr.title = body.title;
+      if (body.body !== undefined) pr.body = body.body;
+      return send(200, pr, `pr:edit:${pr.number}`);
+    }
+
+    const relViewMatch = /^\/repos\/dinkuskit\/payments\/releases\/tags\/([^/]+)$/.exec(url.pathname);
+    if (relViewMatch && method === "GET") {
+      const tag = decodeURIComponent(relViewMatch[1]);
+      if (!state.releases.has(tag)) return send(404, { message: "Not Found" }, `release:missing:${tag}`);
+      return send(200, state.releases.get(tag), `release:found:${tag}`);
+    }
+
+    if (url.pathname === "/repos/dinkuskit/payments/releases" && method === "POST") {
+      const tag = body.tag_name;
+      if (body.verify_tag) {
+        try {
+          execFileSync("git", ["rev-parse", "--verify", "--quiet", `refs/tags/${tag}`], {
+            cwd: bareOriginDir,
+            stdio: ["ignore", "pipe", "pipe"],
+          });
+        } catch {
+          return send(422, { message: `Tag ${tag} does not exist on origin` }, `release:missing-tag:${tag}`);
+        }
+      }
+      const rel = { tagName: tag, tag_name: tag, title: body.name, notes: body.body };
+      state.releases.set(tag, rel);
+      return send(201, rel, `release:create:${tag}`);
+    }
+
+    return send(404, { message: `Unhandled test route ${method} ${url.pathname}` }, "unhandled");
+  });
+
+  await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const address = server.address();
+  const apiOrigin = `http://127.0.0.1:${address.port}`;
+
+  const binDir = join(sandboxDir, "bin");
+  await mkdir(binDir, { recursive: true });
+  const ghBinPath = join(binDir, "gh");
+  const ghScript = `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const api = process.env.TEST_GH_API_ORIGIN;
+const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
+
+async function request(method, path, body) {
+  const res = await fetch(api + path, {
+    method,
+    headers: {
+      accept: "application/json",
+      ...(token ? { authorization: "Bearer " + token } : {}),
+      ...(body ? { "content-type": "application/json" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) {
+    process.stderr.write(\`gh: \${data?.message || "HTTP " + res.status} (HTTP \${res.status})\\n\`);
+    process.exit(1);
+  }
+  return data;
+}
+
+function flagValue(flag) {
+  const idx = args.indexOf(flag);
+  return idx !== -1 && args[idx + 1] !== undefined ? args[idx + 1] : "";
+}
+
+if (args[0] === "api") {
+  const endpoint = "/" + String(args[1] || "").replace(/^\\/+/, "");
+  const data = await request("GET", endpoint);
+  const jq = flagValue("--jq");
+  if (jq === ".permission") {
+    process.stdout.write(String(data.permission ?? "") + "\\n");
+  } else {
+    process.stdout.write(JSON.stringify(data) + "\\n");
+  }
+} else if (args[0] === "pr" && args[1] === "list") {
+  const qs = new URLSearchParams();
+  for (const key of ["state", "head", "base", "search"]) {
+    const val = flagValue("--" + key);
+    if (val) qs.set(key, val);
+  }
+  const prs = await request("GET", "/repos/dinkuskit/payments/pulls?" + qs.toString());
+  const jq = flagValue("--jq");
+  if (jq.includes(".[0].title")) {
+    process.stdout.write((prs[0]?.title ?? "") + "\\n");
+  } else if (jq.includes(".[].title")) {
+    process.stdout.write(prs.map((p) => p.title).join("\\n") + "\\n");
+  } else if (jq.includes(".[0].number")) {
+    process.stdout.write((prs[0]?.number ? String(prs[0].number) : "") + "\\n");
+  } else if (jq.includes(".[0].body")) {
+    process.stdout.write((prs[0]?.body ?? "") + "\\n");
+  } else {
+    process.stdout.write(JSON.stringify(prs) + "\\n");
+  }
+} else if (args[0] === "pr" && args[1] === "create") {
+  const pr = await request("POST", "/repos/dinkuskit/payments/pulls", {
+    base: flagValue("--base"),
+    head: flagValue("--head"),
+    title: flagValue("--title"),
+    body: flagValue("--body"),
+  });
+  process.stdout.write(pr.html_url + "\\n");
+} else if (args[0] === "pr" && args[1] === "edit") {
+  await request("PATCH", "/repos/dinkuskit/payments/pulls/" + args[2], {
+    title: flagValue("--title"),
+    body: flagValue("--body"),
+  });
+} else if (args[0] === "release" && args[1] === "view") {
+  const rel = await request("GET", "/repos/dinkuskit/payments/releases/tags/" + encodeURIComponent(args[2]));
+  process.stdout.write(JSON.stringify({ tagName: rel.tagName }) + "\\n");
+} else if (args[0] === "release" && args[1] === "create") {
+  await request("POST", "/repos/dinkuskit/payments/releases", {
+    tag_name: args[2],
+    name: flagValue("--title"),
+    body: flagValue("--notes"),
+    verify_tag: args.includes("--verify-tag"),
+  });
+} else {
+  process.stderr.write("Unexpected gh command: " + args.join(" ") + "\\n");
+  process.exit(1);
+}
+`;
+  await writeFile(ghBinPath, ghScript, "utf8");
+  await chmod(ghBinPath, 0o755);
+
+  const pdsPreloadPath = join(sandboxDir, "pds-loopback.mjs");
+  await writeFile(
+    pdsPreloadPath,
+    `const origFetch = globalThis.fetch;
+const api = process.env.TEST_GH_API_ORIGIN;
+globalThis.fetch = async (input, init) => {
+  const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  if (raw.startsWith("https://plc.directory/")) {
+    return origFetch(api + "/plc/" + raw.slice("https://plc.directory/".length), init);
+  }
+  if (raw.startsWith("https://pds.test/")) {
+    return origFetch(api + raw.slice("https://pds.test".length), init);
+  }
+  return origFetch(input, init);
+};
+`,
+    "utf8",
+  );
+
+  return {
+    state,
+    apiOrigin,
+    binDir,
+    pdsPreloadPath,
+    close: () => new Promise((resolveClose) => server.close(resolveClose)),
+  };
+}
+
+test("test_revoked_between_enqueue_and_publish_yields_zero_effects: real subprocess CLI, bare-origin git pushes, and executable gh enforce human authority across tag and Registry handoffs", async () => {
+  const sandboxDir = await mkdtemp(join(tmpdir(), "payments-real-authority-handoff-"));
+  const bareOriginDir = join(sandboxDir, "origin.git");
+  const mainCheckout = join(sandboxDir, "main-checkout");
+  const git = (args, cwd) =>
+    execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+
+  git(["init", "--bare", "-b", "main", bareOriginDir], sandboxDir);
+  const rig = await startReleaseAuthorityTestRig(sandboxDir, bareOriginDir);
+
+  try {
+    git(["clone", "-q", bareOriginDir, mainCheckout], sandboxDir);
+    git(["config", "user.name", "Release Bot"], mainCheckout);
+    git(["config", "user.email", "release-bot@example.invalid"], mainCheckout);
+
+    await mkdir(join(mainCheckout, ".changeset"), { recursive: true });
+    await mkdir(join(mainCheckout, "src"), { recursive: true });
+    await mkdir(join(mainCheckout, "scripts"), { recursive: true });
+
+    const bumpHelperSource = `import { readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+const cwd = process.cwd();
+const pkg = JSON.parse(await readFile(join(cwd, "package.json"), "utf8"));
+const [maj, min, pat] = pkg.version.split(".").map(Number);
+const files = (await readdir(join(cwd, ".changeset"))).filter((f) => f.endsWith(".md") && f.toLowerCase() !== "readme.md").sort();
+let rank = 0;
+const summaries = [];
+for (const file of files) {
+  const raw = await readFile(join(cwd, ".changeset", file), "utf8");
+  const m = /^---\\n([\\s\\S]*?)\\n---\\n([\\s\\S]*)$/.exec(raw.replace(/\\r\\n/g, "\\n"));
+  if (!m) continue;
+  if (m[1].includes(": major")) rank = Math.max(rank, 3);
+  else if (m[1].includes(": minor")) rank = Math.max(rank, 2);
+  else if (m[1].includes(": patch")) rank = Math.max(rank, 1);
+  if (m[1].trim()) summaries.push("- " + m[2].trim());
+  await rm(join(cwd, ".changeset", file), { force: true });
+}
+const next = rank === 3 ? \`\${maj + 1}.0.0\` : rank === 2 ? \`\${maj}.\${min + 1}.0\` : \`\${maj}.\${min}.\${pat + 1}\`;
+pkg.version = next;
+await writeFile(join(cwd, "package.json"), JSON.stringify(pkg, null, 2) + "\\n", "utf8");
+const lock = JSON.parse(await readFile(join(cwd, "package-lock.json"), "utf8"));
+lock.version = next;
+if (lock.packages?.[""]) lock.packages[""].version = next;
+await writeFile(join(cwd, "package-lock.json"), JSON.stringify(lock, null, 2) + "\\n", "utf8");
+const changelog = await readFile(join(cwd, "CHANGELOG.md"), "utf8");
+await writeFile(join(cwd, "CHANGELOG.md"), changelog.replace(/^## /m, \`## \${next}\\n\\n### Changes\\n\\n\${summaries.join("\\n")}\\n\\n## \`), "utf8");
+`;
+    await writeFile(join(mainCheckout, "scripts/bump-from-changesets.mjs"), bumpHelperSource, "utf8");
+    await writeFile(
+      join(mainCheckout, "emdash-plugin.jsonc"),
+      JSON.stringify({ publisher: "did:plc:release-proof" }, null, 2) + "\n",
+      "utf8",
+    );
+    await writeFile(
+      join(mainCheckout, "package.json"),
+      JSON.stringify(
+        {
+          name: PACKAGE_NAME,
+          version: "0.2.8",
+          type: "module",
+          scripts: { "release:version": "node scripts/bump-from-changesets.mjs" },
+          dependencies: { jose: "6.2.12", stripe: "23.0.0" },
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf8",
+    );
+    await writeFile(
+      join(mainCheckout, "package-lock.json"),
+      JSON.stringify(
+        {
+          name: PACKAGE_NAME,
+          version: "0.2.8",
+          lockfileVersion: 3,
+          requires: true,
+          packages: {
+            "": { name: PACKAGE_NAME, version: "0.2.8", dependencies: { jose: "6.2.12", stripe: "23.0.0" } },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf8",
+    );
+    await writeFile(join(mainCheckout, "CHANGELOG.md"), "# @dinkuskit/payments\n\n## 0.2.8\n\n- Baseline.\n", "utf8");
+    await writeFile(join(mainCheckout, "src/plugin.ts"), 'export const pluginVersion = "0.2.8";\n', "utf8");
+    await writeFile(join(mainCheckout, ".changeset/README.md"), "# Changesets\n", "utf8");
+    await writeFile(
+      join(mainCheckout, ".changeset/add-feature.md"),
+      `---\n"${PACKAGE_NAME}": patch\n---\n\nFix checkout callback status handling.\n`,
+      "utf8",
+    );
+
+    git(["add", "-A"], mainCheckout);
+    git(["commit", "-q", "-m", "feat: baseline with pending changeset"], mainCheckout);
+    git(["tag", "v0.2.8"], mainCheckout);
+    git(["push", "-q", "origin", "main", "refs/tags/v0.2.8"], mainCheckout);
+
+    const releaseFlowPath = join(repositoryRoot, "scripts/release-flow.mjs");
+    const runSubprocess = (cliArgs, { cwd, token = "app-write-token", withPdsPreload = false } = {}) =>
+      new Promise((resolveRun, rejectRun) => {
+        const fullCliArgs = [...cliArgs, "--root", cwd];
+        const nodeArgs = withPdsPreload
+          ? ["--import", rig.pdsPreloadPath, releaseFlowPath, ...fullCliArgs]
+          : [releaseFlowPath, ...fullCliArgs];
+        const proc = spawn(process.execPath, nodeArgs, {
+          cwd,
+          stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            ...process.env,
+            PATH: `${rig.binDir}${delimiter}${process.env.PATH || ""}`,
+            TEST_GH_API_ORIGIN: rig.apiOrigin,
+            GH_TOKEN: token,
+            GITHUB_TOKEN: token,
+          },
+        });
+        let stdout = "";
+        let stderr = "";
+        proc.stdout.setEncoding("utf8");
+        proc.stderr.setEncoding("utf8");
+        proc.stdout.on("data", (chunk) => {
+          stdout += chunk;
+        });
+        proc.stderr.on("data", (chunk) => {
+          stderr += chunk;
+        });
+        proc.on("error", rejectRun);
+        proc.on("close", (code) => {
+          resolveRun({
+            status: code ?? 1,
+            stdout: stdout.trim(),
+            stderr: stderr.trim(),
+          });
+        });
+      });
+
+    let cloneCounter = 0;
+    const freshClone = (checkoutRef = "main") => {
+      cloneCounter += 1;
+      const dir = join(sandboxDir, `runner-${cloneCounter}`);
+      git(["clone", "-q", bareOriginDir, dir], sandboxDir);
+      git(["config", "user.name", "Release Bot"], dir);
+      git(["config", "user.email", "release-bot@example.invalid"], dir);
+      git(["checkout", "-q", checkoutRef], dir);
+      return dir;
+    };
+
+    // Pre-push revocation: alice dropped to "read" before cut-beta pushes -> zero local or bare-origin refs.
+    rig.state.collaborators.set("alice", "read");
+    const cutRevoked = await runSubprocess(["cut-beta", "--actor", "alice"], {
+      cwd: freshClone("main"),
+      withPdsPreload: true,
+    });
+    assert.equal(cutRevoked.status, 1);
+    assert.match(cutRevoked.stderr, /Refusing to cut v0\.2\.9-beta\.1: alice no longer has write access to dinkuskit\/payments \(permission "read"\)/);
+    assert.equal(git(["for-each-ref", "refs/heads/release/", "refs/tags/v0.2.9*"], bareOriginDir), "");
+
+    // (a) Allowed end-to-end beta chain: cut-beta -> annotated tag on bare origin -> automatic tag push verify-release-tag (no --actor) -> read-only App token verify-authority.
+    rig.state.collaborators.set("alice", "write");
+    const cutOut = join(sandboxDir, "cut-beta.out");
+    const cutAllowed = await runSubprocess(["cut-beta", "--actor", "alice", "--github-output", cutOut], {
+      cwd: freshClone("main"),
+      withPdsPreload: true,
+    });
+    assert.equal(cutAllowed.status, 0, cutAllowed.stderr);
+    assert.equal(git(["cat-file", "-t", "refs/tags/v0.2.9-beta.1"], bareOriginDir), "tag");
+    assert.match(git(["cat-file", "-p", "refs/tags/v0.2.9-beta.1"], bareOriginDir), /^Release-Actor: alice$/m);
+    assert.equal(resolveTagActor("v0.2.9-beta.1", bareOriginDir), "alice");
+
+    const betaTagOut = join(sandboxDir, "beta-tag.out");
+    const betaTagCheck = await runSubprocess(
+      ["verify-release-tag", "--ref", "refs/tags/v0.2.9-beta.1", "--require-actor", "--github-output", betaTagOut],
+      { cwd: freshClone("refs/tags/v0.2.9-beta.1") },
+    );
+    assert.equal(betaTagCheck.status, 0, betaTagCheck.stderr);
+    const betaTagOutputText = await readFile(betaTagOut, "utf8");
+    assert.match(betaTagOutputText, /^release_actor=alice$/m);
+    assert.match(betaTagOutputText, /^release_mode=beta$/m);
+
+    // Job GITHUB_TOKEN without App installation access gets 403; read-only App token (permission-contents: read) succeeds with 200 while still denying writes.
+    const jobTokenDenied = await runSubprocess(
+      ["verify-authority", "--actor", "alice", "--effect", "publish dinkus-payments-beta@0.2.9-beta.1 to EmDash Registry"],
+      { cwd: freshClone("refs/tags/v0.2.9-beta.1"), token: "github-job-contents-read" },
+    );
+    assert.equal(jobTokenDenied.status, 1);
+
+    const betaAuthOut = join(sandboxDir, "beta-auth.out");
+    const betaFinalAuth = await runSubprocess(
+      [
+        "verify-authority",
+        "--actor",
+        "alice",
+        "--effect",
+        "publish dinkus-payments-beta@0.2.9-beta.1 to EmDash Registry",
+        "--github-output",
+        betaAuthOut,
+      ],
+      { cwd: freshClone("refs/tags/v0.2.9-beta.1"), token: "app-contents-read-token" },
+    );
+    assert.equal(betaFinalAuth.status, 0, betaFinalAuth.stderr);
+    assert.deepEqual(JSON.parse(betaFinalAuth.stdout), {
+      ok: true,
+      actor: "alice",
+      permission: "write",
+      effect: "publish dinkus-payments-beta@0.2.9-beta.1 to EmDash Registry",
+    });
+    assert.match(await readFile(betaAuthOut, "utf8"), /^actor=alice\npermission=write$/m);
+    rig.state.pdsBetaVersions.push("0.2.9-beta.1");
+
+    // Promote -> squash merge -> publish-merged-release pushes stable annotated tag v0.2.9 to bare origin.
+    const promoteArgs = [
+      "promote",
+      "--beta-version",
+      "0.2.9-beta.1",
+      "--proof-ref",
+      "https://github.com/dinkuskit/live-journeys/actions/runs/701 (0.2.9-beta.1 @running pass)",
+      "--actor",
+      "alice",
+    ];
+    rig.state.collaborators.set("alice", "read");
+    const promoteRevoked = await runSubprocess(promoteArgs, { cwd: freshClone("main"), withPdsPreload: true });
+    assert.equal(promoteRevoked.status, 1);
+    assert.equal(rig.state.prs.length, 0);
+    assert.equal(git(["for-each-ref", `refs/heads/${RELEASE_PR_BRANCH}`], bareOriginDir), "");
+
+    rig.state.collaborators.set("alice", "write");
+    const promoteAllowed = await runSubprocess(promoteArgs, { cwd: freshClone("main"), withPdsPreload: true });
+    assert.equal(promoteAllowed.status, 0, promoteAllowed.stderr);
+    assert.equal(rig.state.prs.length, 1);
+
+    git(["fetch", "-q", "origin", RELEASE_PR_BRANCH, "main"], mainCheckout);
+    git(["checkout", "-q", "main"], mainCheckout);
+    const prMessage = git(["log", "-1", "--format=%B", `origin/${RELEASE_PR_BRANCH}`], mainCheckout);
+    git(["merge", "-q", "--squash", `origin/${RELEASE_PR_BRANCH}`], mainCheckout);
+    git(["commit", "-q", "-m", prMessage], mainCheckout);
+    const mergedMainSha = git(["rev-parse", "HEAD"], mainCheckout);
+    git(["push", "-q", "origin", "main"], mainCheckout);
+    rig.state.prs[0].state = "merged";
+    rig.state.prs[0].mergeSha = mergedMainSha;
+
+    rig.state.collaborators.set("alice", "read");
+    const mergedRevoked = await runSubprocess(["publish-merged-release", "--actor", "alice"], { cwd: freshClone("main") });
+    assert.equal(mergedRevoked.status, 1);
+    assert.equal(git(["for-each-ref", "refs/tags/v0.2.9"], bareOriginDir), "");
+
+    rig.state.collaborators.set("alice", "write");
+    const mergedAllowed = await runSubprocess(["publish-merged-release", "--actor", "alice"], { cwd: freshClone("main") });
+    assert.equal(mergedAllowed.status, 0, mergedAllowed.stderr);
+    assert.equal(git(["cat-file", "-t", "refs/tags/v0.2.9"], bareOriginDir), "tag");
+    assert.match(git(["cat-file", "-p", "refs/tags/v0.2.9"], bareOriginDir), /^Release-Actor: alice$/m);
+
+    // (b) Revoked AFTER stable tag push, BEFORE automatic verify-release-tag runs:
+    // child exits 1, 0 GitHub Releases created, release_actor NOT written to $GITHUB_OUTPUT.
+    rig.state.collaborators.set("alice", "read");
+    const revokedStableOut = join(sandboxDir, "revoked-stable-tag.out");
+    const stableRevokedBeforeTagVerify = await runSubprocess(
+      ["verify-release-tag", "--ref", "refs/tags/v0.2.9", "--require-actor", "--github-output", revokedStableOut],
+      { cwd: freshClone("refs/tags/v0.2.9") },
+    );
+    assert.equal(stableRevokedBeforeTagVerify.status, 1);
+    assert.match(
+      stableRevokedBeforeTagVerify.stderr,
+      /Refusing to publish v0\.2\.9: alice no longer has write access to dinkuskit\/payments \(permission "read"\)/,
+    );
+    assert.equal(rig.state.releases.size, 0);
+    assert.equal(existsSync(revokedStableOut), false);
+
+    // Restore alice="write": automatic verify-release-tag passes, creates GitHub Release, and outputs release_actor=alice.
+    rig.state.collaborators.set("alice", "write");
+    const allowedStableOut = join(sandboxDir, "allowed-stable-tag.out");
+    const stableTagAllowed = await runSubprocess(
+      ["verify-release-tag", "--ref", "refs/tags/v0.2.9", "--require-actor", "--github-output", allowedStableOut],
+      { cwd: freshClone("refs/tags/v0.2.9") },
+    );
+    assert.equal(stableTagAllowed.status, 0, stableTagAllowed.stderr);
+    assert.equal(rig.state.releases.has("v0.2.9"), true);
+    assert.match(await readFile(allowedStableOut, "utf8"), /^release_actor=alice$/m);
+
+    // (c) Revoked during emdash-release.yml build/test window (after verify-release-tag passed, right before Registry publish):
+    rig.state.collaborators.set("alice", "read");
+    const buildWindowRevokedRead = await runSubprocess(
+      ["verify-authority", "--actor", "alice", "--effect", "publish dinkus-payments@0.2.9 to EmDash Registry"],
+      { cwd: freshClone("refs/tags/v0.2.9"), token: "app-contents-read-token" },
+    );
+    assert.equal(buildWindowRevokedRead.status, 1);
+    assert.match(
+      buildWindowRevokedRead.stderr,
+      /Refusing to publish dinkus-payments@0\.2\.9 to EmDash Registry: alice no longer has write access to dinkuskit\/payments \(permission "read"\)/,
+    );
+
+    rig.state.collaborators.set("alice", "none");
+    const buildWindowRevokedNone = await runSubprocess(
+      ["verify-authority", "--actor", "alice", "--effect", "publish dinkus-payments@0.2.9 to EmDash Registry"],
+      { cwd: freshClone("refs/tags/v0.2.9"), token: "app-contents-read-token" },
+    );
+    assert.equal(buildWindowRevokedNone.status, 1);
+    assert.match(buildWindowRevokedNone.stderr, /\(permission "none"\)/);
+    assert.deepEqual(rig.state.pdsStableVersions, []);
+
+    // Manual retry-publish pressed on the tag by maintainer bob ("maintain") overrides revoked alice and completes Registry authority check.
+    rig.state.collaborators.set("bob", "maintain");
+    const retryOut = join(sandboxDir, "retry-stable-tag.out");
+    const retryTagCheck = await runSubprocess(
+      [
+        "verify-release-tag",
+        "--ref",
+        "refs/tags/v0.2.9",
+        "--require-actor",
+        "--actor",
+        "bob",
+        "--github-output",
+        retryOut,
+      ],
+      { cwd: freshClone("refs/tags/v0.2.9") },
+    );
+    assert.equal(retryTagCheck.status, 0, retryTagCheck.stderr);
+    assert.match(await readFile(retryOut, "utf8"), /^release_actor=bob$/m);
+
+    const retryFinalAuth = await runSubprocess(
+      ["verify-authority", "--actor", "bob", "--effect", "publish dinkus-payments@0.2.9 to EmDash Registry"],
+      { cwd: freshClone("refs/tags/v0.2.9"), token: "app-contents-read-token" },
+    );
+    assert.equal(retryFinalAuth.status, 0, retryFinalAuth.stderr);
+    rig.state.pdsStableVersions.push("0.2.9");
+
+    // (d) Forged lightweight tag whose commit message body contains "Release-Actor: bob":
+    // resolveTagActor returns "" because objecttype is "commit" (not "tag"), and verify-release-tag --require-actor exits 1.
+    const forgeWork = freshClone("refs/tags/v0.2.9");
+    git(["checkout", "-q", "-B", "release/0.2.10", "refs/tags/v0.2.9"], forgeWork);
+    await writeFile(join(forgeWork, "src/forged.ts"), "export const forged = true;\n", "utf8");
+    git(["add", "src/forged.ts"], forgeWork);
+    git(["commit", "-q", "-m", `fix: attempt provenance spoof\n\n${RELEASE_ACTOR_TRAILER}: bob`], forgeWork);
+    const forgedCommitSha = git(["rev-parse", "HEAD"], forgeWork);
+    git(["tag", "v0.2.10-beta.1", forgedCommitSha], forgeWork); // lightweight tag (no -a)
+    git(["push", "-q", "origin", "release/0.2.10", "refs/tags/v0.2.10-beta.1"], forgeWork);
+
+    const forgedTagCheckout = freshClone("refs/tags/v0.2.10-beta.1");
+    assert.equal(git(["for-each-ref", "--format=%(objecttype)", "refs/tags/v0.2.10-beta.1"], forgedTagCheckout), "commit");
+    assert.equal(resolveTagActor("v0.2.10-beta.1", forgedTagCheckout), "");
+
+    const forgedOut = join(sandboxDir, "forged-tag.out");
+    const forgedCheck = await runSubprocess(
+      ["verify-release-tag", "--ref", "refs/tags/v0.2.10-beta.1", "--require-actor", "--github-output", forgedOut],
+      { cwd: forgedTagCheckout },
+    );
+    assert.equal(forgedCheck.status, 1);
+    assert.match(
+      forgedCheck.stderr,
+      /Refusing to publish v0\.2\.10-beta\.1: "\(empty\)" is not a GitHub login whose write access can be checked\./,
+    );
+    assert.equal(existsSync(forgedOut), false);
+
+    // Clean up forged branch/tag on bare origin and prove add-fix pushes a real annotated tag carrying Release-Actor: bob.
+    git(["push", "-q", "origin", ":refs/heads/release/0.2.10", ":refs/tags/v0.2.10-beta.1"], forgeWork);
+    git(["checkout", "-q", "main"], mainCheckout);
+    await writeFile(
+      join(mainCheckout, ".changeset/shipping-fix.md"),
+      `---\n"${PACKAGE_NAME}": patch\n---\n\nKeep shipping total after refresh.\n`,
+      "utf8",
+    );
+    await writeFile(join(mainCheckout, "src/shipping.ts"), "export const keepTotal = true;\n", "utf8");
+    git(["add", "-A"], mainCheckout);
+    git(["commit", "-q", "-m", "fix: keep shipping total"], mainCheckout);
+    const fixSha = git(["rev-parse", "HEAD"], mainCheckout);
+    git(["push", "-q", "origin", "main"], mainCheckout);
+
+    const addFixAllowed = await runSubprocess(
+      ["add-fix", "--release-version", "0.2.10", "--commit", fixSha, "--actor", "bob"],
+      { cwd: freshClone("main"), withPdsPreload: true },
+    );
+    assert.equal(addFixAllowed.status, 0, addFixAllowed.stderr);
+    assert.equal(git(["cat-file", "-t", "refs/tags/v0.2.10-beta.1"], bareOriginDir), "tag");
+    assert.equal(resolveTagActor("v0.2.10-beta.1", bareOriginDir), "bob");
+    const patchTagCheck = await runSubprocess(
+      ["verify-release-tag", "--ref", "refs/tags/v0.2.10-beta.1", "--require-actor"],
+      { cwd: freshClone("refs/tags/v0.2.10-beta.1") },
+    );
+    assert.equal(patchTagCheck.status, 0, patchTagCheck.stderr);
+  } finally {
+    await rig.close();
+    await rm(sandboxDir, { recursive: true, force: true });
+  }
+});
+
+test("mid-run permission revocation after command start yields zero local tags, pushes, PRs, or GitHub Releases and idempotent cut-beta refreshes unpushed tag provenance", async () => {
   const actor = "release-presser";
   const events = [];
   const { root } = await createSeededRepo("revoked-authority", []);
   const git = (args, cwd = root) =>
     execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   try {
-    // GitHub's collaborator permission, read on every call; nothing is remembered between reads.
-    const permissions = new Map([[actor, "write"]]);
+    const permissions = new Map([[actor, "write"], ["second-maintainer", "admin"]]);
     let revokeOnNextGit = false;
-    // Real git for the run's checkout; pushes are recorded as the run's effects on origin.
     const gitExec = (args, cwd = root) => {
       if (revokeOnNextGit) {
         revokeOnNextGit = false;
@@ -941,7 +1572,10 @@ test("test_revoked_between_enqueue_and_publish_yields_zero_effects: write access
         events.push(`git:push:${args.slice(1).join(" ")}`);
         return "";
       }
-      if (args[0] === "tag" && args[1] !== "--list") events.push(`git:tag:${args[1]}`);
+      if (args[0] === "tag" && args[1] !== "--list") {
+        const tagName = args.find((arg, i) => i > 0 && !arg.startsWith("-") && args[i - 1] !== "-m") ?? args[1];
+        events.push(`git:tag:${tagName}`);
+      }
       return git(args, cwd);
     };
     const env = createStubEnvironment({ events });
@@ -956,7 +1590,6 @@ test("test_revoked_between_enqueue_and_publish_yields_zero_effects: write access
     };
     const deps = { root, gitExec, ghExec, fetchImpl: env.fetchImpl, npmExec: env.npmExec, log: () => {} };
 
-    // Pressing Run workflow (or merging the release PR) needs write access when GitHub queues the run.
     const enqueue = (argv) => {
       verifyWriteAuthority(actor, { root, ghExec, effect: "queue the release run" });
       return [...argv, "--actor", actor];
@@ -964,7 +1597,6 @@ test("test_revoked_between_enqueue_and_publish_yields_zero_effects: write access
     const runRevoked = async (argv) => {
       const queued = enqueue(argv);
       const from = events.length;
-      // Revoked after the run starts, so a check made only when the run began would not see it.
       revokeOnNextGit = true;
       await assert.rejects(
         () => runReleaseFlowCli(queued, deps),
@@ -981,8 +1613,6 @@ test("test_revoked_between_enqueue_and_publish_yields_zero_effects: write access
       const result = await runReleaseFlowCli(enqueue(argv), deps);
       const run = events.slice(from);
       assert.ok(run.some((event) => event.startsWith("git:push:") || event.startsWith("gh:release:create:")), `${argv[0]} made its effects`);
-      // Each effect follows a fresh read of the actor's access, with only its own local tag or a
-      // lookup in between.
       run.forEach((event, index) => {
         if (!RELEASE_EFFECT(event)) return;
         let previous = index - 1;
@@ -992,14 +1622,19 @@ test("test_revoked_between_enqueue_and_publish_yields_zero_effects: write access
       return { result, pushes: run.filter((event) => event.startsWith("git:push:")) };
     };
 
-    // Cut beta.
     await runRevoked(["cut-beta"]);
     assert.equal(git(["tag", "--list", "v0.2.9-beta.*"]), "");
-    const { result: cut, pushes: cutPushes } = await runAuthorized(["cut-beta"]);
+
+    // Pre-existing lightweight tag at HEAD gets upgraded in-place to an annotated tag when cut-beta runs with --actor.
+    const mainHead = git(["rev-parse", "HEAD"]);
+    git(["tag", "v0.2.9-beta.1", mainHead]);
+    assert.equal(resolveTagActor("v0.2.9-beta.1", root), "");
+    const { result: cut, pushes: cutPushes } = await runAuthorized(["cut-beta", "--version", "0.2.9-beta.1"]);
+    assert.equal(resolveTagActor("v0.2.9-beta.1", root), actor);
+    assert.equal(git(["rev-list", "-n", "1", "v0.2.9-beta.1"]), mainHead);
     assert.match(cutPushes.join("\n"), /refs\/heads\/release\/0\.2\.9 refs\/tags\/v0\.2\.9-beta\.1$/m);
     env.state.betaVersions.push(cut.version);
 
-    // Promote.
     const promote = [
       "promote",
       "--beta-version",
@@ -1013,37 +1648,42 @@ test("test_revoked_between_enqueue_and_publish_yields_zero_effects: write access
     assert.equal(env.state.openPrs.length, 1);
     assert.match(promotePushes.join("\n"), /HEAD:refs\/heads\/changeset-release\/main$/m);
 
-    // The merged ci: release PR's push to main tags v0.2.9.
     squashMergeReleasePr(root);
     await runRevoked(["publish-merged-release"]);
-    // The next run starts from a fresh checkout: main, and release/0.2.9 still at the beta on origin.
     git(["checkout", "-q", "-f", "main"]);
     git(["branch", "-f", "release/0.2.9", cut.betaSha]);
     const { pushes: mergedPushes } = await runAuthorized(["publish-merged-release"]);
+    assert.equal(resolveTagActor("v0.2.9", root), actor);
     assert.match(mergedPushes.join("\n"), /refs\/heads\/release\/0\.2\.9 refs\/tags\/v0\.2\.9$/m);
 
-    // Retry the publish on v0.2.9: its GitHub Release and the Registry job's go-ahead.
-    await runRevoked(["verify-release-tag", "--ref", "refs/tags/v0.2.9"]);
+    await runRevoked(["verify-release-tag", "--ref", "refs/tags/v0.2.9", "--require-actor"]);
     assert.equal(env.state.githubReleases.has("v0.2.9"), false);
-    await runAuthorized(["verify-release-tag", "--ref", "refs/tags/v0.2.9"]);
+    await runAuthorized(["verify-release-tag", "--ref", "refs/tags/v0.2.9", "--require-actor"]);
     assert.equal(env.state.githubReleases.has("v0.2.9"), true);
 
-    // Add fix to beta makes the release/0.2.10 patch branch from v0.2.9.
     const fixSha = await commitOnMain(root, { "src/shipping.ts": "export const keepTotal = true;\n" }, "fix: keep the shipping total");
     const addFix = ["add-fix", "--release-version", "0.2.10", "--commit", fixSha];
     await runRevoked(addFix);
-    // The next run starts from a fresh checkout, without the refused run's local branch.
     git(["checkout", "-q", "-f", "main"]);
     git(["branch", "-D", "release/0.2.10"]);
     const { pushes: fixPushes } = await runAuthorized(addFix);
+    assert.equal(resolveTagActor("v0.2.10-beta.1", root), actor);
     assert.match(fixPushes.join("\n"), /refs\/heads\/release\/0\.2\.10 refs\/tags\/v0\.2\.10-beta\.1$/m);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("release.yml names the run's pusher on every release-flow command that pushes, tags, opens a PR or publishes", async () => {
+test("release.yml and emdash-release.yml carry and re-verify human release authority through final Registry publish", async () => {
   const workflow = await readFile(join(repositoryRoot, ".github/workflows/release.yml"), "utf8");
+  const emdashWorkflow = await readFile(join(repositoryRoot, ".github/workflows/emdash-release.yml"), "utf8");
+  const contract = verifyEmDashWorkflowContract({
+    emdashWorkflowText: emdashWorkflow,
+    releaseWorkflowText: workflow,
+  });
+  assert.equal(contract.finalAuthorityRecheckBeforePublish, true);
+  assert.equal(contract.emdashAppTokenReadOnly, true);
+
   const steps = workflow.split(/\n(?=      - name: )/);
   const expected = { "cut-beta": 2, "add-fix": 1, promote: 1, "publish-merged-release": 1, "verify-release-tag": 1 };
   for (const [command, count] of Object.entries(expected)) {
@@ -1057,12 +1697,49 @@ test("release.yml names the run's pusher on every release-flow command that push
       assert.match(invocation, /--actor "\$RELEASE_ACTOR"/, invocation);
       assert.match(step, /GH_TOKEN: \$\{\{ steps\.app-token\.outputs\.token \}\}/, `${command} can read the actor's access`);
       if (command === "verify-release-tag") {
-        // A tag push's run comes from the release App; Retry the publish is a person's press.
         assert.match(step, /RELEASE_ACTOR: \$\{\{ github\.event_name == 'workflow_dispatch' && github\.triggering_actor \|\| '' \}\}/);
+        assert.match(invocation, /--require-actor\b/);
         assert.match(invocation, /\$\{RELEASE_ACTOR:\+--actor "\$RELEASE_ACTOR"\}/);
       } else {
         assert.match(step, /RELEASE_ACTOR: \$\{\{ github\.triggering_actor \}\}/, `${command} names its pusher`);
       }
     }
   }
+
+  // Contract guard rejects write-capable App tokens, missing --require-actor, secrets: inherit, or wrong verify-authority ordering.
+  assert.throws(
+    () =>
+      verifyEmDashWorkflowContract({
+        emdashWorkflowText: emdashWorkflow.replace("permission-contents: read", "permission-contents: write"),
+        releaseWorkflowText: workflow,
+      }),
+    /permission-contents: read only/,
+  );
+  assert.throws(
+    () =>
+      verifyEmDashWorkflowContract({
+        emdashWorkflowText: emdashWorkflow.replace(
+          "          permission-contents: read",
+          "          permission-contents: read\n          permission-pull-requests: read",
+        ),
+        releaseWorkflowText: workflow,
+      }),
+    /permission-contents: read only/,
+  );
+  assert.throws(
+    () =>
+      verifyEmDashWorkflowContract({
+        emdashWorkflowText: emdashWorkflow,
+        releaseWorkflowText: workflow.replace("--require-actor ", ""),
+      }),
+    /--require-actor/,
+  );
+  assert.throws(
+    () =>
+      verifyEmDashWorkflowContract({
+        emdashWorkflowText: emdashWorkflow,
+        releaseWorkflowText: `${workflow}\n    secrets: inherit\n`,
+      }),
+    /secrets: inherit/,
+  );
 });

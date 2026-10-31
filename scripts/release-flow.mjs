@@ -22,6 +22,7 @@ export const RELEASE_PR_BRANCH = "changeset-release/main";
 export const RELEASE_BRANCH_PREFIX = "release/";
 export const RELEASE_PR_TITLE_PREFIX = "ci: release";
 export const BETA_PROOF_TRAILER = "Release-Beta-Proof";
+export const RELEASE_ACTOR_TRAILER = "Release-Actor";
 const RELEASE_COLLECTION = "com.emdashcms.experimental.package.release";
 
 export const ALLOWED_RELEASE_TREE_PATHS = Object.freeze([
@@ -822,6 +823,46 @@ function resolveTagCommitSha(tag, root = repositoryRoot, gitExec = defaultGit) {
   return gitExec(["rev-list", "-n", "1", tag], root);
 }
 
+function formatReleaseTagMessage(tag, actor) {
+  return `Release ${tag}\n\n${RELEASE_ACTOR_TRAILER}: ${String(actor).trim()}`;
+}
+
+function createReleaseTag(tag, sha, actor, { force = false, root = repositoryRoot, gitExec = defaultGit } = {}) {
+  if (actor !== undefined) {
+    const forceArgs = force ? ["-f"] : [];
+    gitExec(["tag", "-a", ...forceArgs, tag, sha, "-m", formatReleaseTagMessage(tag, actor)], root);
+    return;
+  }
+  if (force) {
+    gitExec(["tag", "-f", tag, sha], root);
+    return;
+  }
+  gitExec(["tag", tag, sha], root);
+}
+
+// Reads Release-Actor from an annotated tag object only. A lightweight tag points directly to a
+// commit (objecttype "commit"), whose commit message any PR author could write, so commit messages
+// never satisfy tag provenance.
+export function resolveTagActor(tag, root = repositoryRoot, gitExec = defaultGit) {
+  const normalizedTag = String(tag ?? "").trim();
+  if (!normalizedTag || /[*?[\]\s]/.test(normalizedTag)) return "";
+  let out = "";
+  try {
+    out = gitExec(["for-each-ref", "--format=%(objecttype)%00%(contents)", `refs/tags/${normalizedTag}`], root);
+  } catch {
+    return "";
+  }
+  const nulIndex = out.indexOf("\0");
+  if (nulIndex === -1) return "";
+  const objectType = out.slice(0, nulIndex);
+  if (objectType !== "tag") return "";
+  const contents = out.slice(nulIndex + 1).replace(/\r\n/g, "\n");
+  const rawTrailers = [...contents.matchAll(/^Release-Actor:/gm)];
+  if (rawTrailers.length !== 1) return "";
+  const match = /^Release-Actor:\s*([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\s*$/m.exec(contents);
+  return match ? match[1] : "";
+}
+
 function resolveCommitSha(ref, root = repositoryRoot, gitExec = defaultGit) {
   try {
     return gitExec(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], root);
@@ -1091,6 +1132,8 @@ async function writeGithubOutputs(outputFile, values) {
   await appendFile(outputFile, `${lines.join("\n")}\n`, "utf8");
 }
 
+const BOOLEAN_CLI_FLAGS = new Set(["no-push", "no-gh", "skip-registry-check", "require-actor"]);
+
 function parseCliFlags(args) {
   const flags = {};
   for (let i = 0; i < args.length; i += 1) {
@@ -1102,7 +1145,7 @@ function parseCliFlags(args) {
         flags[key] = next;
         i += 1;
       } else {
-        flags[key] = "true";
+        flags[key] = BOOLEAN_CLI_FLAGS.has(key) ? "true" : "";
       }
     }
   }
@@ -1129,9 +1172,11 @@ export async function runReleaseFlowCli(argv, deps = {}) {
     deps.npmExec ||
     ((args, cwd) => execFileSync("npm", args, { cwd, stdio: "inherit" }));
   const log = deps.log || ((line) => console.log(line));
+  const explicitActor = flags.actor !== undefined ? String(flags.actor).trim() : undefined;
   // release.yml names the run's pusher with --actor; their write access is checked before each effect.
   const requireWriteAuthority = (effect) => {
-    if (flags.actor !== undefined) verifyWriteAuthority(flags.actor, { root, ghExec, effect });
+    if (explicitActor !== undefined) verifyWriteAuthority(explicitActor, { root, ghExec, effect });
+    return explicitActor;
   };
 
   if (command === "validate-emdash-dispatch") {
@@ -1236,8 +1281,12 @@ export async function runReleaseFlowCli(argv, deps = {}) {
       if (existingTagSha && existingTagSha !== headSha) {
         throw new Error(`Tag ${tag} already exists at ${existingTagSha} (HEAD is ${headSha}).`);
       }
-      requireWriteAuthority(`cut ${tag}`);
-      if (!existingTagSha) gitExec(["tag", tag, headSha], root);
+      const actor = requireWriteAuthority(`cut ${tag}`);
+      if (!existingTagSha) {
+        createReleaseTag(tag, headSha, actor, { root, gitExec });
+      } else if (actor !== undefined && resolveTagActor(tag, root, gitExec) !== actor) {
+        createReleaseTag(tag, headSha, actor, { force: true, root, gitExec });
+      }
       if (flags["no-push"] !== "true") {
         // One atomic push: the moved or dropped branches, the new branch and its beta tag land
         // together or not at all, so a failed push leaves nothing behind and the button can simply
@@ -1345,8 +1394,8 @@ export async function runReleaseFlowCli(argv, deps = {}) {
     const headSha = gitExec(["rev-parse", "HEAD"], root);
     const next = await nextBetaFor(targetVersion, { root, gitExec, fetchImpl });
     const tag = next.tag;
-    requireWriteAuthority(`tag ${tag} on ${releaseBranch}`);
-    gitExec(["tag", tag, headSha], root);
+    const actor = requireWriteAuthority(`tag ${tag} on ${releaseBranch}`);
+    createReleaseTag(tag, headSha, actor, { root, gitExec });
     if (flags["no-push"] !== "true") {
       gitExec(["push", "--atomic", "origin", `${headSha}:refs/heads/${releaseBranch}`, `refs/tags/${tag}`], root);
     }
@@ -1618,8 +1667,8 @@ export async function runReleaseFlowCli(argv, deps = {}) {
       throw new Error(sourceCheck.message);
     }
 
-    requireWriteAuthority(`tag ${tag} on ${releaseBranch}`);
-    gitExec(["tag", tag, releaseSha], root);
+    const actor = requireWriteAuthority(`tag ${tag} on ${releaseBranch}`);
+    createReleaseTag(tag, releaseSha, actor, { root, gitExec });
     if (flags["no-push"] !== "true") {
       gitExec(["push", "--atomic", "origin", `${releaseSha}:refs/heads/${releaseBranch}`, `refs/tags/${tag}`], root);
     }
@@ -1695,9 +1744,14 @@ export async function runReleaseFlowCli(argv, deps = {}) {
       result.betaVersion = proof.betaVersion;
     }
 
-    // Retry the publish names its presser: the GitHub Release and the Registry job this run hands
-    // the tag to wait on their write access, read again here.
-    requireWriteAuthority(`publish ${tag}`);
+    // Retry the publish names its presser; an automatic tag push carries Release-Actor on its
+    // annotated tag object. The GitHub Release and the Registry job this run hands the tag to wait
+    // on that person's write access, read again here.
+    const effectiveActor = explicitActor || resolveTagActor(tag, root, gitExec);
+    if (flags["require-actor"] === "true" || explicitActor !== undefined || effectiveActor !== "") {
+      verifyWriteAuthority(effectiveActor, { root, ghExec, effect: `publish ${tag}` });
+    }
+    result.releaseActor = effectiveActor;
     if (!isBeta && flags["no-gh"] !== "true" && !checkGithubReleaseExists(tag, root, ghExec)) {
       const notes =
         extractChangelogSection(gitExec(["show", `${tagSha}:CHANGELOG.md`], root), version) ||
@@ -1711,7 +1765,21 @@ export async function runReleaseFlowCli(argv, deps = {}) {
       tag,
       release_mode: result.releaseMode,
       slug: result.slug,
+      release_actor: effectiveActor,
       github_release_created: result.githubReleaseCreated,
+    });
+    log(JSON.stringify(result));
+    return result;
+  }
+
+  if (command === "verify-authority") {
+    const actor = explicitActor ?? "";
+    const effect = String(flags.effect || "publish to EmDash Registry").trim() || "publish to EmDash Registry";
+    const permission = verifyWriteAuthority(actor, { root, ghExec, effect });
+    const result = { ok: true, actor, permission, effect };
+    await writeGithubOutputs(flags["github-output"], {
+      actor,
+      permission,
     });
     log(JSON.stringify(result));
     return result;

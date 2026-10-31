@@ -16,6 +16,17 @@ on:
         description: "Delegated release mode from release.yml ('beta' or 'stable')"
         required: true
         type: string
+      release_actor:
+        description: "The human actor verified by release-tag whose write authority is re-checked right before Registry publish"
+        required: true
+        type: string
+    secrets:
+      RELEASE_APP_ID:
+        description: "Release GitHub App ID used only to mint a read-only token for final collaborator permission verification"
+        required: true
+      RELEASE_APP_PRIVATE_KEY:
+        description: "Release GitHub App private key used only to mint a read-only token for final collaborator permission verification"
+        required: true
     outputs:
       slug:
         description: "The Registry listing published (dinkus-payments-beta or dinkus-payments)"
@@ -146,6 +157,27 @@ jobs:
         id: media
         if: steps.registry-check.outputs.already_published != 'true'
         run: node scripts/registry-release-media.mjs
+
+      - name: Mint read-only release App token for final authority check
+        id: authority-token
+        if: steps.registry-check.outputs.already_published != 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: read
+
+      - name: Re-verify release actor write authority before Registry publish
+        if: steps.registry-check.outputs.already_published != 'true'
+        env:
+          GH_TOKEN: ${{ steps.authority-token.outputs.token }}
+          RELEASE_ACTOR: ${{ inputs.release_actor }}
+          EMDASH_PLUGIN_SLUG: ${{ steps.meta.outputs.slug }}
+          RELEASE_VERSION: ${{ steps.meta.outputs.version }}
+        run: >-
+          node scripts/release-flow.mjs verify-authority
+          --actor "$RELEASE_ACTOR"
+          --effect "publish $EMDASH_PLUGIN_SLUG@$RELEASE_VERSION to EmDash Registry"
 
       # The release service currently ends successful publishes in
       # RELEASE_CONFLICT (emdash-cms/emdash#4159), so this step's

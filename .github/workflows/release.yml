@@ -168,6 +168,7 @@ jobs:
     outputs:
       version: ${{ steps.tag.outputs.version }}
       release_mode: ${{ steps.tag.outputs.release_mode }}
+      release_actor: ${{ steps.tag.outputs.release_actor }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -192,12 +193,12 @@ jobs:
         id: tag
         env:
           TAG_REF: ${{ github.ref }}
-          # Retry the publish is pressed by a person, whose write access is read again before the
-          # publish. A tag push comes from the release App, right after it checked the presser's.
+          # Retry the publish is pressed by a person; an automatic tag push carries Release-Actor on
+          # its annotated tag object. Either way, that person's write access is read again here.
           RELEASE_ACTOR: ${{ github.event_name == 'workflow_dispatch' && github.triggering_actor || '' }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: node scripts/release-flow.mjs verify-release-tag --ref "$TAG_REF" ${RELEASE_ACTOR:+--actor "$RELEASE_ACTOR"} --github-output "$GITHUB_OUTPUT"
+        run: node scripts/release-flow.mjs verify-release-tag --ref "$TAG_REF" --require-actor ${RELEASE_ACTOR:+--actor "$RELEASE_ACTOR"} --github-output "$GITHUB_OUTPUT"
 
   publish-emdash:
     name: Publish to EmDash Registry from the version tag
@@ -211,6 +212,10 @@ jobs:
       version: ${{ needs.release-tag.outputs.version }}
       # release_mode: stable for a vX.Y.Z tag, release_mode: beta for a vX.Y.Z-beta.N tag.
       release_mode: ${{ needs.release-tag.outputs.release_mode }}
+      release_actor: ${{ needs.release-tag.outputs.release_actor }}
+    secrets:
+      RELEASE_APP_ID: ${{ secrets.RELEASE_APP_ID }}
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
   # A beta that a tag run just published is tested at once: this presses dinkuskit/live-journeys' "Live
   # journeys" button, which updates the beta store, beta.sm0ky.dev, to that beta once the Registry
