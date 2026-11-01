@@ -1212,7 +1212,7 @@
       "choice": "Support USD only through the demo. Keep every authoritative amount currency-bearing and expressed in integer minor units, reject non-USD before provider contact, perform no currency conversion, and defer additional currencies until after the demo application.",
       "context_ref": "owner:confirmed-demo-scope-20260830",
       "created_at": "2026-08-30T20:29:49+00:00",
-      "deferred_reason": null,
+      "deferred_reason": "'Support USD only through the demo ... defer additional currencies until after the demo application' is a timed pause recorded as a permanent prohibition, and 'through the demo' keeps it needs_reverification while stores are already onboarding.",
       "delivery_ref": null,
       "dependencies": [
         "payments-plugin-topology-001"
@@ -1267,6 +1267,20 @@
           "note": "fork composition invalidates prior current proof",
           "source_snapshot_ref": ".grilltrack/lineage/c940502e43043ae187f9f0bfc182a8e91afaf66135e6d97cf4b6e1f1cc3219aa",
           "to": "needs_reverification"
+        },
+        {
+          "at": "2026-11-01T04:28:00+00:00",
+          "choice": "Support USD only through the demo. Keep every authoritative amount currency-bearing and expressed in integer minor units, reject non-USD before provider contact, perform no currency conversion, and defer additional currencies until after the demo application.",
+          "from": "needs_reverification",
+          "implementation_ref": ".grilltrack/proof/repository-scaffold/PROOF.md#implementation",
+          "note": "'Support USD only through the demo ... defer additional currencies until after the demo application' is a timed pause recorded as a permanent prohibition, and 'through the demo' keeps it needs_reverification while stores are already onboarding.",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "deferred",
+          "verification_ref": null
         }
       ],
       "id": "payments-demo-currency-002",
@@ -1296,9 +1310,9 @@
       "review_ref": null,
       "review_result": null,
       "review_source_identity": null,
-      "status": "needs_reverification",
+      "status": "deferred",
       "superseded_by": null,
-      "updated_at": "2026-10-10T04:09:17+00:00",
+      "updated_at": "2026-11-01T04:28:00+00:00",
       "verification_ref": null
     },
     {
@@ -1427,6 +1441,20 @@
           "note": "fork composition invalidates prior current proof",
           "source_snapshot_ref": ".grilltrack/lineage/c940502e43043ae187f9f0bfc182a8e91afaf66135e6d97cf4b6e1f1cc3219aa",
           "to": "needs_reverification"
+        },
+        {
+          "at": "2026-11-01T04:28:00+00:00",
+          "choice": "Ship one @dinkuskit/payments EmDash plugin with a server-owned adapter registry and exactly one active provider per store. Stripe is the only implemented and supported demo provider. Future processors may be isolated adapters behind the Commerce-owned provider contract; unknown providers fail closed, with no fallback or browser selection.",
+          "from": "needs_reverification",
+          "implementation_ref": ".grilltrack/proof/repository-scaffold/PROOF.md#implementation",
+          "note": "'Stripe is the only implemented and supported demo provider' is contradicted by payments-authorize-net-provider-002, which adds authorize_net as a second provider, yet it was never superseded.",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "superseded",
+          "verification_ref": null
         }
       ],
       "id": "payments-plugin-topology-001",
@@ -1456,9 +1484,9 @@
       "review_ref": null,
       "review_result": null,
       "review_source_identity": null,
-      "status": "needs_reverification",
-      "superseded_by": null,
-      "updated_at": "2026-10-10T04:09:17+00:00",
+      "status": "superseded",
+      "superseded_by": "payments-authorize-net-provider-002",
+      "updated_at": "2026-11-01T04:28:00+00:00",
       "verification_ref": null
     },
     {
@@ -1523,6 +1551,20 @@
           "note": "fork composition invalidates prior current proof",
           "source_snapshot_ref": ".grilltrack/lineage/c940502e43043ae187f9f0bfc182a8e91afaf66135e6d97cf4b6e1f1cc3219aa",
           "to": "needs_reverification"
+        },
+        {
+          "at": "2026-11-01T04:28:00+00:00",
+          "choice": "Create a non-operational clean-room scaffold containing public ownership and safety contracts, package and plugin identity, provider and currency boundaries, feature map, verification, and durable GrillTrack lineage. Add no Stripe SDK, provider transport, webhook endpoint, credentials, Commerce or template-store changes, package publication, deployment, or live payment behavior.",
+          "from": "needs_reverification",
+          "implementation_ref": ".grilltrack/proof/repository-scaffold/PROOF.md#implementation",
+          "note": "It still says the repo must 'Add no Stripe SDK, provider transport, webhook endpoint ... or live payment behavior', which the shipped Stripe, Authorize.net and webhook code directly contradicts.",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "superseded",
+          "verification_ref": null
         }
       ],
       "id": "payments-public-scaffold-003",
@@ -1552,9 +1594,9 @@
       "review_ref": null,
       "review_result": null,
       "review_source_identity": null,
-      "status": "needs_reverification",
-      "superseded_by": null,
-      "updated_at": "2026-10-10T04:09:17+00:00",
+      "status": "superseded",
+      "superseded_by": "payments-checkout-sessions-001",
+      "updated_at": "2026-11-01T04:28:00+00:00",
       "verification_ref": null
     },
     {
@@ -1722,6 +1764,20 @@
           "note": "fork composition invalidates prior current proof",
           "source_snapshot_ref": ".grilltrack/lineage/c940502e43043ae187f9f0bfc182a8e91afaf66135e6d97cf4b6e1f1cc3219aa",
           "to": "needs_reverification"
+        },
+        {
+          "at": "2026-11-01T04:28:00+00:00",
+          "choice": "Render approved Connect payments and Place a test order steps in the existing private status page, with Not ready to sell while authoritative inputs are absent. Project existing decoded connectionEvidence into provider-specific explanatory next actions; no new transport or fake evidence. Production retains unavailable status until authenticated site-bound Payments connection and Commerce qualifying TEST-order reader exist. No capability, checkout, CLI or Commerce changes.",
+          "from": "needs_reverification",
+          "implementation_ref": "src/plugin.ts;src/registry/setup.ts",
+          "note": "It says 'Not ready to sell while authoritative inputs are absent' and 'Production retains unavailable status until ... TEST-order reader exist', which later decisions 034, 037 and 039 delivered, so it describes a retired interim state.",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "superseded",
+          "verification_ref": null
         }
       ],
       "id": "payments-setup-screen-031",
@@ -1751,9 +1807,9 @@
       "review_ref": null,
       "review_result": null,
       "review_source_identity": null,
-      "status": "needs_reverification",
-      "superseded_by": null,
-      "updated_at": "2026-10-10T04:09:17+00:00",
+      "status": "superseded",
+      "superseded_by": "payments-status-store-pass-039",
+      "updated_at": "2026-11-01T04:28:00+00:00",
       "verification_ref": null
     },
     {
@@ -2338,6 +2394,20 @@
           "review_source_identity": null,
           "to": "verified",
           "verification_ref": null
+        },
+        {
+          "at": "2026-11-01T04:28:00+00:00",
+          "choice": "Each checkout returns to the store's own pages: Stripe success_url https://<store>/checkout/success?session_id={CHECKOUT_SESSION_ID}, Authorize.net return https://<store>/checkout/success, cancel https://<store>/cart. <store> comes only from the site_origin claim DinkusKit.com signs into the store's pass from its Connect-checked store record; Payments accepts it only as an exact https origin and never takes a return page from request input. A pass without it cannot start a checkout (409 store_origin_missing); lookups, wakes and webhooks need none. CHECKOUT_SUCCESS_URL and CHECKOUT_CANCEL_URL are removed. No receipt route: order details stay in Commerce and the store key never reaches Payments.",
+          "from": "verified",
+          "implementation_ref": "src/hosted/auth.ts;src/checkout/return-pages.ts;src/cloudflare/worker.ts;src/checkout/sessions.ts;src/authorize-net/checkout.ts;src/hosted/http.ts",
+          "note": "It still says 'cancel https://<store>/cart' and 'No receipt route', but payments-checkout-cancel-url-041 moved cancel to /checkout and playground decision 036 added GET /v1/checkout/receipt, leaving a verified decision that disagrees with the implementation.",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "superseded",
+          "verification_ref": ".grilltrack/proof/store-return-pages-033/PROOF.md"
         }
       ],
       "id": "payments-store-return-pages-033",
@@ -2350,9 +2420,9 @@
       "review_ref": null,
       "review_result": null,
       "review_source_identity": null,
-      "status": "verified",
-      "superseded_by": null,
-      "updated_at": "2026-10-11T12:42:59+00:00",
+      "status": "superseded",
+      "superseded_by": "payments-checkout-cancel-url-041",
+      "updated_at": "2026-11-01T04:28:00+00:00",
       "verification_ref": ".grilltrack/proof/store-return-pages-033/PROOF.md"
     },
     {
@@ -2585,6 +2655,20 @@
           "review_source_identity": null,
           "to": "implemented",
           "verification_ref": null
+        },
+        {
+          "at": "2026-11-01T04:28:00+00:00",
+          "choice": "Wording and status mapping only. A Stripe connection Payments verified in TEST mode shows the banner 'Connected: Stripe test mode' (no alert) and the Connect payments step 'Connected: Stripe test mode', saying test card payments work and real payments need a live Stripe connection. When the page's own sign-in cannot read status (expired, another admin or store, or refused by Payments), the banner reads 'Payment status not checked' (no alert), both steps read 'Not checked', the step says checkout doesn't use this sign-in, and the Connect button reads 'Sign in again' and runs the same Connect flow with the same site binding. 'Not ready to sell' (alert) remains for every other case, including nothing connected. 'Set up or resume Stripe' still appears only after a successful status read without verified Stripe evidence. Ready to sell still needs a verified live connection and a saved TEST order (029). Replaces 034's sentence that the overall result stays Not ready to sell in TEST mode. No change to connection evidence, verification, checkout, transport or routes.",
+          "from": "implemented",
+          "implementation_ref": "git:3143a98f4900642fd434ebf6022b3693e8fefb10",
+          "note": "Its sign-in-pass behavior ('When the page's own sign-in cannot read status ... Sign in again') was explicitly superseded by payments-status-store-pass-039 but it is not marked superseded, and it is a wording-only slice decision.",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "superseded",
+          "verification_ref": null
         }
       ],
       "id": "payments-setup-status-wording-037",
@@ -2597,9 +2681,9 @@
       "review_ref": null,
       "review_result": null,
       "review_source_identity": null,
-      "status": "implemented",
-      "superseded_by": null,
-      "updated_at": "2026-10-17T18:30:08+00:00",
+      "status": "superseded",
+      "superseded_by": "payments-status-store-pass-039",
+      "updated_at": "2026-11-01T04:28:00+00:00",
       "verification_ref": null
     },
     {
@@ -2628,6 +2712,20 @@
           "review_source_identity": null,
           "to": "locked",
           "verification_ref": null
+        },
+        {
+          "at": "2026-11-01T04:28:00+00:00",
+          "choice": "Returning to the status page after DinkusKit's Approve finishes the sign-in on page load and reads payment status in the same request, so the banner shows the real connection (for example 'Connected: Stripe test mode') with no extra press. Continue pressed before DinkusKit's poll interval waits it out (at most 10 seconds) and then checks, and a check DinkusKit has not approved yet says the approval is not recorded. When the page's own 5-minute DinkusKit sign-in has lapsed for the same admin and store, the page shows the last status that admin read, labelled 'Last checked <time>', with Sign in again; other admins still see 'Payment status not checked' (037). When Payments refuses Stripe setup with merchant_country_required or payments_service_unconfigured (both create nothing), the page names that reason and says no Stripe account was created; any other refusal stays 'not confirmed'. When Stripe needs more information (connection evidence action_required), the step points the owner to Set up or resume Stripe, whose Stripe page lists what is missing, then Check connection; naming the requirement on the page is out of scope. No change to the pass lifetime, the store key, hosted routes, connection evidence, checkout or the ten-bridge-call budget.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "Its 'Last checked <time>' view after a lapsed 5-minute sign-in was superseded by payments-status-store-pass-039 but it stays locked, and it also embeds PR-level details like the 'ten-bridge-call budget' (payments#58).",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "superseded",
+          "verification_ref": null
         }
       ],
       "id": "payments-setup-return-check-038",
@@ -2640,9 +2738,9 @@
       "review_ref": null,
       "review_result": null,
       "review_source_identity": null,
-      "status": "locked",
-      "superseded_by": null,
-      "updated_at": "2026-10-18T17:58:47+00:00",
+      "status": "superseded",
+      "superseded_by": "payments-status-store-pass-039",
+      "updated_at": "2026-11-01T04:28:00+00:00",
       "verification_ref": null
     },
     {
@@ -3472,5 +3570,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-30T12:55:30+00:00"
+  "updated_at": "2026-11-01T04:28:00+00:00"
 }
