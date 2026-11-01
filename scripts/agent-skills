@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 SAARIUS_REPO="https://github.com/saariuslystoned/SaariusSkills.git"
-SAARIUS_SHA="776dc8f6db7d8b39421e8b969512e63607990c47"
+SAARIUS_SHA="5c8476507b0a83e4aef6b54f2e5dfdca2105b6db"
 # Keep the established bundle pin; only the research skill has a newer revision.
 EMDASH_COMMERCE_SHA="23f2bb1208b3baa7aedaa87faec00395f9bdd061"
 SKILL_NAMES=(grilltrack emdash-sites building-emdash-site creating-plugins emdash-cli upgrading-emdash emdash-ci-deploy)
