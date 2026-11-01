@@ -1,5 +1,22 @@
 {
   "closeout": null,
+  "compacted_decision_ids": [
+    "payments-authenticated-wake-transport-001",
+    "payments-checkout-pricing-v1-001",
+    "payments-connection-evidence-030",
+    "payments-playground-tenant-036",
+    "payments-plugin-topology-001",
+    "payments-public-scaffold-003",
+    "payments-setup-return-check-038",
+    "payments-setup-screen-031",
+    "payments-setup-status-wording-037",
+    "payments-shared-store-consumer-032",
+    "payments-store-return-pages-033",
+    "payments-stripe-test-mode-003",
+    "payments-test-event-wakes-001",
+    "rejected-legacy-v2-preparation-038"
+  ],
+  "compaction_archive_ref": ".grilltrack/archive/compacted-gt-join-c940502e43043ae187f9f0bfc182a8e9.json",
   "created_at": "2026-10-10T04:09:17+00:00",
   "current_focus": {
     "cadence": "sequential",
@@ -24,90 +41,6 @@
       ],
       "domain": "Merchant-owned Stripe connection from the registry Payments plugin",
       "history": [
-        {
-          "at": "2026-09-30T01:11:24+00:00",
-          "choice": "DinkusKit operates the hosted Stripe connection service by default, reusing the DinkusKit merchant identity used for Inventory. The merchant owns the receiving Stripe account. The service owns authenticated store-to-account bindings, Stripe onboarding links and verified readiness, and provides the hosted integration boundary for Stripe checkout and verified updates. DinkusKit accepts the service operation responsibility. Normal users do not configure infrastructure or API keys.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-09-30T01:13:52+00:00",
-          "choice": "DinkusKit operates the hosted Stripe connection service by default, reusing the DinkusKit merchant identity used for Inventory. The merchant owns the receiving Stripe account. The service owns authenticated store-to-account bindings, Stripe onboarding links and verified readiness, and provides the hosted integration boundary for Stripe checkout and verified updates. DinkusKit accepts the service operation responsibility. Normal users do not configure infrastructure or API keys.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-07T23:28:36+00:00",
-          "choice": "DinkusKit operates the hosted Stripe connection service by default, reusing the DinkusKit merchant identity used for Inventory. The merchant owns the receiving Stripe account. The service owns authenticated store-to-account bindings, Stripe onboarding links and verified readiness, and provides the hosted integration boundary for Stripe checkout and verified updates. DinkusKit accepts the service operation responsibility. Normal users do not configure infrastructure or API keys.",
-          "from": "implemented",
-          "implementation_ref": ".grilltrack/proof/hosted-connection/PROOF.md",
-          "note": "Reverify unchanged hosted-service contract after workerd exposes valid bodyless POST as exhausted stream; existing HTTP guard incorrectly returns400.",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "reopened",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-07T23:28:36+00:00",
-          "choice": "DinkusKit operates the hosted Stripe connection service by default, reusing the DinkusKit merchant identity used for Inventory. The merchant owns the receiving Stripe account. The service owns authenticated store-to-account bindings, Stripe onboarding links and verified readiness, and provides the hosted integration boundary for Stripe checkout and verified updates. DinkusKit accepts the service operation responsibility. Normal users do not configure infrastructure or API keys.",
-          "from": "reopened",
-          "implementation_ref": ".grilltrack/proof/hosted-connection/PROOF.md",
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-07T23:28:46+00:00",
-          "choice": "DinkusKit operates the hosted Stripe connection service by default, reusing the DinkusKit merchant identity used for Inventory. The merchant owns the receiving Stripe account. The service owns authenticated store-to-account bindings, Stripe onboarding links and verified readiness, and provides the hosted integration boundary for Stripe checkout and verified updates. DinkusKit accepts the service operation responsibility. Normal users do not configure infrastructure or API keys.",
-          "from": "locked",
-          "implementation_ref": ".grilltrack/proof/hosted-connection/PROOF.md",
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-07T23:29:44+00:00",
-          "choice": "DinkusKit operates the hosted Stripe connection service by default, reusing the DinkusKit merchant identity used for Inventory. The merchant owns the receiving Stripe account. The service owns authenticated store-to-account bindings, Stripe onboarding links and verified readiness, and provides the hosted integration boundary for Stripe checkout and verified updates. DinkusKit accepts the service operation responsibility. Normal users do not configure infrastructure or API keys.",
-          "from": "implemented",
-          "implementation_ref": "src/hosted/http.ts;tests/empty-connect.test.mjs;tests/runtime/merchant-http.test.ts",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": null
-        },
         {
           "at": "2026-10-10T04:09:17+00:00",
           "from": "verified",
@@ -162,20 +95,6 @@
       "domain": "Merchant-owned Stripe connection from the registry Payments plugin",
       "history": [
         {
-          "at": "2026-09-30T01:08:44+00:00",
-          "choice": "Install the registry-enabled Payments plugin, click Connect Stripe in EmDash, complete Stripe-hosted setup, and return to the store. Show Ready to accept payments only after verified provider readiness, or a clear Finish setup action. The normal merchant flow does not require manually configuring API keys. DinkusKit subscription pricing remains undecided.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
           "at": "2026-10-10T04:09:17+00:00",
           "from": "locked",
           "note": "fork composition invalidates prior current proof",
@@ -229,34 +148,6 @@
       "domain": "Merchant-owned Stripe connection from the registry Payments plugin",
       "history": [
         {
-          "at": "2026-09-30T01:08:44+00:00",
-          "choice": "Each merchant owns the Stripe account receiving payments from their customers. DinkusKit connects the merchant to Stripe. The first release uses the single server-selected Stripe provider and retains the existing USD-only demo boundary.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-09-30T01:13:52+00:00",
-          "choice": "Each merchant owns the Stripe account receiving payments from their customers. DinkusKit connects the merchant to Stripe. The first release uses the single server-selected Stripe provider and retains the existing USD-only demo boundary.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
           "at": "2026-10-10T04:09:17+00:00",
           "from": "implemented",
           "note": "fork composition invalidates prior current proof",
@@ -268,101 +159,6 @@
       "implementation_ref": ".grilltrack/proof/hosted-connection/PROOF.md",
       "question": "Who owns the Stripe account receiving payments from each DinkusKit store?",
       "rationale": "",
-      "reconciliation_sources": [
-        {
-          "role": "base",
-          "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
-          "track_id": "gt-20260830202947-ccfe03"
-        },
-        {
-          "role": "current",
-          "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
-          "track_id": "gt-20260830202947-ccfe03"
-        },
-        {
-          "role": "incoming",
-          "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
-          "track_id": "gt-20260830202947-ccfe03"
-        }
-      ],
-      "repair_required": false,
-      "review_classifications": [],
-      "review_history": [],
-      "review_ref": null,
-      "review_result": null,
-      "review_source_identity": null,
-      "status": "needs_reverification",
-      "superseded_by": null,
-      "updated_at": "2026-10-10T04:09:17+00:00",
-      "verification_ref": null
-    },
-    {
-      "baseline_ref": "git:42c649c3fc4b08254460769b53c7509e219018df",
-      "candidate_refs": [],
-      "choice": "Add bounded non-destructive GET /v1/checkout/wakes and exact idempotent POST /v1/checkout/wakes/ack under existing payments:checkout JWT authorization and signed site/owner/binding/TEST context. Project canonical eventId,attemptId,bindingRef,persisted deliveryGeneration1,original received_at wokeAt; preserve legacy rows and tombstones, no same-event requeue, new scope or scheduler.",
-      "context_ref": "github:dinkuskit/payments/pull/10;git:dinkuskit/commerce@5710fc185645ed56098aff5727da03483be067ea",
-      "created_at": "2026-10-01T13:43:33+00:00",
-      "deferred_reason": null,
-      "delivery_ref": null,
-      "dependencies": [
-        "payments-test-event-wakes-001"
-      ],
-      "domain": "Authenticated TEST canonical wake list and exact acknowledgement",
-      "history": [
-        {
-          "at": "2026-10-01T13:43:33+00:00",
-          "choice": "Add bounded non-destructive GET /v1/checkout/wakes and exact idempotent POST /v1/checkout/wakes/ack under existing payments:checkout JWT authorization and signed site/owner/binding/TEST context. Project canonical eventId,attemptId,bindingRef,persisted deliveryGeneration1,original received_at wokeAt; preserve legacy rows and tombstones, no same-event requeue, new scope or scheduler.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-01T14:49:57+00:00",
-          "choice": "Add bounded non-destructive GET /v1/checkout/wakes and exact idempotent POST /v1/checkout/wakes/ack under existing payments:checkout JWT authorization and signed site/owner/binding/TEST context. Project canonical eventId,attemptId,bindingRef,persisted deliveryGeneration1,original received_at wokeAt; preserve legacy rows and tombstones, no same-event requeue, new scope or scheduler.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-01T14:49:57+00:00",
-          "choice": "Add bounded non-destructive GET /v1/checkout/wakes and exact idempotent POST /v1/checkout/wakes/ack under existing payments:checkout JWT authorization and signed site/owner/binding/TEST context. Project canonical eventId,attemptId,bindingRef,persisted deliveryGeneration1,original received_at wokeAt; preserve legacy rows and tombstones, no same-event requeue, new scope or scheduler.",
-          "from": "implemented",
-          "implementation_ref": ".grilltrack/proof/wake-transport/PROOF.md",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-10T04:09:17+00:00",
-          "from": "verified",
-          "note": "fork composition invalidates prior current proof",
-          "source_snapshot_ref": ".grilltrack/lineage/c940502e43043ae187f9f0bfc182a8e91afaf66135e6d97cf4b6e1f1cc3219aa",
-          "to": "needs_reverification"
-        }
-      ],
-      "id": "payments-authenticated-wake-transport-001",
-      "implementation_ref": ".grilltrack/proof/wake-transport/PROOF.md",
-      "question": "How should the trusted Commerce host list and exactly acknowledge canonical Payments wakes?",
-      "rationale": "Admitted bounded continuation after canonical queue PR10 merged and immutable Commerce42 five-field contract verified.",
       "reconciliation_sources": [
         {
           "role": "base",
@@ -406,48 +202,6 @@
       ],
       "domain": "Authorize.net provider binding identity",
       "history": [
-        {
-          "at": "2026-10-08T18:50:00+00:00",
-          "choice": "Give Authorize.net its dedicated server-owned `authorizeNetMerchantId` binding field. Stripe bindings use only `stripeAccountId`; Authorize.net bindings use only `authorizeNetMerchantId`; cross-provider fields and the `authorize_net` sentinel in `stripeAccountId` fail closed.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "Ryan approved this binding correction at 2026-10-08 2:50 PM ET.",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-08T21:44:46+00:00",
-          "choice": "Give Authorize.net its dedicated server-owned `authorizeNetMerchantId` binding field. Stripe bindings use only `stripeAccountId`; Authorize.net bindings use only `authorizeNetMerchantId`; cross-provider fields and the `authorize_net` sentinel in `stripeAccountId` fail closed.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-08T21:45:09+00:00",
-          "choice": "Give Authorize.net its dedicated server-owned `authorizeNetMerchantId` binding field. Stripe bindings use only `stripeAccountId`; Authorize.net bindings use only `authorizeNetMerchantId`; cross-provider fields and the `authorize_net` sentinel in `stripeAccountId` fail closed.",
-          "from": "implemented",
-          "implementation_ref": "file:src/hosted/connection.ts,src/cloudflare/worker.ts,src/checkout/wakes.ts,src/hosted/http.ts,FEATURE_MAP.md",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": null
-        },
         {
           "at": "2026-10-10T04:09:17+00:00",
           "from": "verified",
@@ -505,48 +259,6 @@
       "domain": "Authorize.net webhook store-bound invoice identity",
       "history": [
         {
-          "at": "2026-10-08T23:47:00+00:00",
-          "choice": "Encode a deterministic store-plus-attempt invoice reference into Authorize.net invoiceNumber and refId within the 20-character limit: 8-hex SHA-256 store tag, a single '.', then the Commerce attempt id (max 11 chars). Characters are limited to Authorize.net-safe [A-Za-z0-9._-]. Creation fails closed on overflow or invalid chars (never truncate). After HMAC-SHA512 verification, receiveAuthorizeNetWebhook parses the reference and rejects (no transactionId write, no wake/alarm, no paid lookup) when the store tag does not match the URL siteId and the stored attempt site. Malformed or legacy bare attempt ids are rejected with no writes. A signed webhook still never marks paid; only authoritative getTransactionDetails lookup does.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-08T23:51:26+00:00",
-          "choice": "Encode a deterministic store-plus-attempt invoice reference into Authorize.net invoiceNumber and refId within the 20-character limit: 8-hex SHA-256 store tag, a single '.', then the Commerce attempt id (max 11 chars). Characters are limited to Authorize.net-safe [A-Za-z0-9._-]. Creation fails closed on overflow or invalid chars (never truncate). After HMAC-SHA512 verification, receiveAuthorizeNetWebhook parses the reference and rejects (no transactionId write, no wake/alarm, no paid lookup) when the store tag does not match the URL siteId and the stored attempt site. Malformed or legacy bare attempt ids are rejected with no writes. A signed webhook still never marks paid; only authoritative getTransactionDetails lookup does.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-08T23:51:26+00:00",
-          "choice": "Encode a deterministic store-plus-attempt invoice reference into Authorize.net invoiceNumber and refId within the 20-character limit: 8-hex SHA-256 store tag, a single '.', then the Commerce attempt id (max 11 chars). Characters are limited to Authorize.net-safe [A-Za-z0-9._-]. Creation fails closed on overflow or invalid chars (never truncate). After HMAC-SHA512 verification, receiveAuthorizeNetWebhook parses the reference and rejects (no transactionId write, no wake/alarm, no paid lookup) when the store tag does not match the URL siteId and the stored attempt site. Malformed or legacy bare attempt ids are rejected with no writes. A signed webhook still never marks paid; only authoritative getTransactionDetails lookup does.",
-          "from": "implemented",
-          "implementation_ref": "file:src/authorize-net/checkout.ts,src/authorize-net/webhook.ts,src/cloudflare/worker.ts,src/hosted/http.ts,docs/authorize-net.md,tests/authorize-net.test.mjs,tests/runtime/authorize-net-webhook.test.ts,scripts/authorize-net-sandbox-proof.mjs",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": null
-        },
-        {
           "at": "2026-10-10T04:09:17+00:00",
           "from": "verified",
           "note": "fork composition invalidates prior current proof",
@@ -601,20 +313,6 @@
       "domain": "Authorize.net provider adapter for Payments",
       "history": [
         {
-          "at": "2026-10-07T21:50:55+00:00",
-          "choice": "Approve `authorize_net` as the second isolated payment provider alongside Stripe. Each store still selects exactly one active provider through server-owned configuration; checkout requests cannot select a provider, unknown providers fail closed, and Stripe remains the reference adapter. The adapter uses Accept Hosted, authoritative transaction lookup, raw-byte HMAC-SHA512 webhook verification that only wakes reconciliation, and USD integer minor units.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "maintainer saariuslystoned approved the provider decision; rationale: restricted-category merchants whose underwriters use the Authorize.net gateway",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
           "at": "2026-10-10T04:09:17+00:00",
           "from": "locked",
           "note": "fork composition invalidates prior current proof",
@@ -626,99 +324,6 @@
       "implementation_ref": null,
       "question": "Should Payments add `authorize_net` as a second isolated provider while retaining Stripe as the reference adapter?",
       "rationale": "Restricted-category merchants whose underwriters use the Authorize.net gateway.",
-      "reconciliation_sources": [
-        {
-          "role": "base",
-          "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
-          "track_id": "gt-20260830202947-ccfe03"
-        },
-        {
-          "role": "current",
-          "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
-          "track_id": "gt-20260830202947-ccfe03"
-        },
-        {
-          "role": "incoming",
-          "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
-          "track_id": "gt-20260830202947-ccfe03"
-        }
-      ],
-      "repair_required": false,
-      "review_classifications": [],
-      "review_history": [],
-      "review_ref": null,
-      "review_result": null,
-      "review_source_identity": null,
-      "status": "needs_reverification",
-      "superseded_by": null,
-      "updated_at": "2026-10-10T04:09:17+00:00",
-      "verification_ref": null
-    },
-    {
-      "baseline_ref": "git:3c2e1f1e738426f31597977bf41e6051de305137",
-      "candidate_refs": [],
-      "choice": "Validate, canonically fingerprint and persist full original pricing before processor contact; map whole-line net amounts and frozen shipping once, preserve immutable key/deadline/current1800..1860 and historical unpriced originals, independently declare exact schema only when supported. Zero payable rejected; Commerce remains sole total/order/coupon writer. Synthetic proof only; real provider, activation/publication/merge excluded.",
-      "context_ref": "git:dinkuskit/commerce@70419ae55c4f73354e3f0eda08b09bbc85368000:docs/implementation/checkout-pricing-payments-handoff.md",
-      "created_at": "2026-10-06T23:23:59+00:00",
-      "deferred_reason": null,
-      "delivery_ref": null,
-      "dependencies": [],
-      "domain": "Commerce pricing v1 Payments adapter adoption",
-      "history": [
-        {
-          "at": "2026-10-06T23:23:59+00:00",
-          "choice": "Validate, canonically fingerprint and persist full original pricing before processor contact; map whole-line net amounts and frozen shipping once, preserve immutable key/deadline/current1800..1860 and historical unpriced originals, independently declare exact schema only when supported. Zero payable rejected; Commerce remains sole total/order/coupon writer. Synthetic proof only; real provider, activation/publication/merge excluded.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-06T23:37:11+00:00",
-          "choice": "Validate, canonically fingerprint and persist full original pricing before processor contact; map whole-line net amounts and frozen shipping once, preserve immutable key/deadline/current1800..1860 and historical unpriced originals, independently declare exact schema only when supported. Zero payable rejected; Commerce remains sole total/order/coupon writer. Synthetic proof only; real provider, activation/publication/merge excluded.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-06T23:37:11+00:00",
-          "choice": "Validate, canonically fingerprint and persist full original pricing before processor contact; map whole-line net amounts and frozen shipping once, preserve immutable key/deadline/current1800..1860 and historical unpriced originals, independently declare exact schema only when supported. Zero payable rejected; Commerce remains sole total/order/coupon writer. Synthetic proof only; real provider, activation/publication/merge excluded.",
-          "from": "implemented",
-          "implementation_ref": ".grilltrack/proof/checkout-pricing/PROOF.md#behavior",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-10T04:09:17+00:00",
-          "from": "verified",
-          "note": "fork composition invalidates prior current proof",
-          "source_snapshot_ref": ".grilltrack/lineage/c940502e43043ae187f9f0bfc182a8e91afaf66135e6d97cf4b6e1f1cc3219aa",
-          "to": "needs_reverification"
-        }
-      ],
-      "id": "payments-checkout-pricing-v1-001",
-      "implementation_ref": ".grilltrack/proof/checkout-pricing/PROOF.md#behavior",
-      "question": "How should Payments consume the qualified Commerce pricing v1 contract?",
-      "rationale": "Existing sole-owner bounded adoption admitted after exact source qualification; consume reviewed pre-release Commerce48 source, not a published release.",
       "reconciliation_sources": [
         {
           "role": "base",
@@ -762,108 +367,6 @@
       ],
       "domain": "Stripe hosted Checkout Sessions adapter for Commerce",
       "history": [
-        {
-          "at": "2026-09-30T13:04:18+00:00",
-          "choice": "Implement Payments-owned Stripe hosted Checkout Sessions against Commerce CheckoutPaymentPort: immutable merchant binding, card-only USD integer minor units, one durable operation per attempt and original 30-minute window. ensureSession and authoritative read-only lookup preserve unknown after ambiguous responses or finite idempotency expiry; webhooks verify raw bytes before use and only wake reconciliation. Existing payment reconciliation bypasses new-checkout readiness. Test replay, mismatch, concurrency and restart. No Commerce/Inventory edits, live payments, account changes, deployment, merge, or duplicate review.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-09-30T13:27:15+00:00",
-          "choice": "Implement Payments-owned Stripe hosted Checkout Sessions against Commerce CheckoutPaymentPort: immutable merchant binding, card-only USD integer minor units, one durable operation per attempt and original 30-minute window. ensureSession and authoritative read-only lookup preserve unknown after ambiguous responses or finite idempotency expiry; webhooks verify raw bytes before use and only wake reconciliation. Existing payment reconciliation bypasses new-checkout readiness. Test replay, mismatch, concurrency and restart. No Commerce/Inventory edits, live payments, account changes, deployment, merge, or duplicate review.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-09-30T13:27:15+00:00",
-          "choice": "Implement Payments-owned Stripe hosted Checkout Sessions against Commerce CheckoutPaymentPort: immutable merchant binding, card-only USD integer minor units, one durable operation per attempt and original 30-minute window. ensureSession and authoritative read-only lookup preserve unknown after ambiguous responses or finite idempotency expiry; webhooks verify raw bytes before use and only wake reconciliation. Existing payment reconciliation bypasses new-checkout readiness. Test replay, mismatch, concurrency and restart. No Commerce/Inventory edits, live payments, account changes, deployment, merge, or duplicate review.",
-          "from": "implemented",
-          "implementation_ref": ".grilltrack/proof/checkout-sessions/PROOF.md",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-09-30T13:34:17+00:00",
-          "choice": "Implement Payments-owned Stripe hosted Checkout Sessions against Commerce CheckoutPaymentPort: immutable merchant binding, card-only USD integer minor units, one durable operation per attempt and original 30-minute window. ensureSession and authoritative read-only lookup preserve unknown after ambiguous responses or finite idempotency expiry; webhooks verify raw bytes before use and only wake reconciliation. Existing payment reconciliation bypasses new-checkout readiness. Test replay, mismatch, concurrency and restart. No Commerce/Inventory edits, live payments, account changes, deployment, merge, or duplicate review.",
-          "from": "verified",
-          "implementation_ref": ".grilltrack/proof/checkout-sessions/PROOF.md",
-          "note": "adjudicated review requires a fix",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "needs_reverification",
-          "verification_ref": ".grilltrack/proof/checkout-sessions/PROOF.md#verification"
-        },
-        {
-          "at": "2026-09-30T13:39:19+00:00",
-          "choice": "Implement Payments-owned Stripe hosted Checkout Sessions against Commerce CheckoutPaymentPort: immutable merchant binding, card-only USD integer minor units, one durable operation per attempt and original 30-minute window. ensureSession and authoritative read-only lookup preserve unknown after ambiguous responses or finite idempotency expiry; webhooks verify raw bytes before use and only wake reconciliation. Existing payment reconciliation bypasses new-checkout readiness. Test replay, mismatch, concurrency and restart. No Commerce/Inventory edits, live payments, account changes, deployment, merge, or duplicate review.",
-          "from": "needs_reverification",
-          "implementation_ref": ".grilltrack/proof/checkout-sessions/PROOF.md",
-          "note": "bounded implementation recorded",
-          "repair_required": true,
-          "review_classifications": [
-            "required_fix"
-          ],
-          "review_ref": ".grilltrack/work/checkout-sessions-20260930/parent-findings.md",
-          "review_result": "findings",
-          "review_source_identity": "sha256:63732d0ce20457375c8ef00f1003296cf5b354bd8812dfe9fde5b58090cb6d35",
-          "to": "implemented",
-          "verification_ref": ".grilltrack/proof/checkout-sessions/PROOF.md#verification"
-        },
-        {
-          "at": "2026-09-30T13:39:19+00:00",
-          "choice": "Implement Payments-owned Stripe hosted Checkout Sessions against Commerce CheckoutPaymentPort: immutable merchant binding, card-only USD integer minor units, one durable operation per attempt and original 30-minute window. ensureSession and authoritative read-only lookup preserve unknown after ambiguous responses or finite idempotency expiry; webhooks verify raw bytes before use and only wake reconciliation. Existing payment reconciliation bypasses new-checkout readiness. Test replay, mismatch, concurrency and restart. No Commerce/Inventory edits, live payments, account changes, deployment, merge, or duplicate review.",
-          "from": "implemented",
-          "implementation_ref": ".grilltrack/proof/checkout-sessions/PROOF.md",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": ".grilltrack/proof/checkout-sessions/PROOF.md#verification"
-        },
-        {
-          "at": "2026-09-30T16:12:17+00:00",
-          "choice": "Implement Payments-owned Stripe hosted Checkout Sessions against Commerce CheckoutPaymentPort: immutable merchant binding, card-only USD integer minor units, one durable operation per attempt and original 30-minute window. ensureSession and authoritative read-only lookup preserve unknown after ambiguous responses or finite idempotency expiry; webhooks verify raw bytes before use and only wake reconciliation. Existing payment reconciliation bypasses new-checkout readiness. Test replay, mismatch, concurrency and restart. No Commerce/Inventory edits, live payments, account changes, deployment, merge, or duplicate review.",
-          "from": "verified",
-          "implementation_ref": ".grilltrack/proof/checkout-sessions/PROOF.md",
-          "note": "adjudicated review requires a fix",
-          "repair_required": false,
-          "review_classifications": [
-            "defer"
-          ],
-          "review_ref": ".grilltrack/proof/checkout-sessions/ACCEPTANCE.md",
-          "review_result": "findings",
-          "review_source_identity": "sha256:e38295effbb916a7f63947bc0ace7c0b3cc71fc1f8defe63500b9d007173405c",
-          "to": "needs_reverification",
-          "verification_ref": ".grilltrack/proof/checkout-sessions/PROOF.md#verification"
-        },
         {
           "at": "2026-10-10T04:09:17+00:00",
           "from": "needs_reverification",
@@ -946,48 +449,6 @@
       "domain": "Stripe hosted Checkout Sessions adapter for Commerce",
       "history": [
         {
-          "at": "2026-09-30T18:17:20+00:00",
-          "choice": "Recommend Commerce-owned paymentWindow minSeconds1800/maxSeconds1860 and Payments immutable claim+1860 expiry, contingent on explicit owner approval; no implementation or lock. Preserve authoritative provider times, same key and params, read-only lookup, terminal proof before stock release, and unknown after delayed/unacknowledged creation.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-09-30T22:13:22+00:00",
-          "choice": "Approved provider-reported inclusive1800..1860-second window with one durable original claim, explicit claim-second+1860 expiry, one exact request/key and authoritative provider timestamps. Payments must consume the immutable Commerce-owned amended port before dependent implementation. Preserve unknown and stock-release safeguards; no default24h fallback or retry deadline reset.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-09-30T22:26:44+00:00",
-          "choice": "Approved provider-reported inclusive1800..1860-second window with one durable original claim, explicit claim-second+1860 expiry, one exact request/key and authoritative provider timestamps. Payments must consume the immutable Commerce-owned amended port before dependent implementation. Preserve unknown and stock-release safeguards; no default24h fallback or retry deadline reset.",
-          "from": "implemented",
-          "implementation_ref": ".grilltrack/proof/checkout-window-repair/PROOF.md;git:dinkuskit/commerce@ab37cd7f362f1c37cb1d321192abbbc48a623833",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": null
-        },
-        {
           "at": "2026-10-10T04:09:17+00:00",
           "from": "verified",
           "note": "fork composition invalidates prior current proof",
@@ -1039,48 +500,6 @@
       "domain": "dinkus-payments CLI over the hosted Payments API",
       "history": [
         {
-          "at": "2026-10-10T02:37:45+00:00",
-          "choice": "Yes, for the scaffold slice. The CLI is a separate process and package bin that calls only the hosted /v1 API with DINKUS_PAYMENTS_TOKEN from the environment, never to an endpoint from project config. (1) Typing the site id stays the connect confirmation; no service preview endpoint in this slice. (2) nextAction and the effect codes are part of the v1 contract. (3) binding show uses only GET /v1/existing-binding; GET /v1/checkout-binding is not exposed. (4) The CLI is not shipped in the packed package; the audited files list stays dist only and shipping needs a separate approved manifest change.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-10T02:37:45+00:00",
-          "choice": "Yes, for the scaffold slice. The CLI is a separate process and package bin that calls only the hosted /v1 API with DINKUS_PAYMENTS_TOKEN from the environment, never to an endpoint from project config. (1) Typing the site id stays the connect confirmation; no service preview endpoint in this slice. (2) nextAction and the effect codes are part of the v1 contract. (3) binding show uses only GET /v1/existing-binding; GET /v1/checkout-binding is not exposed. (4) The CLI is not shipped in the packed package; the audited files list stays dist only and shipping needs a separate approved manifest change.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-10T02:39:52+00:00",
-          "choice": "Yes, for the scaffold slice. The CLI is a separate process and package bin that calls only the hosted /v1 API with DINKUS_PAYMENTS_TOKEN from the environment, never to an endpoint from project config. (1) Typing the site id stays the connect confirmation; no service preview endpoint in this slice. (2) nextAction and the effect codes are part of the v1 contract. (3) binding show uses only GET /v1/existing-binding; GET /v1/checkout-binding is not exposed. (4) The CLI is not shipped in the packed package; the audited files list stays dist only and shipping needs a separate approved manifest change.",
-          "from": "implemented",
-          "implementation_ref": "file:bin/dinkus-payments.mjs file:src/cli/ file:src/client/ file:package.json file:docs/CLI-SPEC.md",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": null
-        },
-        {
           "at": "2026-10-10T04:09:17+00:00",
           "from": "verified",
           "note": "fork composition invalidates prior current proof",
@@ -1111,108 +530,12 @@
       "verification_ref": null
     },
     {
-      "baseline_ref": "git:260c0a6b4a058971bd1173321b7feed1aea35537",
-      "candidate_refs": [],
-      "choice": "Add minimal provider connection evidence to authenticated /v1/status preserving legacy fields, connect responses and TEST checkout admission. Reuse Stripe account lookup with exact account and explicit mode; action and unknown fail closed. Authorize.net configured merchant identity remains unverified without guessed capabilities or provider calls. Registry status decoder accepts valid additive evidence and treats legacy evidence as absent, never inferring live readiness. No overall Ready to sell, Commerce order attestation, new Registry connection mechanism or certification protocol.",
-      "context_ref": "docs/hosted-connections.md",
-      "created_at": "2026-10-09T13:48:36+00:00",
-      "deferred_reason": null,
-      "delivery_ref": null,
-      "dependencies": [
-        "payments-store-test-readiness-028",
-        "payments-one-screen-setup-029"
-      ],
-      "domain": "Provider connection evidence projection",
-      "history": [
-        {
-          "at": "2026-10-09T13:48:36+00:00",
-          "choice": "Add minimal provider connection evidence to authenticated /v1/status preserving legacy fields, connect responses and TEST checkout admission. Reuse Stripe account lookup with exact account and explicit mode; action and unknown fail closed. Authorize.net configured merchant identity remains unverified without guessed capabilities or provider calls. Registry status decoder accepts valid additive evidence and treats legacy evidence as absent, never inferring live readiness. No overall Ready to sell, Commerce order attestation, new Registry connection mechanism or certification protocol.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-09T13:58:31+00:00",
-          "choice": "Add minimal provider connection evidence to authenticated /v1/status preserving legacy fields, connect responses and TEST checkout admission. Reuse Stripe account lookup with exact account and explicit mode; action and unknown fail closed. Authorize.net configured merchant identity remains unverified without guessed capabilities or provider calls. Registry status decoder accepts valid additive evidence and treats legacy evidence as absent, never inferring live readiness. No overall Ready to sell, Commerce order attestation, new Registry connection mechanism or certification protocol.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-09T13:58:31+00:00",
-          "choice": "Add minimal provider connection evidence to authenticated /v1/status preserving legacy fields, connect responses and TEST checkout admission. Reuse Stripe account lookup with exact account and explicit mode; action and unknown fail closed. Authorize.net configured merchant identity remains unverified without guessed capabilities or provider calls. Registry status decoder accepts valid additive evidence and treats legacy evidence as absent, never inferring live readiness. No overall Ready to sell, Commerce order attestation, new Registry connection mechanism or certification protocol.",
-          "from": "implemented",
-          "implementation_ref": "src/hosted/connection.ts;src/registry/status.ts",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-10T04:09:17+00:00",
-          "from": "verified",
-          "note": "fork composition invalidates prior current proof",
-          "source_snapshot_ref": ".grilltrack/lineage/c940502e43043ae187f9f0bfc182a8e91afaf66135e6d97cf4b6e1f1cc3219aa",
-          "to": "needs_reverification"
-        }
-      ],
-      "id": "payments-connection-evidence-030",
-      "implementation_ref": "src/hosted/connection.ts;src/registry/status.ts",
-      "question": "How does status distinguish provider-verified connection evidence from configured TEST binding admission?",
-      "rationale": "Coordinator explicitly admitted this bounded implementation under approved028/029. PR23 immutable client assertStatus validates known required fields and returns full body without rejecting additive keys.",
-      "reconciliation_sources": [
-        {
-          "role": "base",
-          "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
-          "track_id": "gt-20260830202947-ccfe03"
-        },
-        {
-          "role": "current",
-          "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
-          "track_id": "gt-20260830202947-ccfe03"
-        },
-        {
-          "role": "incoming",
-          "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
-          "track_id": "gt-20260830202947-ccfe03"
-        }
-      ],
-      "repair_required": false,
-      "review_classifications": [],
-      "review_history": [],
-      "review_ref": null,
-      "review_result": null,
-      "review_source_identity": null,
-      "status": "needs_reverification",
-      "superseded_by": null,
-      "updated_at": "2026-10-10T04:09:17+00:00",
-      "verification_ref": null
-    },
-    {
       "baseline_ref": null,
       "candidate_refs": [],
       "choice": "Support USD only through the demo. Keep every authoritative amount currency-bearing and expressed in integer minor units, reject non-USD before provider contact, perform no currency conversion, and defer additional currencies until after the demo application.",
       "context_ref": "owner:confirmed-demo-scope-20260830",
       "created_at": "2026-08-30T20:29:49+00:00",
-      "deferred_reason": null,
+      "deferred_reason": "'Support USD only through the demo ... defer additional currencies until after the demo application' is a timed pause recorded as a permanent prohibition, and 'through the demo' keeps it needs_reverification while stores are already onboarding.",
       "delivery_ref": null,
       "dependencies": [
         "payments-plugin-topology-001"
@@ -1220,53 +543,18 @@
       "domain": "public Payments repository and provider topology",
       "history": [
         {
-          "at": "2026-08-30T20:29:49+00:00",
+          "at": "2026-11-01T03:59:23+00:00",
           "choice": "Support USD only through the demo. Keep every authoritative amount currency-bearing and expressed in integer minor units, reject non-USD before provider contact, perform no currency conversion, and defer additional currencies until after the demo application.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-08-30T20:30:29+00:00",
-          "choice": "Support USD only through the demo. Keep every authoritative amount currency-bearing and expressed in integer minor units, reject non-USD before provider contact, perform no currency conversion, and defer additional currencies until after the demo application.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-08-30T20:30:30+00:00",
-          "choice": "Support USD only through the demo. Keep every authoritative amount currency-bearing and expressed in integer minor units, reject non-USD before provider contact, perform no currency conversion, and defer additional currencies until after the demo application.",
-          "from": "implemented",
+          "from": "needs_reverification",
           "implementation_ref": ".grilltrack/proof/repository-scaffold/PROOF.md#implementation",
-          "note": "verification recorded in cumulative context",
+          "note": "grilltrack batch audit (convert_to_deferred): 'Support USD only through the demo ... defer additional currencies until after the demo application' is a timed pause recorded as a permanent prohibition, and 'through the demo' keeps it needs_reverification while stores are already onboarding.",
           "repair_required": false,
           "review_classifications": [],
           "review_ref": null,
           "review_result": null,
           "review_source_identity": null,
-          "to": "verified",
+          "to": "deferred",
           "verification_ref": null
-        },
-        {
-          "at": "2026-10-10T04:09:17+00:00",
-          "from": "verified",
-          "note": "fork composition invalidates prior current proof",
-          "source_snapshot_ref": ".grilltrack/lineage/c940502e43043ae187f9f0bfc182a8e91afaf66135e6d97cf4b6e1f1cc3219aa",
-          "to": "needs_reverification"
         }
       ],
       "id": "payments-demo-currency-002",
@@ -1296,9 +584,11 @@
       "review_ref": null,
       "review_result": null,
       "review_source_identity": null,
-      "status": "needs_reverification",
+      "revisit_when": "When this deferred surface is explicitly scheduled ('Support USD only through the demo ... defer additional currencies until after the demo application' is a timed pause re)",
+      "scope": "deferral",
+      "status": "deferred",
       "superseded_by": null,
-      "updated_at": "2026-10-10T04:09:17+00:00",
+      "updated_at": "2026-11-01T03:59:23+00:00",
       "verification_ref": null
     },
     {
@@ -1314,20 +604,6 @@
       ],
       "domain": "Provider qualification and store live-readiness agreement",
       "history": [
-        {
-          "at": "2026-10-09T12:53:56+00:00",
-          "choice": "One setup screen: Connect payments automatically checks actual provider-supported connection and live-readiness signals; Place a test order requires Commerce confirmation of a provider-confirmed paid TEST order visible in admin; Ready to sell appears only when both checks pass. Test success does not verify live readiness. No merchant-facing technical account mapping or sandbox-to-live equivalence certification. Unsupported Authorize.net readiness capabilities remain unknown/incomplete until verified. Preserve decision028 requirements and exclusions; ordinary test-to-live revision semantics remain design, without infinite retest loops.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
         {
           "at": "2026-10-10T04:09:17+00:00",
           "from": "locked",
@@ -1369,195 +645,6 @@
       "verification_ref": null
     },
     {
-      "baseline_ref": null,
-      "candidate_refs": [],
-      "choice": "Ship one @dinkuskit/payments EmDash plugin with a server-owned adapter registry and exactly one active provider per store. Stripe is the only implemented and supported demo provider. Future processors may be isolated adapters behind the Commerce-owned provider contract; unknown providers fail closed, with no fallback or browser selection.",
-      "context_ref": "github:dinkuskit/commerce/discussions/13;git:dinkuskit/commerce@530348c07769a010b0fa4ef24604292a4254eda0;git:dinkuskit/template-store@35ac1f272476e3094cecaa30124a5699c53d5a8c",
-      "created_at": "2026-08-30T20:29:48+00:00",
-      "deferred_reason": null,
-      "delivery_ref": null,
-      "dependencies": [],
-      "domain": "public Payments repository and provider topology",
-      "history": [
-        {
-          "at": "2026-08-30T20:29:49+00:00",
-          "choice": "Ship one @dinkuskit/payments EmDash plugin with a server-owned adapter registry and exactly one active provider per store. Stripe is the only implemented and supported demo provider. Future processors may be isolated adapters behind the Commerce-owned provider contract; unknown providers fail closed, with no fallback or browser selection.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-08-30T20:30:29+00:00",
-          "choice": "Ship one @dinkuskit/payments EmDash plugin with a server-owned adapter registry and exactly one active provider per store. Stripe is the only implemented and supported demo provider. Future processors may be isolated adapters behind the Commerce-owned provider contract; unknown providers fail closed, with no fallback or browser selection.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-08-30T20:30:30+00:00",
-          "choice": "Ship one @dinkuskit/payments EmDash plugin with a server-owned adapter registry and exactly one active provider per store. Stripe is the only implemented and supported demo provider. Future processors may be isolated adapters behind the Commerce-owned provider contract; unknown providers fail closed, with no fallback or browser selection.",
-          "from": "implemented",
-          "implementation_ref": ".grilltrack/proof/repository-scaffold/PROOF.md#implementation",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-10T04:09:17+00:00",
-          "from": "verified",
-          "note": "fork composition invalidates prior current proof",
-          "source_snapshot_ref": ".grilltrack/lineage/c940502e43043ae187f9f0bfc182a8e91afaf66135e6d97cf4b6e1f1cc3219aa",
-          "to": "needs_reverification"
-        }
-      ],
-      "id": "payments-plugin-topology-001",
-      "implementation_ref": ".grilltrack/proof/repository-scaffold/PROOF.md#implementation",
-      "question": "How should DinkusKit package Stripe now while preserving a path to later processors?",
-      "rationale": "Bobby confirmed repository, package, plugin, and adapter naming.",
-      "reconciliation_sources": [
-        {
-          "role": "base",
-          "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
-          "track_id": "gt-20260830202947-ccfe03"
-        },
-        {
-          "role": "current",
-          "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
-          "track_id": "gt-20260830202947-ccfe03"
-        },
-        {
-          "role": "incoming",
-          "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
-          "track_id": "gt-20260830202947-ccfe03"
-        }
-      ],
-      "repair_required": false,
-      "review_classifications": [],
-      "review_history": [],
-      "review_ref": null,
-      "review_result": null,
-      "review_source_identity": null,
-      "status": "needs_reverification",
-      "superseded_by": null,
-      "updated_at": "2026-10-10T04:09:17+00:00",
-      "verification_ref": null
-    },
-    {
-      "baseline_ref": null,
-      "candidate_refs": [],
-      "choice": "Create a non-operational clean-room scaffold containing public ownership and safety contracts, package and plugin identity, provider and currency boundaries, feature map, verification, and durable GrillTrack lineage. Add no Stripe SDK, provider transport, webhook endpoint, credentials, Commerce or template-store changes, package publication, deployment, or live payment behavior.",
-      "context_ref": "github:dinkuskit/commerce@530348c07769a010b0fa4ef24604292a4254eda0",
-      "created_at": "2026-08-30T20:29:50+00:00",
-      "deferred_reason": null,
-      "delivery_ref": null,
-      "dependencies": [
-        "payments-plugin-topology-001",
-        "payments-demo-currency-002"
-      ],
-      "domain": "public Payments repository and provider topology",
-      "history": [
-        {
-          "at": "2026-08-30T20:29:50+00:00",
-          "choice": "Create a non-operational clean-room scaffold containing public ownership and safety contracts, package and plugin identity, provider and currency boundaries, feature map, verification, and durable GrillTrack lineage. Add no Stripe SDK, provider transport, webhook endpoint, credentials, Commerce or template-store changes, package publication, deployment, or live payment behavior.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-08-30T20:30:29+00:00",
-          "choice": "Create a non-operational clean-room scaffold containing public ownership and safety contracts, package and plugin identity, provider and currency boundaries, feature map, verification, and durable GrillTrack lineage. Add no Stripe SDK, provider transport, webhook endpoint, credentials, Commerce or template-store changes, package publication, deployment, or live payment behavior.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-08-30T20:30:30+00:00",
-          "choice": "Create a non-operational clean-room scaffold containing public ownership and safety contracts, package and plugin identity, provider and currency boundaries, feature map, verification, and durable GrillTrack lineage. Add no Stripe SDK, provider transport, webhook endpoint, credentials, Commerce or template-store changes, package publication, deployment, or live payment behavior.",
-          "from": "implemented",
-          "implementation_ref": ".grilltrack/proof/repository-scaffold/PROOF.md#implementation",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-10T04:09:17+00:00",
-          "from": "verified",
-          "note": "fork composition invalidates prior current proof",
-          "source_snapshot_ref": ".grilltrack/lineage/c940502e43043ae187f9f0bfc182a8e91afaf66135e6d97cf4b6e1f1cc3219aa",
-          "to": "needs_reverification"
-        }
-      ],
-      "id": "payments-public-scaffold-003",
-      "implementation_ref": ".grilltrack/proof/repository-scaffold/PROOF.md#implementation",
-      "question": "What may the initial public Payments repository implement?",
-      "rationale": "The confirmed bounded implementation is the public scaffold only.",
-      "reconciliation_sources": [
-        {
-          "role": "base",
-          "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
-          "track_id": "gt-20260830202947-ccfe03"
-        },
-        {
-          "role": "current",
-          "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
-          "track_id": "gt-20260830202947-ccfe03"
-        },
-        {
-          "role": "incoming",
-          "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
-          "track_id": "gt-20260830202947-ccfe03"
-        }
-      ],
-      "repair_required": false,
-      "review_classifications": [],
-      "review_history": [],
-      "review_ref": null,
-      "review_result": null,
-      "review_source_identity": null,
-      "status": "needs_reverification",
-      "superseded_by": null,
-      "updated_at": "2026-10-10T04:09:17+00:00",
-      "verification_ref": null
-    },
-    {
       "baseline_ref": "git:22cd40442caa2c01876482fe0e1da07e4dfb086a",
       "candidate_refs": [],
       "choice": "Require explicit supported EmDash public boolean on every Registry route and permission on admin routes; publish installation-aware exact route manifest with no public Registry bypass while only admin exists. Classify hosted HTTP routes separately with existing payments:admin and payments:checkout scopes or provider signature verification. Preserve server-owned provider selection and authoritative amounts; verified webhooks only wake Commerce reconciliation and authoritative provider lookup precedes paid decisions. Add missing-declaration regression and runtime authentication, malformed/forged request coverage. No new Registry webhook, cross-repo changes, live traffic, Access changes or deployment.",
@@ -1568,48 +655,6 @@
       "dependencies": [],
       "domain": "Payments route authentication and exact public manifest",
       "history": [
-        {
-          "at": "2026-10-09T01:25:25+00:00",
-          "choice": "Require explicit supported EmDash public boolean on every Registry route and permission on admin routes; publish installation-aware exact route manifest with no public Registry bypass while only admin exists. Classify hosted HTTP routes separately with existing payments:admin and payments:checkout scopes or provider signature verification. Preserve server-owned provider selection and authoritative amounts; verified webhooks only wake Commerce reconciliation and authoritative provider lookup precedes paid decisions. Add missing-declaration regression and runtime authentication, malformed/forged request coverage. No new Registry webhook, cross-repo changes, live traffic, Access changes or deployment.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-09T01:32:23+00:00",
-          "choice": "Require explicit supported EmDash public boolean on every Registry route and permission on admin routes; publish installation-aware exact route manifest with no public Registry bypass while only admin exists. Classify hosted HTTP routes separately with existing payments:admin and payments:checkout scopes or provider signature verification. Preserve server-owned provider selection and authoritative amounts; verified webhooks only wake Commerce reconciliation and authoritative provider lookup precedes paid decisions. Add missing-declaration regression and runtime authentication, malformed/forged request coverage. No new Registry webhook, cross-repo changes, live traffic, Access changes or deployment.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-09T01:32:47+00:00",
-          "choice": "Require explicit supported EmDash public boolean on every Registry route and permission on admin routes; publish installation-aware exact route manifest with no public Registry bypass while only admin exists. Classify hosted HTTP routes separately with existing payments:admin and payments:checkout scopes or provider signature verification. Preserve server-owned provider selection and authoritative amounts; verified webhooks only wake Commerce reconciliation and authoritative provider lookup precedes paid decisions. Add missing-declaration regression and runtime authentication, malformed/forged request coverage. No new Registry webhook, cross-repo changes, live traffic, Access changes or deployment.",
-          "from": "implemented",
-          "implementation_ref": "src/plugin.ts;src/registry/manifest.ts;src/hosted/manifest.ts;src/hosted/http.ts;docs/route-auth.md",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": null
-        },
         {
           "at": "2026-10-10T04:09:17+00:00",
           "from": "verified",
@@ -1661,294 +706,6 @@
       "verification_ref": null
     },
     {
-      "baseline_ref": "git:164e3f2cd303426aed229363c8bf1e9f44d97785",
-      "candidate_refs": [],
-      "choice": "Render approved Connect payments and Place a test order steps in the existing private status page, with Not ready to sell while authoritative inputs are absent. Project existing decoded connectionEvidence into provider-specific explanatory next actions; no new transport or fake evidence. Production retains unavailable status until authenticated site-bound Payments connection and Commerce qualifying TEST-order reader exist. No capability, checkout, CLI or Commerce changes.",
-      "context_ref": "docs/registry-status.md",
-      "created_at": "2026-10-10T00:10:12+00:00",
-      "deferred_reason": null,
-      "delivery_ref": null,
-      "dependencies": [
-        "payments-one-screen-setup-029",
-        "payments-connection-evidence-030"
-      ],
-      "domain": "Registry payment setup screen",
-      "history": [
-        {
-          "at": "2026-10-10T00:10:12+00:00",
-          "choice": "Render approved Connect payments and Place a test order steps in the existing private status page, with Not ready to sell while authoritative inputs are absent. Project existing decoded connectionEvidence into provider-specific explanatory next actions; no new transport or fake evidence. Production retains unavailable status until authenticated site-bound Payments connection and Commerce qualifying TEST-order reader exist. No capability, checkout, CLI or Commerce changes.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-10T00:14:55+00:00",
-          "choice": "Render approved Connect payments and Place a test order steps in the existing private status page, with Not ready to sell while authoritative inputs are absent. Project existing decoded connectionEvidence into provider-specific explanatory next actions; no new transport or fake evidence. Production retains unavailable status until authenticated site-bound Payments connection and Commerce qualifying TEST-order reader exist. No capability, checkout, CLI or Commerce changes.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-10T00:14:55+00:00",
-          "choice": "Render approved Connect payments and Place a test order steps in the existing private status page, with Not ready to sell while authoritative inputs are absent. Project existing decoded connectionEvidence into provider-specific explanatory next actions; no new transport or fake evidence. Production retains unavailable status until authenticated site-bound Payments connection and Commerce qualifying TEST-order reader exist. No capability, checkout, CLI or Commerce changes.",
-          "from": "implemented",
-          "implementation_ref": "src/plugin.ts;src/registry/setup.ts",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-10T04:09:17+00:00",
-          "from": "verified",
-          "note": "fork composition invalidates prior current proof",
-          "source_snapshot_ref": ".grilltrack/lineage/c940502e43043ae187f9f0bfc182a8e91afaf66135e6d97cf4b6e1f1cc3219aa",
-          "to": "needs_reverification"
-        }
-      ],
-      "id": "payments-setup-screen-031",
-      "implementation_ref": "src/plugin.ts;src/registry/setup.ts",
-      "question": "How should the current Registry admin show setup progress while authoritative inputs are unavailable?",
-      "rationale": "",
-      "reconciliation_sources": [
-        {
-          "role": "base",
-          "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
-          "track_id": "gt-20260830202947-ccfe03"
-        },
-        {
-          "role": "current",
-          "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
-          "track_id": "gt-20260830202947-ccfe03"
-        },
-        {
-          "role": "incoming",
-          "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
-          "track_id": "gt-20260830202947-ccfe03"
-        }
-      ],
-      "repair_required": false,
-      "review_classifications": [],
-      "review_history": [],
-      "review_ref": null,
-      "review_result": null,
-      "review_source_identity": null,
-      "status": "needs_reverification",
-      "superseded_by": null,
-      "updated_at": "2026-10-10T04:09:17+00:00",
-      "verification_ref": null
-    },
-    {
-      "baseline_ref": "git:469eab16253f38f17b8c2370a076fe55d0a8e981",
-      "candidate_refs": [],
-      "choice": "Implement the reviewed website v2 protocol under private originating-admin authority: server-resolved canonical site identity, explicit Payments service consent, frozen public transaction proof, encrypted short-lived token persistence validated for Payments audience and canonical site, callback continuation and authenticated status. Keep separate grants, no refresh fallback or identity remap, no provider connect call, no Commerce TEST-order claim. Proposed capability and public route consent are code only; production activation excluded.",
-      "context_ref": "github:dinkuskit/dinkuskit/pull/21@c0e871e3b2b63a511c78669cb78b29bd810c51f3:docs/shared-store-connections.md",
-      "created_at": "2026-10-10T01:10:34+00:00",
-      "deferred_reason": null,
-      "delivery_ref": null,
-      "dependencies": [
-        "payments-setup-screen-031"
-      ],
-      "domain": "Registry shared-store Payments connection",
-      "history": [
-        {
-          "at": "2026-10-10T01:10:34+00:00",
-          "choice": "Implement the reviewed website v2 protocol under private originating-admin authority: server-resolved canonical site identity, explicit Payments service consent, frozen public transaction proof, encrypted short-lived token persistence validated for Payments audience and canonical site, callback continuation and authenticated status. Keep separate grants, no refresh fallback or identity remap, no provider connect call, no Commerce TEST-order claim. Proposed capability and public route consent are code only; production activation excluded.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-10T03:02:36+00:00",
-          "choice": "Implement the reviewed website v2 protocol under private originating-admin authority: server-resolved canonical site identity, explicit Payments service consent, frozen public transaction proof, encrypted short-lived token persistence validated for Payments audience and canonical site, callback continuation and authenticated status. Keep separate grants, no refresh fallback or identity remap, no provider connect call, no Commerce TEST-order claim. Proposed capability and public route consent are code only; production activation excluded.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-10T03:02:37+00:00",
-          "choice": "Implement the reviewed website v2 protocol under private originating-admin authority: server-resolved canonical site identity, explicit Payments service consent, frozen public transaction proof, encrypted short-lived token persistence validated for Payments audience and canonical site, callback continuation and authenticated status. Keep separate grants, no refresh fallback or identity remap, no provider connect call, no Commerce TEST-order claim. Proposed capability and public route consent are code only; production activation excluded.",
-          "from": "implemented",
-          "implementation_ref": "src/registry/connection.ts",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-10T03:15:03+00:00",
-          "choice": "Implement the reviewed website v2 protocol under private originating-admin authority: server-resolved canonical site identity, explicit Payments service consent, frozen public transaction proof, encrypted short-lived token persistence validated for Payments audience and canonical site, callback continuation and authenticated status. Keep separate grants, no refresh fallback or identity remap, no provider connect call, no Commerce TEST-order claim. Proposed capability and public route consent are code only; production activation excluded.",
-          "from": "verified",
-          "implementation_ref": "src/registry/connection.ts",
-          "note": "adjudicated review requires a fix",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "needs_reverification",
-          "verification_ref": ".grilltrack/proof/payments-shared-store-consumer-032.md"
-        },
-        {
-          "at": "2026-10-10T03:31:43+00:00",
-          "choice": "Implement the reviewed website v2 protocol under private originating-admin authority: server-resolved canonical site identity, explicit Payments service consent, frozen public transaction proof, encrypted short-lived token persistence validated for Payments audience and canonical site, callback continuation and authenticated status. Keep separate grants, no refresh fallback or identity remap, no provider connect call, no Commerce TEST-order claim. Proposed capability and public route consent are code only; production activation excluded.",
-          "from": "needs_reverification",
-          "implementation_ref": "src/registry/connection.ts",
-          "note": "bounded implementation recorded",
-          "repair_required": true,
-          "review_classifications": [
-            "required_fix"
-          ],
-          "review_ref": "https://github.com/dinkuskit/payments/pull/34#issuecomment-6093186277",
-          "review_result": "findings",
-          "review_source_identity": "git:4b30263ff14b6df2f0e8c1a1f5c18f0a5627db6a",
-          "to": "implemented",
-          "verification_ref": ".grilltrack/proof/payments-shared-store-consumer-032.md"
-        },
-        {
-          "at": "2026-10-10T03:31:43+00:00",
-          "choice": "Implement the reviewed website v2 protocol under private originating-admin authority: server-resolved canonical site identity, explicit Payments service consent, frozen public transaction proof, encrypted short-lived token persistence validated for Payments audience and canonical site, callback continuation and authenticated status. Keep separate grants, no refresh fallback or identity remap, no provider connect call, no Commerce TEST-order claim. Proposed capability and public route consent are code only; production activation excluded.",
-          "from": "implemented",
-          "implementation_ref": ".grilltrack/proof/payments-shared-store-consumer-032.md",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": ".grilltrack/proof/payments-shared-store-consumer-032.md"
-        },
-        {
-          "at": "2026-10-10T04:08:57+00:00",
-          "choice": "Implement the reviewed website v2 protocol under private originating-admin authority: server-resolved canonical site identity, explicit Payments service consent, frozen public transaction proof, encrypted short-lived token persistence validated for Payments audience and canonical site, callback continuation and authenticated status. Keep separate grants, no refresh fallback or identity remap, no provider connect call, no Commerce TEST-order claim. Proposed capability and public route consent are code only; production activation excluded.",
-          "from": "verified",
-          "implementation_ref": ".grilltrack/proof/payments-shared-store-consumer-032.md",
-          "note": "adjudicated review requires a fix",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "needs_reverification",
-          "verification_ref": ".grilltrack/proof/payments-shared-store-consumer-032.md"
-        },
-        {
-          "at": "2026-10-10T04:08:57+00:00",
-          "choice": "Implement the reviewed website v2 protocol under private originating-admin authority: server-resolved canonical site identity, explicit Payments service consent, frozen public transaction proof, encrypted short-lived token persistence validated for Payments audience and canonical site, callback continuation and authenticated status. Keep separate grants, no refresh fallback or identity remap, no provider connect call, no Commerce TEST-order claim. Proposed capability and public route consent are code only; production activation excluded.",
-          "from": "needs_reverification",
-          "implementation_ref": ".grilltrack/proof/payments-shared-store-consumer-032.md",
-          "note": "bounded implementation recorded",
-          "repair_required": true,
-          "review_classifications": [
-            "required_fix"
-          ],
-          "review_ref": "https://github.com/dinkuskit/payments/pull/34#issuecomment-6093186277",
-          "review_result": "findings",
-          "review_source_identity": "git:f9a0afead9f8eb10bbdb8c79680317ee3865bceb",
-          "to": "implemented",
-          "verification_ref": ".grilltrack/proof/payments-shared-store-consumer-032.md"
-        },
-        {
-          "at": "2026-10-10T04:09:17+00:00",
-          "choice": "Implement the reviewed website v2 protocol under private originating-admin authority: server-resolved canonical site identity, explicit Payments service consent, frozen public transaction proof, encrypted short-lived token persistence validated for Payments audience and canonical site, callback continuation and authenticated status. Keep separate grants, no refresh fallback or identity remap, no provider connect call, no Commerce TEST-order claim. Proposed capability and public route consent are code only; production activation excluded.",
-          "from": "implemented",
-          "implementation_ref": "docs/registry-status.md",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": ".grilltrack/proof/payments-shared-store-consumer-032.md"
-        },
-        {
-          "at": "2026-10-10T04:09:17+00:00",
-          "from": "verified",
-          "note": "fork composition invalidates prior current proof",
-          "source_snapshot_ref": ".grilltrack/lineage/c940502e43043ae187f9f0bfc182a8e91afaf66135e6d97cf4b6e1f1cc3219aa",
-          "to": "needs_reverification"
-        }
-      ],
-      "id": "payments-shared-store-consumer-032",
-      "implementation_ref": "docs/registry-status.md",
-      "question": "How does the Payments Registry plugin consume the reviewed shared-store service?",
-      "rationale": "",
-      "reconciliation_sources": [
-        {
-          "role": "current",
-          "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
-          "track_id": "gt-20260830202947-ccfe03"
-        }
-      ],
-      "repair_required": false,
-      "review_classifications": [],
-      "review_history": [
-        {
-          "classifications": [
-            "required_fix"
-          ],
-          "ref": "https://github.com/dinkuskit/payments/pull/34#issuecomment-6093186277",
-          "result": "findings",
-          "reviewed_at": "2026-10-10T03:15:03+00:00",
-          "source_identity": "git:4b30263ff14b6df2f0e8c1a1f5c18f0a5627db6a"
-        },
-        {
-          "classifications": [
-            "required_fix"
-          ],
-          "ref": "https://github.com/dinkuskit/payments/pull/34#issuecomment-6093186277",
-          "result": "findings",
-          "reviewed_at": "2026-10-10T04:08:57+00:00",
-          "source_identity": "git:f9a0afead9f8eb10bbdb8c79680317ee3865bceb"
-        }
-      ],
-      "review_ref": null,
-      "review_result": null,
-      "review_source_identity": null,
-      "status": "needs_reverification",
-      "superseded_by": null,
-      "updated_at": "2026-10-10T04:09:17+00:00",
-      "verification_ref": null
-    },
-    {
       "baseline_ref": "git:4f170d7b9e692863d515bcac480cb1229fb51bb5",
       "candidate_refs": [],
       "choice": "One Registry Payments plugin supports Stripe and Authorize.net; qualify both before launch, Stripe first for easier merchant onboarding and Authorize.net next. Exactly one server-selected provider per store, no automatic fallback. Each store must complete an end-to-end provider-confirmed TEST payment producing exactly one paid Commerce order visibly present in Commerce backend/admin before live checkout readiness. Inventory verification is excluded. Proof binds selected provider, receiving account and critical checkout/webhook bindings; changes to these invalidate readiness and require retest, ordinary product/price/catalog edits do not. Test orders persist in the normal list clearly marked TEST; no test-order filter is required. Test orders must not trigger real fulfillment/shipping. Payments owns provider verification/configuration; Commerce owns paid orders/admin and checkout gating. Schema, protocol and critical-binding enumeration remain implementation design.",
@@ -1959,20 +716,6 @@
       "dependencies": [],
       "domain": "Provider qualification and store live-readiness agreement",
       "history": [
-        {
-          "at": "2026-10-09T01:34:44+00:00",
-          "choice": "One Registry Payments plugin supports Stripe and Authorize.net; qualify both before launch, Stripe first for easier merchant onboarding and Authorize.net next. Exactly one server-selected provider per store, no automatic fallback. Each store must complete an end-to-end provider-confirmed TEST payment producing exactly one paid Commerce order visibly present in Commerce backend/admin before live checkout readiness. Inventory verification is excluded. Proof binds selected provider, receiving account and critical checkout/webhook bindings; changes to these invalidate readiness and require retest, ordinary product/price/catalog edits do not. Test orders persist in the normal list clearly marked TEST; no test-order filter is required. Test orders must not trigger real fulfillment/shipping. Payments owns provider verification/configuration; Commerce owns paid orders/admin and checkout gating. Schema, protocol and critical-binding enumeration remain implementation design.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
         {
           "at": "2026-10-10T04:09:17+00:00",
           "from": "locked",
@@ -2014,348 +757,6 @@
       "verification_ref": null
     },
     {
-      "baseline_ref": "git:b49fe39",
-      "candidate_refs": [],
-      "choice": "Qualify Stripe TEST mode for the demo checkout boundary without changing Commerce or template-store: preserve server-owned Stripe Connect binding, Commerce-authoritative amounts and paid decisions, authoritative Session plus PaymentIntent lookup, and webhook verification that only wakes reconciliation. Add a no-secret opt-in proof script and document the remaining cross-repository bindings. Exclude live mode, deployment, production mutation, and merge.",
-      "context_ref": "github:dinkuskit/payments/pull/20",
-      "created_at": "2026-10-08T15:46:00+00:00",
-      "deferred_reason": null,
-      "delivery_ref": null,
-      "dependencies": [
-        "payments-plugin-topology-001",
-        "payments-demo-currency-002",
-        "merchant-stripe-ownership-001",
-        "payments-checkout-sessions-001"
-      ],
-      "domain": "Stripe TEST mode checkout proof",
-      "history": [
-        {
-          "at": "2026-10-08T15:46:00+00:00",
-          "choice": "Qualify Stripe TEST mode for the demo checkout boundary without changing Commerce or template-store: preserve server-owned Stripe Connect binding, Commerce-authoritative amounts and paid decisions, authoritative Session plus PaymentIntent lookup, and webhook verification that only wakes reconciliation. Add a no-secret opt-in proof script and document the remaining cross-repository bindings. Exclude live mode, deployment, production mutation, and merge.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "Ryan (GitHub saariuslystoned) approved this change on a branch.",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-10T04:09:17+00:00",
-          "from": "locked",
-          "note": "fork composition invalidates prior current proof",
-          "source_snapshot_ref": ".grilltrack/lineage/c940502e43043ae187f9f0bfc182a8e91afaf66135e6d97cf4b6e1f1cc3219aa",
-          "to": "needs_reverification"
-        }
-      ],
-      "id": "payments-stripe-test-mode-003",
-      "implementation_ref": "docs/stripe-test-mode.md;scripts/stripe-test-mode-proof.mjs",
-      "question": "What payments-side proof and handoff are required for a Stripe TEST mode demo checkout?",
-      "rationale": "Ryan approved a payments-only test-mode qualification with Commerce and template-store follow-up explicitly out of scope.",
-      "reconciliation_sources": [
-        {
-          "role": "base",
-          "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
-          "track_id": "gt-20260830202947-ccfe03"
-        },
-        {
-          "role": "current",
-          "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
-          "track_id": "gt-20260830202947-ccfe03"
-        },
-        {
-          "role": "incoming",
-          "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
-          "track_id": "gt-20260830202947-ccfe03"
-        }
-      ],
-      "repair_required": false,
-      "review_classifications": [],
-      "review_history": [],
-      "review_ref": null,
-      "review_result": null,
-      "review_source_identity": null,
-      "status": "needs_reverification",
-      "superseded_by": null,
-      "updated_at": "2026-10-10T04:09:17+00:00",
-      "verification_ref": null
-    },
-    {
-      "baseline_ref": "git:75e5d43acbc39deee3127f924866cb9098f789b0",
-      "candidate_refs": [],
-      "choice": "Retain canonical verified provider event identities and immutable site/binding/attempt context; implement internal bounded consumption and exact-event acknowledgement only following successful authoritative reconciliation. Preserve unresolved notifications and legacy pending work. Commerce owns order/result authority; HTTP and dependent adapter wiring await its immutable contract.",
-      "context_ref": ".grilltrack/work/test-wake-bridge-20261001/HANDOFF.md",
-      "created_at": "2026-10-01T10:11:43+00:00",
-      "deferred_reason": null,
-      "delivery_ref": null,
-      "dependencies": [],
-      "domain": "Payments TEST durable wake delivery to Commerce",
-      "history": [
-        {
-          "at": "2026-10-01T10:11:44+00:00",
-          "choice": "Retain canonical verified provider event identities and immutable site/binding/attempt context; implement internal bounded consumption and exact-event acknowledgement only following successful authoritative reconciliation. Preserve unresolved notifications and legacy pending work. Commerce owns order/result authority; HTTP and dependent adapter wiring await its immutable contract.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-01T10:30:01+00:00",
-          "choice": "Retain canonical verified provider event identities and immutable site/binding/attempt context; implement internal bounded consumption and exact-event acknowledgement only following successful authoritative reconciliation. Preserve unresolved notifications and legacy pending work. Commerce owns order/result authority; HTTP and dependent adapter wiring await its immutable contract.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-01T10:30:01+00:00",
-          "choice": "Retain canonical verified provider event identities and immutable site/binding/attempt context; implement internal bounded consumption and exact-event acknowledgement only following successful authoritative reconciliation. Preserve unresolved notifications and legacy pending work. Commerce owns order/result authority; HTTP and dependent adapter wiring await its immutable contract.",
-          "from": "implemented",
-          "implementation_ref": ".grilltrack/proof/test-event-wakes/PROOF.md",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-01T11:49:13+00:00",
-          "choice": "Retain canonical verified provider event identities and immutable site/binding/attempt context; implement internal bounded consumption and exact-event acknowledgement only following successful authoritative reconciliation. Preserve unresolved notifications and legacy pending work. Commerce owns order/result authority; HTTP and dependent adapter wiring await its immutable contract.",
-          "from": "verified",
-          "implementation_ref": ".grilltrack/proof/test-event-wakes/PROOF.md",
-          "note": "adjudicated review requires a fix",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "needs_reverification",
-          "verification_ref": ".grilltrack/proof/test-event-wakes/PROOF.md;bin/verify-payments full;59 Node tests;3 runtime tests;typecheck;audit;dry-run build;diff check"
-        },
-        {
-          "at": "2026-10-01T11:55:47+00:00",
-          "choice": "Retain canonical verified provider event identities and immutable site/binding/attempt context; implement internal bounded consumption and exact-event acknowledgement only following successful authoritative reconciliation. Preserve unresolved notifications and legacy pending work. Commerce owns order/result authority; HTTP and dependent adapter wiring await its immutable contract.",
-          "from": "needs_reverification",
-          "implementation_ref": ".grilltrack/proof/test-event-wakes/PROOF.md",
-          "note": "bounded implementation recorded",
-          "repair_required": true,
-          "review_classifications": [
-            "required_fix"
-          ],
-          "review_ref": ".grilltrack/proof/test-event-wakes/PROOF.md#review-repair",
-          "review_result": "findings",
-          "review_source_identity": "git:0aded231c1c5079ec83c3e41724ee70c3464a56f",
-          "to": "implemented",
-          "verification_ref": ".grilltrack/proof/test-event-wakes/PROOF.md;bin/verify-payments full;59 Node tests;3 runtime tests;typecheck;audit;dry-run build;diff check"
-        },
-        {
-          "at": "2026-10-01T11:55:47+00:00",
-          "choice": "Retain canonical verified provider event identities and immutable site/binding/attempt context; implement internal bounded consumption and exact-event acknowledgement only following successful authoritative reconciliation. Preserve unresolved notifications and legacy pending work. Commerce owns order/result authority; HTTP and dependent adapter wiring await its immutable contract.",
-          "from": "implemented",
-          "implementation_ref": ".grilltrack/proof/test-event-wakes/PROOF.md#review-repair-accepted-p2",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": ".grilltrack/proof/test-event-wakes/PROOF.md;bin/verify-payments full;59 Node tests;3 runtime tests;typecheck;audit;dry-run build;diff check"
-        },
-        {
-          "at": "2026-10-01T12:38:59+00:00",
-          "choice": "Retain canonical verified provider event identities and immutable site/binding/attempt context; implement internal bounded consumption and exact-event acknowledgement only following successful authoritative reconciliation. Preserve unresolved notifications and legacy pending work. Commerce owns order/result authority; HTTP and dependent adapter wiring await its immutable contract.",
-          "from": "verified",
-          "implementation_ref": ".grilltrack/proof/test-event-wakes/PROOF.md#review-repair-accepted-p2",
-          "note": "adjudicated review requires a fix",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "needs_reverification",
-          "verification_ref": ".grilltrack/proof/test-event-wakes/PROOF.md#review-repair-accepted-p2;59 Node tests;3 runtime tests;independent runtime;typecheck;audit;dry-run build;manifest;candidate diff"
-        },
-        {
-          "at": "2026-10-01T12:55:25+00:00",
-          "choice": "Retain canonical verified provider event identities and immutable site/binding/attempt context; implement internal bounded consumption and exact-event acknowledgement only following successful authoritative reconciliation. Preserve unresolved notifications and legacy pending work. Commerce owns order/result authority; HTTP and dependent adapter wiring await its immutable contract.",
-          "from": "needs_reverification",
-          "implementation_ref": ".grilltrack/proof/test-event-wakes/PROOF.md#review-repair-accepted-p2",
-          "note": "bounded implementation recorded",
-          "repair_required": true,
-          "review_classifications": [
-            "required_fix"
-          ],
-          "review_ref": ".grilltrack/proof/test-event-wakes/PROOF.md#concurrent-consumption-repair",
-          "review_result": "findings",
-          "review_source_identity": "git:a77a6d7dba0b8e7139031e128920c455323c903c",
-          "to": "implemented",
-          "verification_ref": ".grilltrack/proof/test-event-wakes/PROOF.md#review-repair-accepted-p2;59 Node tests;3 runtime tests;independent runtime;typecheck;audit;dry-run build;manifest;candidate diff"
-        },
-        {
-          "at": "2026-10-01T12:55:25+00:00",
-          "choice": "Retain canonical verified provider event identities and immutable site/binding/attempt context; implement internal bounded consumption and exact-event acknowledgement only following successful authoritative reconciliation. Preserve unresolved notifications and legacy pending work. Commerce owns order/result authority; HTTP and dependent adapter wiring await its immutable contract.",
-          "from": "implemented",
-          "implementation_ref": ".grilltrack/proof/test-event-wakes/PROOF.md#concurrent-consumption-repair",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": ".grilltrack/proof/test-event-wakes/PROOF.md#review-repair-accepted-p2;59 Node tests;3 runtime tests;independent runtime;typecheck;audit;dry-run build;manifest;candidate diff"
-        },
-        {
-          "at": "2026-10-10T04:09:17+00:00",
-          "from": "verified",
-          "note": "fork composition invalidates prior current proof",
-          "source_snapshot_ref": ".grilltrack/lineage/c940502e43043ae187f9f0bfc182a8e91afaf66135e6d97cf4b6e1f1cc3219aa",
-          "to": "needs_reverification"
-        }
-      ],
-      "id": "payments-test-event-wakes-001",
-      "implementation_ref": ".grilltrack/proof/test-event-wakes/PROOF.md#concurrent-consumption-repair",
-      "question": "How should verified TEST provider notifications remain durable until Commerce reconciles?",
-      "rationale": "Existing source lane assignment authorizes independent durable wake/storage/auth work and requires canonical event retention with acknowledgement after reconciliation.",
-      "reconciliation_sources": [
-        {
-          "role": "base",
-          "source_identity": "git:77da719a4e132464c25fd4917300ff9511decd53",
-          "track_id": "gt-20260830202947-ccfe03"
-        },
-        {
-          "role": "current",
-          "source_identity": "git:1a9a771f2b34f3e2c16dcfd837f7ec6a473f042c",
-          "track_id": "gt-20260830202947-ccfe03"
-        },
-        {
-          "role": "incoming",
-          "source_identity": "git:b9a7e159cb35c80c5b0b215fd124bd70cf5c2fd4",
-          "track_id": "gt-20260830202947-ccfe03"
-        }
-      ],
-      "repair_required": false,
-      "review_classifications": [],
-      "review_history": [
-        {
-          "classifications": [
-            "required_fix"
-          ],
-          "ref": ".grilltrack/proof/test-event-wakes/PROOF.md#review-repair",
-          "result": "findings",
-          "reviewed_at": "2026-10-01T11:49:13+00:00",
-          "source_identity": "git:0aded231c1c5079ec83c3e41724ee70c3464a56f"
-        },
-        {
-          "classifications": [
-            "required_fix"
-          ],
-          "ref": ".grilltrack/proof/test-event-wakes/PROOF.md#concurrent-consumption-repair",
-          "result": "findings",
-          "reviewed_at": "2026-10-01T12:38:59+00:00",
-          "source_identity": "git:a77a6d7dba0b8e7139031e128920c455323c903c"
-        }
-      ],
-      "review_ref": null,
-      "review_result": null,
-      "review_source_identity": null,
-      "status": "needs_reverification",
-      "superseded_by": null,
-      "updated_at": "2026-10-10T04:09:17+00:00",
-      "verification_ref": null
-    },
-    {
-      "baseline_ref": "git:4d1fc20",
-      "candidate_refs": [],
-      "choice": "Each checkout returns to the store's own pages: Stripe success_url https://<store>/checkout/success?session_id={CHECKOUT_SESSION_ID}, Authorize.net return https://<store>/checkout/success, cancel https://<store>/cart. <store> comes only from the site_origin claim DinkusKit.com signs into the store's pass from its Connect-checked store record; Payments accepts it only as an exact https origin and never takes a return page from request input. A pass without it cannot start a checkout (409 store_origin_missing); lookups, wakes and webhooks need none. CHECKOUT_SUCCESS_URL and CHECKOUT_CANCEL_URL are removed. No receipt route: order details stay in Commerce and the store key never reaches Payments.",
-      "context_ref": "github:dinkuskit/payments/pull/37",
-      "created_at": "2026-10-11T12:42:58+00:00",
-      "deferred_reason": null,
-      "delivery_ref": null,
-      "dependencies": [
-        "payments-checkout-sessions-001",
-        "payments-shared-store-consumer-032",
-        "payments-authorize-net-binding-003"
-      ],
-      "domain": "Checkout return pages",
-      "history": [
-        {
-          "at": "2026-10-11T12:42:58+00:00",
-          "choice": "Each checkout returns to the store's own pages: Stripe success_url https://<store>/checkout/success?session_id={CHECKOUT_SESSION_ID}, Authorize.net return https://<store>/checkout/success, cancel https://<store>/cart. <store> comes only from the site_origin claim DinkusKit.com signs into the store's pass from its Connect-checked store record; Payments accepts it only as an exact https origin and never takes a return page from request input. A pass without it cannot start a checkout (409 store_origin_missing); lookups, wakes and webhooks need none. CHECKOUT_SUCCESS_URL and CHECKOUT_CANCEL_URL are removed. No receipt route: order details stay in Commerce and the store key never reaches Payments.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-11T12:42:59+00:00",
-          "choice": "Each checkout returns to the store's own pages: Stripe success_url https://<store>/checkout/success?session_id={CHECKOUT_SESSION_ID}, Authorize.net return https://<store>/checkout/success, cancel https://<store>/cart. <store> comes only from the site_origin claim DinkusKit.com signs into the store's pass from its Connect-checked store record; Payments accepts it only as an exact https origin and never takes a return page from request input. A pass without it cannot start a checkout (409 store_origin_missing); lookups, wakes and webhooks need none. CHECKOUT_SUCCESS_URL and CHECKOUT_CANCEL_URL are removed. No receipt route: order details stay in Commerce and the store key never reaches Payments.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-11T12:42:59+00:00",
-          "choice": "Each checkout returns to the store's own pages: Stripe success_url https://<store>/checkout/success?session_id={CHECKOUT_SESSION_ID}, Authorize.net return https://<store>/checkout/success, cancel https://<store>/cart. <store> comes only from the site_origin claim DinkusKit.com signs into the store's pass from its Connect-checked store record; Payments accepts it only as an exact https origin and never takes a return page from request input. A pass without it cannot start a checkout (409 store_origin_missing); lookups, wakes and webhooks need none. CHECKOUT_SUCCESS_URL and CHECKOUT_CANCEL_URL are removed. No receipt route: order details stay in Commerce and the store key never reaches Payments.",
-          "from": "implemented",
-          "implementation_ref": "src/hosted/auth.ts;src/checkout/return-pages.ts;src/cloudflare/worker.ts;src/checkout/sessions.ts;src/authorize-net/checkout.ts;src/hosted/http.ts",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": null
-        }
-      ],
-      "id": "payments-store-return-pages-033",
-      "implementation_ref": "src/hosted/auth.ts;src/checkout/return-pages.ts;src/cloudflare/worker.ts;src/checkout/sessions.ts;src/authorize-net/checkout.ts;src/hosted/http.ts",
-      "question": "Where do shoppers land after paying or cancelling, and how does Payments learn each store's address?",
-      "rationale": "The maintainer (GitHub saariuslystoned) chose 'From DinkusKit.com' on a decision card on 2026-10-11, over Commerce sending its own address. One fixed dinkuskit.com page served every store, and DinkusKit.com has no such page. Signing DinkusKit.com's checked address into the pass keeps it server-owned without spending Commerce bytes or letting a caller pick where shoppers land. Deploy DinkusKit.com with the claim first.",
-      "repair_required": false,
-      "review_classifications": [],
-      "review_history": [],
-      "review_ref": null,
-      "review_result": null,
-      "review_source_identity": null,
-      "status": "verified",
-      "superseded_by": null,
-      "updated_at": "2026-10-11T12:42:59+00:00",
-      "verification_ref": ".grilltrack/proof/store-return-pages-033/PROOF.md"
-    },
-    {
       "baseline_ref": "git:9590ccf6fe6ca5b092070e684d37f627a18e8fba",
       "candidate_refs": [],
       "choice": "'Place a test order' completes when, for the store's current payment connection (provider, receiving account and binding), Payments' own Stripe or Authorize.net lookup confirmed a TEST checkout as paid and Commerce acknowledged that checkout's payment notice, which Commerce does only after saving the paid order bound to it. Payments records each provider-confirmed paid TEST checkout when a lookup first returns paid; notice receipt and Commerce's acknowledgement are read from the existing payment-notice records, never from a webhook or browser return alone. Authenticated /v1/status adds testOrder {provider, total, paidAt, state: awaiting_notice | awaiting_commerce | recorded} only when such evidence exists, preferring a recorded checkout over the newest paid one. The setup page's strict reader accepts it only in TEST mode with a binding and a matching provider. The step names the provider, amount and paid time (UTC), says what it is waiting for, and is complete only when recorded. No Commerce change, order number or new route. The overall result stays Not ready to sell while Payments runs only in TEST mode. Deploy the Worker together with the matching setup page build.",
@@ -2371,34 +772,6 @@
       ],
       "domain": "Payment setup TEST-order check",
       "history": [
-        {
-          "at": "2026-10-11T14:35:10+00:00",
-          "choice": "'Place a test order' completes when, for the store's current payment connection (provider, receiving account and binding), Payments' own Stripe or Authorize.net lookup confirmed a TEST checkout as paid and Commerce acknowledged that checkout's payment notice, which Commerce does only after saving the paid order bound to it. Payments records each provider-confirmed paid TEST checkout when a lookup first returns paid; notice receipt and Commerce's acknowledgement are read from the existing payment-notice records, never from a webhook or browser return alone. Authenticated /v1/status adds testOrder {provider, total, paidAt, state: awaiting_notice | awaiting_commerce | recorded} only when such evidence exists, preferring a recorded checkout over the newest paid one. The setup page's strict reader accepts it only in TEST mode with a binding and a matching provider. The step names the provider, amount and paid time (UTC), says what it is waiting for, and is complete only when recorded. No Commerce change, order number or new route. The overall result stays Not ready to sell while Payments runs only in TEST mode. Deploy the Worker together with the matching setup page build.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-11T14:45:52+00:00",
-          "choice": "'Place a test order' completes when, for the store's current payment connection (provider, receiving account and binding), Payments' own Stripe or Authorize.net lookup confirmed a TEST checkout as paid and Commerce acknowledged that checkout's payment notice, which Commerce does only after saving the paid order bound to it. Payments records each provider-confirmed paid TEST checkout when a lookup first returns paid; notice receipt and Commerce's acknowledgement are read from the existing payment-notice records, never from a webhook or browser return alone. Authenticated /v1/status adds testOrder {provider, total, paidAt, state: awaiting_notice | awaiting_commerce | recorded} only when such evidence exists, preferring a recorded checkout over the newest paid one. The setup page's strict reader accepts it only in TEST mode with a binding and a matching provider. The step names the provider, amount and paid time (UTC), says what it is waiting for, and is complete only when recorded. No Commerce change, order number or new route. The overall result stays Not ready to sell while Payments runs only in TEST mode. Deploy the Worker together with the matching setup page build.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
         {
           "at": "2026-10-11T14:46:03+00:00",
           "choice": "'Place a test order' completes when, for the store's current payment connection (provider, receiving account and binding), Payments' own Stripe or Authorize.net lookup confirmed a TEST checkout as paid and Commerce acknowledged that checkout's payment notice, which Commerce does only after saving the paid order bound to it. Payments records each provider-confirmed paid TEST checkout when a lookup first returns paid; notice receipt and Commerce's acknowledgement are read from the existing payment-notice records, never from a webhook or browser return alone. Authenticated /v1/status adds testOrder {provider, total, paidAt, state: awaiting_notice | awaiting_commerce | recorded} only when such evidence exists, preferring a recorded checkout over the newest paid one. The setup page's strict reader accepts it only in TEST mode with a binding and a matching provider. The step names the provider, amount and paid time (UTC), says what it is waiting for, and is complete only when recorded. No Commerce change, order number or new route. The overall result stays Not ready to sell while Payments runs only in TEST mode. Deploy the Worker together with the matching setup page build.",
@@ -2444,34 +817,6 @@
       "domain": "Payment setup TEST-order check",
       "history": [
         {
-          "at": "2026-10-11T14:44:04+00:00",
-          "choice": "The Registry plugin's allowedHosts lists exactly dinkuskit.com and payments.dinkuskit.com, the hosts of its server-owned consent, signing-key and status endpoints. EmDash refuses any host not listed exactly, so without payments.dinkuskit.com the private setup page could never read /v1/status in a real store. No other host, capability, route or endpoint change; a test pins the list to those endpoints' hosts.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-11T14:45:52+00:00",
-          "choice": "The Registry plugin's allowedHosts lists exactly dinkuskit.com and payments.dinkuskit.com, the hosts of its server-owned consent, signing-key and status endpoints. EmDash refuses any host not listed exactly, so without payments.dinkuskit.com the private setup page could never read /v1/status in a real store. No other host, capability, route or endpoint change; a test pins the list to those endpoints' hosts.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
           "at": "2026-10-11T14:46:03+00:00",
           "choice": "The Registry plugin's allowedHosts lists exactly dinkuskit.com and payments.dinkuskit.com, the hosts of its server-owned consent, signing-key and status endpoints. EmDash refuses any host not listed exactly, so without payments.dinkuskit.com the private setup page could never read /v1/status in a real store. No other host, capability, route or endpoint change; a test pins the list to those endpoints' hosts.",
           "from": "implemented",
@@ -2502,362 +847,6 @@
       "verification_ref": ".grilltrack/proof/test-order-check-034/PROOF.md"
     },
     {
-      "baseline_ref": "git:f6f804ef9a37aa911f886eb61d2d5df5dc9bb391",
-      "candidate_refs": [],
-      "choice": "Payments hosts a shared 'playground' tenant (site id and binding ref 'playground') bound to the dedicated Stripe sandbox account acct_1UPn3tAq51efiBsg through the STRIPE_PLAYGROUND_SECRET_KEY secret binding, which must be sk_test_ and otherwise fails closed with stripe_mode_mismatch. Status is lookup-only: no payment wakes; the store confirms on its success page with POST /v1/checkout/lookup or GET /v1/checkout/receipt by session_id. New sessions are limited to 3 per 10 minutes per forwarded shopper IP (x-dinkus-client-ip, hashed) plus a tenant-wide ceiling from PLAYGROUND_TENANT_RATE_LIMIT and PLAYGROUND_TENANT_RATE_WINDOW_SECONDS (default 60 per 600 s), returning 429 playground_rate_limited. Playground records and rate hits are purged after 24 h by a Durable Object alarm. The playground Worker's pass is the existing account JWT with site_id playground and scope exactly payments:checkout, limited to session, lookup and receipt.",
-      "context_ref": "github:dinkuskit/payments/pull/41",
-      "created_at": "2026-10-12T17:44:45+00:00",
-      "deferred_reason": null,
-      "delivery_ref": null,
-      "dependencies": [
-        "payments-test-order-check-034"
-      ],
-      "domain": "Payment setup TEST-order check",
-      "history": [
-        {
-          "at": "2026-10-12T18:35:45+00:00",
-          "choice": "Payments hosts a shared 'playground' tenant (site id and binding ref 'playground') bound to the dedicated Stripe sandbox account acct_1UPn3tAq51efiBsg through the STRIPE_PLAYGROUND_SECRET_KEY secret binding, which must be sk_test_ and otherwise fails closed with stripe_mode_mismatch. Status is lookup-only: no payment wakes; the store confirms on its success page with POST /v1/checkout/lookup or GET /v1/checkout/receipt by session_id. New sessions are limited to 3 per 10 minutes per forwarded shopper IP (x-dinkus-client-ip, hashed) plus a tenant-wide ceiling from PLAYGROUND_TENANT_RATE_LIMIT and PLAYGROUND_TENANT_RATE_WINDOW_SECONDS (default 60 per 600 s), returning 429 playground_rate_limited. Playground records and rate hits are purged after 24 h by a Durable Object alarm. The playground Worker's pass is the existing account JWT with site_id playground and scope exactly payments:checkout, limited to session, lookup and receipt.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        }
-      ],
-      "id": "payments-playground-tenant-036",
-      "implementation_ref": null,
-      "question": "How does Payments serve the shared public playground store's sandbox checkout?",
-      "rationale": "Lets the public try checkout safely: TEST-only funds, no merchant account, no shopper PII beyond Stripe ids, bounded abuse. The forwarded IP header is accepted for v1 because only the playground Worker holds the credential and the tenant cap bounds abuse; a service binding or signed header is a follow-up.",
-      "repair_required": false,
-      "review_classifications": [],
-      "review_history": [],
-      "review_ref": null,
-      "review_result": null,
-      "review_source_identity": null,
-      "status": "locked",
-      "superseded_by": null,
-      "updated_at": "2026-10-12T18:35:45+00:00",
-      "verification_ref": null
-    },
-    {
-      "baseline_ref": "git:922e0de9d86ca935bdca852f44552c6c34c50203",
-      "candidate_refs": [],
-      "choice": "Wording and status mapping only. A Stripe connection Payments verified in TEST mode shows the banner 'Connected: Stripe test mode' (no alert) and the Connect payments step 'Connected: Stripe test mode', saying test card payments work and real payments need a live Stripe connection. When the page's own sign-in cannot read status (expired, another admin or store, or refused by Payments), the banner reads 'Payment status not checked' (no alert), both steps read 'Not checked', the step says checkout doesn't use this sign-in, and the Connect button reads 'Sign in again' and runs the same Connect flow with the same site binding. 'Not ready to sell' (alert) remains for every other case, including nothing connected. 'Set up or resume Stripe' still appears only after a successful status read without verified Stripe evidence. Ready to sell still needs a verified live connection and a saved TEST order (029). Replaces 034's sentence that the overall result stays Not ready to sell in TEST mode. No change to connection evidence, verification, checkout, transport or routes.",
-      "context_ref": "github:dinkuskit/payments",
-      "created_at": "2026-10-17T18:26:04+00:00",
-      "deferred_reason": null,
-      "delivery_ref": null,
-      "dependencies": [
-        "payments-one-screen-setup-029",
-        "payments-test-order-check-034"
-      ],
-      "domain": "Payment setup TEST-order check",
-      "history": [
-        {
-          "at": "2026-10-17T18:30:02+00:00",
-          "choice": "Wording and status mapping only. A Stripe connection Payments verified in TEST mode shows the banner 'Connected: Stripe test mode' (no alert) and the Connect payments step 'Connected: Stripe test mode', saying test card payments work and real payments need a live Stripe connection. When the page's own sign-in cannot read status (expired, another admin or store, or refused by Payments), the banner reads 'Payment status not checked' (no alert), both steps read 'Not checked', the step says checkout doesn't use this sign-in, and the Connect button reads 'Sign in again' and runs the same Connect flow with the same site binding. 'Not ready to sell' (alert) remains for every other case, including nothing connected. 'Set up or resume Stripe' still appears only after a successful status read without verified Stripe evidence. Ready to sell still needs a verified live connection and a saved TEST order (029). Replaces 034's sentence that the overall result stays Not ready to sell in TEST mode. No change to connection evidence, verification, checkout, transport or routes.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-17T18:30:08+00:00",
-          "choice": "Wording and status mapping only. A Stripe connection Payments verified in TEST mode shows the banner 'Connected: Stripe test mode' (no alert) and the Connect payments step 'Connected: Stripe test mode', saying test card payments work and real payments need a live Stripe connection. When the page's own sign-in cannot read status (expired, another admin or store, or refused by Payments), the banner reads 'Payment status not checked' (no alert), both steps read 'Not checked', the step says checkout doesn't use this sign-in, and the Connect button reads 'Sign in again' and runs the same Connect flow with the same site binding. 'Not ready to sell' (alert) remains for every other case, including nothing connected. 'Set up or resume Stripe' still appears only after a successful status read without verified Stripe evidence. Ready to sell still needs a verified live connection and a saved TEST order (029). Replaces 034's sentence that the overall result stays Not ready to sell in TEST mode. No change to connection evidence, verification, checkout, transport or routes.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        }
-      ],
-      "id": "payments-setup-status-wording-037",
-      "implementation_ref": "git:3143a98f4900642fd434ebf6022b3693e8fefb10",
-      "question": "What does the Payments setup page say when Stripe is verified only in TEST mode, or when the page's own DinkusKit sign-in can no longer read status?",
-      "rationale": "Ronald chose Lock it on the project decision card, 17 Oct 2026.",
-      "repair_required": false,
-      "review_classifications": [],
-      "review_history": [],
-      "review_ref": null,
-      "review_result": null,
-      "review_source_identity": null,
-      "status": "implemented",
-      "superseded_by": null,
-      "updated_at": "2026-10-17T18:30:08+00:00",
-      "verification_ref": null
-    },
-    {
-      "baseline_ref": null,
-      "candidate_refs": [],
-      "choice": "Returning to the status page after DinkusKit's Approve finishes the sign-in on page load and reads payment status in the same request, so the banner shows the real connection (for example 'Connected: Stripe test mode') with no extra press. Continue pressed before DinkusKit's poll interval waits it out (at most 10 seconds) and then checks, and a check DinkusKit has not approved yet says the approval is not recorded. When the page's own 5-minute DinkusKit sign-in has lapsed for the same admin and store, the page shows the last status that admin read, labelled 'Last checked <time>', with Sign in again; other admins still see 'Payment status not checked' (037). When Payments refuses Stripe setup with merchant_country_required or payments_service_unconfigured (both create nothing), the page names that reason and says no Stripe account was created; any other refusal stays 'not confirmed'. When Stripe needs more information (connection evidence action_required), the step points the owner to Set up or resume Stripe, whose Stripe page lists what is missing, then Check connection; naming the requirement on the page is out of scope. No change to the pass lifetime, the store key, hosted routes, connection evidence, checkout or the ten-bridge-call budget.",
-      "context_ref": "github:dinkuskit/payments",
-      "created_at": "2026-10-18T17:42:14+00:00",
-      "deferred_reason": null,
-      "delivery_ref": null,
-      "dependencies": [
-        "payments-setup-status-wording-037"
-      ],
-      "domain": "Payment setup TEST-order check",
-      "history": [
-        {
-          "at": "2026-10-18T17:58:47+00:00",
-          "choice": "Returning to the status page after DinkusKit's Approve finishes the sign-in on page load and reads payment status in the same request, so the banner shows the real connection (for example 'Connected: Stripe test mode') with no extra press. Continue pressed before DinkusKit's poll interval waits it out (at most 10 seconds) and then checks, and a check DinkusKit has not approved yet says the approval is not recorded. When the page's own 5-minute DinkusKit sign-in has lapsed for the same admin and store, the page shows the last status that admin read, labelled 'Last checked <time>', with Sign in again; other admins still see 'Payment status not checked' (037). When Payments refuses Stripe setup with merchant_country_required or payments_service_unconfigured (both create nothing), the page names that reason and says no Stripe account was created; any other refusal stays 'not confirmed'. No change to the pass lifetime, the store key, hosted routes, connection evidence, checkout or the ten-bridge-call budget.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        }
-      ],
-      "id": "payments-setup-return-check-038",
-      "implementation_ref": null,
-      "question": "How should the Payments setup page behave after the owner approves at DinkusKit, presses Continue early, returns after the 5-minute page sign-in, or hits a refused Stripe setup?",
-      "rationale": "Ronald approved on the decision card on 2026-10-18 (payments#58).",
-      "repair_required": false,
-      "review_classifications": [],
-      "review_history": [],
-      "review_ref": null,
-      "review_result": null,
-      "review_source_identity": null,
-      "status": "locked",
-      "superseded_by": null,
-      "updated_at": "2026-10-18T17:58:47+00:00",
-      "verification_ref": null
-    },
-    {
-      "baseline_ref": "git:b92ec308eda74c2dfff8c2deca574bf2e17ff654",
-      "candidate_refs": [],
-      "choice": "One confirmed operator-only TEST preparation fixes owner/site/binding and exact failure/rejection evidence, validates the actual stored start as a safe nonnegative integer no later than failure and at least 23 hours old, and captures full history and digest internally. Keep no-account/no-protocol/scope/recovery/repair admission, country/platform, expiry, one operation ID, full transactional snapshot comparison, replay integrity and late-writer fences. No external fingerprint or expectedStartedAt, new endpoint, consumer, reset or automatic Setup. An out-of-band start-only rewrite before invocation is outside this detection boundary.",
-      "context_ref": "https://github.com/dinkuskit/payments/issues/55",
-      "created_at": "2026-10-19T19:18:54+00:00",
-      "deferred_reason": null,
-      "delivery_ref": null,
-      "dependencies": [
-        "merchant-stripe-onboarding-002"
-      ],
-      "domain": "Rejected legacy TEST account operation recovery",
-      "history": [
-        {
-          "at": "2026-10-19T19:18:55+00:00",
-          "choice": "One disabled-by-default, server-policy-bound TEST operator action preserves the same owner/site/binding and historical rejection evidence, validates current platform and approved country, and atomically prepares one idempotent v2 operation without account-create/link calls. Normal setup remains a separately approved action. Exact subject/site/binding/fingerprint/evidence and expiry are server owned. No generic reset, automatic retry or read-only evidence endpoint.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-19T19:20:55+00:00",
-          "choice": "One disabled-by-default, server-policy-bound TEST operator action preserves the same owner/site/binding and historical rejection evidence, validates current platform and approved country, and atomically prepares one idempotent v2 operation without account-create/link calls. Normal setup remains a separately approved action. Exact subject/site/binding/fingerprint/evidence and expiry are server owned. No generic reset, automatic retry or read-only evidence endpoint.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-19T19:23:49+00:00",
-          "choice": "One disabled-by-default, server-policy-bound TEST operator action preserves the same owner/site/binding and historical rejection evidence, validates current platform and approved country, and atomically prepares one idempotent v2 operation without account-create/link calls. Normal setup remains a separately approved action. Exact subject/site/binding/fingerprint/evidence and expiry are server owned. No generic reset, automatic retry or read-only evidence endpoint.",
-          "from": "implemented",
-          "implementation_ref": "src/hosted/legacy-recovery.ts;src/hosted/connection.ts;docs/rejected-legacy-recovery.md",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-19T19:34:50+00:00",
-          "choice": "One disabled-by-default, server-policy-bound TEST operator action preserves the same owner/site/binding and historical rejection evidence, validates current platform and approved country, and atomically prepares one idempotent v2 operation without account-create/link calls. Normal setup remains a separately approved action. Exact subject/site/binding/fingerprint/evidence and expiry are server owned. No generic reset, automatic retry or read-only evidence endpoint.",
-          "from": "verified",
-          "implementation_ref": "src/hosted/legacy-recovery.ts;src/hosted/connection.ts;docs/rejected-legacy-recovery.md",
-          "note": "Parent adjudicated completion of the approved source-only recovery path: internally capture the full matched snapshot and digest instead of external fingerprint acquisition, and add one explicit confirmed action in the existing Registry-held consumer. Preserve exact target/attempt gates, history, no create/link behavior, and separate runtime approvals.",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "reopened",
-          "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
-        },
-        {
-          "at": "2026-10-19T19:34:50+00:00",
-          "choice": "One disabled-by-default, server-policy-bound TEST operator action preserves the same owner/site/binding and historical rejection evidence, validates current platform and approved country, and atomically prepares one idempotent v2 operation without account-create/link calls. Normal setup remains a separately approved action. Exact subject/site/binding/fingerprint/evidence and expiry are server owned. No generic reset, automatic retry or read-only evidence endpoint.",
-          "from": "reopened",
-          "implementation_ref": "src/hosted/legacy-recovery.ts;src/hosted/connection.ts;docs/rejected-legacy-recovery.md",
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
-        },
-        {
-          "at": "2026-10-19T19:36:02+00:00",
-          "choice": "One disabled-by-default TEST operator preparation retains exact owner/site/binding/original-time/failure/no-account/protocol/repair gates, rejection evidence, country/platform and expiry; captures its full snapshot and audit digest internally and atomically compares it; preserves prior history and one v2 operation. Add an explicit confirmation and prepared result in the existing Registry session consumer, with a fixed authenticated bodyless POST and no automatic Setup. No external fingerprint acquisition, generic storage/broker, DinkusKit website change, or deferred read-only endpoint. Pre-invocation scope is the exact legacy-attempt predicates rather than a byte-for-byte externally approved record.",
-          "from": "locked",
-          "implementation_ref": "src/hosted/legacy-recovery.ts;src/hosted/connection.ts;docs/rejected-legacy-recovery.md",
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
-        },
-        {
-          "at": "2026-10-19T19:37:59+00:00",
-          "choice": "One disabled-by-default TEST operator preparation retains exact owner/site/binding/original-time/failure/no-account/protocol/repair gates, rejection evidence, country/platform and expiry; captures its full snapshot and audit digest internally and atomically compares it; preserves prior history and one v2 operation. Add an explicit confirmation and prepared result in the existing Registry session consumer, with a fixed authenticated bodyless POST and no automatic Setup. No external fingerprint acquisition, generic storage/broker, DinkusKit website change, or deferred read-only endpoint. Pre-invocation scope is the exact legacy-attempt predicates rather than a byte-for-byte externally approved record.",
-          "from": "implemented",
-          "implementation_ref": "src/hosted/legacy-recovery.ts;src/hosted/connection.ts;src/registry/connection.ts;src/registry/setup.ts;src/plugin.ts;docs/rejected-legacy-recovery.md",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
-        },
-        {
-          "at": "2026-10-19T19:55:02+00:00",
-          "choice": "One disabled-by-default TEST operator preparation retains exact owner/site/binding/original-time/failure/no-account/protocol/repair gates, rejection evidence, country/platform and expiry; captures its full snapshot and audit digest internally and atomically compares it; preserves prior history and one v2 operation. Add an explicit confirmation and prepared result in the existing Registry session consumer, with a fixed authenticated bodyless POST and no automatic Setup. No external fingerprint acquisition, generic storage/broker, DinkusKit website change, or deferred read-only endpoint. Pre-invocation scope is the exact legacy-attempt predicates rather than a byte-for-byte externally approved record.",
-          "from": "verified",
-          "implementation_ref": "src/hosted/legacy-recovery.ts;src/hosted/connection.ts;src/registry/connection.ts;src/registry/setup.ts;src/plugin.ts;docs/rejected-legacy-recovery.md",
-          "note": "Parent accepted internal validation and capture of the actual stored start time within the existing source-only scope. External expectedStartedAt is unavailable. Preserve exact target/failure and all operation, replay, transaction and late-writer guards; document loss of detecting an out-of-band prior start-only rewrite.",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": "https://github.com/saari-co/spark-dgx/actions/runs/39313652718",
-          "review_result": "clean",
-          "review_source_identity": "git:85ce9fddf4bd0ca418298b6820a4e7f44f968850",
-          "to": "reopened",
-          "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
-        },
-        {
-          "at": "2026-10-19T19:55:02+00:00",
-          "choice": "One disabled-by-default TEST operator preparation retains exact owner/site/binding/original-time/failure/no-account/protocol/repair gates, rejection evidence, country/platform and expiry; captures its full snapshot and audit digest internally and atomically compares it; preserves prior history and one v2 operation. Add an explicit confirmation and prepared result in the existing Registry session consumer, with a fixed authenticated bodyless POST and no automatic Setup. No external fingerprint acquisition, generic storage/broker, DinkusKit website change, or deferred read-only endpoint. Pre-invocation scope is the exact legacy-attempt predicates rather than a byte-for-byte externally approved record.",
-          "from": "reopened",
-          "implementation_ref": "src/hosted/legacy-recovery.ts;src/hosted/connection.ts;src/registry/connection.ts;src/registry/setup.ts;src/plugin.ts;docs/rejected-legacy-recovery.md",
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": "https://github.com/saari-co/spark-dgx/actions/runs/39313652718",
-          "review_result": "clean",
-          "review_source_identity": "git:85ce9fddf4bd0ca418298b6820a4e7f44f968850",
-          "to": "locked",
-          "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
-        },
-        {
-          "at": "2026-10-19T19:55:15+00:00",
-          "choice": "One confirmed operator-only TEST preparation fixes owner/site/binding and exact failure/rejection evidence, validates the actual stored start as a safe nonnegative integer no later than failure and at least 23 hours old, and captures full history and digest internally. Keep no-account/no-protocol/scope/recovery/repair admission, country/platform, expiry, one operation ID, full transactional snapshot comparison, replay integrity and late-writer fences. No external fingerprint or expectedStartedAt, new endpoint, consumer, reset or automatic Setup. An out-of-band start-only rewrite before invocation is outside this detection boundary.",
-          "from": "locked",
-          "implementation_ref": "src/hosted/legacy-recovery.ts;src/hosted/connection.ts;src/registry/connection.ts;src/registry/setup.ts;src/plugin.ts;docs/rejected-legacy-recovery.md",
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": "https://github.com/saari-co/spark-dgx/actions/runs/39313652718",
-          "review_result": "clean",
-          "review_source_identity": "git:85ce9fddf4bd0ca418298b6820a4e7f44f968850",
-          "to": "implemented",
-          "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
-        },
-        {
-          "at": "2026-10-19T19:56:35+00:00",
-          "choice": "One confirmed operator-only TEST preparation fixes owner/site/binding and exact failure/rejection evidence, validates the actual stored start as a safe nonnegative integer no later than failure and at least 23 hours old, and captures full history and digest internally. Keep no-account/no-protocol/scope/recovery/repair admission, country/platform, expiry, one operation ID, full transactional snapshot comparison, replay integrity and late-writer fences. No external fingerprint or expectedStartedAt, new endpoint, consumer, reset or automatic Setup. An out-of-band start-only rewrite before invocation is outside this detection boundary.",
-          "from": "implemented",
-          "implementation_ref": "src/hosted/connection.ts;src/hosted/legacy-recovery.ts;tests/legacy-v2-recovery.test.mjs;docs/rejected-legacy-recovery.md",
-          "note": "verification recorded in cumulative context",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "verified",
-          "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
-        },
-        {
-          "at": "2026-10-30T12:39:30+00:00",
-          "choice": "One confirmed operator-only TEST preparation fixes owner/site/binding and exact failure/rejection evidence, validates the actual stored start as a safe nonnegative integer no later than failure and at least 23 hours old, and captures full history and digest internally. Keep no-account/no-protocol/scope/recovery/repair admission, country/platform, expiry, one operation ID, full transactional snapshot comparison, replay integrity and late-writer fences. No external fingerprint or expectedStartedAt, new endpoint, consumer, reset or automatic Setup. An out-of-band start-only rewrite before invocation is outside this detection boundary.",
-          "from": "verified",
-          "implementation_ref": "src/hosted/connection.ts;src/hosted/legacy-recovery.ts;tests/legacy-v2-recovery.test.mjs;docs/rejected-legacy-recovery.md",
-          "note": "Owner-chosen Business country replaces the operator TEST country bindings; the one-time legacy v2 preparation that depended on them is removed (no real stores exist).",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "superseded",
-          "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
-        }
-      ],
-      "id": "rejected-legacy-v2-preparation-038",
-      "implementation_ref": "src/hosted/connection.ts;src/hosted/legacy-recovery.ts;tests/legacy-v2-recovery.test.mjs;docs/rejected-legacy-recovery.md",
-      "question": "How may the operator prepare a new v2 operation after confirmed legacy creation rejection?",
-      "rationale": "Parent adjudicated the bounded internal-start option after confirming no existing safe receipt or supported diagnostic exposes the original start. Existing source-only authority applies; merge and all runtime actions remain separately gated.",
-      "repair_required": false,
-      "review_classifications": [],
-      "review_history": [
-        {
-          "classifications": [],
-          "ref": "https://github.com/dinkuskit/payments/pull/64#issuecomment-6275519938",
-          "result": "clean",
-          "reviewed_at": "2026-10-19T19:44:15+00:00",
-          "source_identity": "git:5cea218f2bf835bd6cd4c193017a43c1f2050a75"
-        },
-        {
-          "classifications": [],
-          "ref": "https://github.com/saari-co/spark-dgx/actions/runs/39313652718",
-          "result": "clean",
-          "reviewed_at": "2026-10-19T19:55:02+00:00",
-          "source_identity": "git:85ce9fddf4bd0ca418298b6820a4e7f44f968850"
-        }
-      ],
-      "review_ref": null,
-      "review_result": null,
-      "review_source_identity": null,
-      "status": "superseded",
-      "superseded_by": "payments-business-country-047",
-      "updated_at": "2026-10-30T12:39:30+00:00",
-      "verification_ref": ".grilltrack/proof/rejected-legacy-v2-preparation/PROOF.md"
-    },
-    {
       "baseline_ref": null,
       "candidate_refs": [],
       "choice": "The status page reads /v1/status with a fresh pass traded from the store key on every load, the way checkout does, so it always shows the current answer. (1) A Store key setting (secret) is added to the Payments plugin, pasted from DinkusKit.com's Set up Commerce box like Ship's; the Store ID comes from the existing Connect binding. (2) The pass is the existing payments:checkout / dinkus-payments pair at the fixed https://dinkuskit.com/api/store-passes; the Payments Worker accepts payments:admin or payments:checkout on GET /v1/status only, so there is no DinkusKit.com change. The key is never sent to Payments or shown on a page. (3) The DinkusKit sign-in (Connect / Sign in again) is needed only for actions that change Stripe (Set up or resume Stripe, provider identity, recovery); pressing one with a lapsed sign-in shows the current status and asks to Sign in again. Status never asks for it. (4) A fresh pass is traded each load; no pass is kept. (5) Real problems are named: no key pasted says to paste it (with the last checked status when this admin has one); DinkusKit.com refusals use Ship's wording (unknown key, another store's key, Payments not connected for the store, cut off, suspended, busy); only Payments not connected offers Sign in again. Supersedes the sign-in-pass part of payments-setup-status-wording-037 and the lapsed-sign-in Last checked view of payments-setup-return-check-038; their other parts stand.",
@@ -2871,20 +860,6 @@
       ],
       "domain": "Rejected legacy TEST account operation recovery",
       "history": [
-        {
-          "at": "2026-10-21T22:28:01+00:00",
-          "choice": "The status page reads /v1/status with a fresh pass traded from the store key on every load, the way checkout does, so it always shows the current answer. (1) A Store key setting (secret) is added to the Payments plugin, pasted from DinkusKit.com's Set up Commerce box like Ship's; the Store ID comes from the existing Connect binding. (2) The pass is the existing payments:checkout / dinkus-payments pair at the fixed https://dinkuskit.com/api/store-passes; the Payments Worker accepts payments:admin or payments:checkout on GET /v1/status only, so there is no DinkusKit.com change. The key is never sent to Payments or shown on a page. (3) The DinkusKit sign-in (Connect / Sign in again) is needed only for actions that change Stripe (Set up or resume Stripe, provider identity, recovery); pressing one with a lapsed sign-in shows the current status and asks to Sign in again. Status never asks for it. (4) A fresh pass is traded each load; no pass is kept. (5) Real problems are named: no key pasted says to paste it (with the last checked status when this admin has one); DinkusKit.com refusals use Ship's wording (unknown key, another store's key, Payments not connected for the store, cut off, suspended, busy); only Payments not connected offers Sign in again. Supersedes the sign-in-pass part of payments-setup-status-wording-037 and the lapsed-sign-in Last checked view of payments-setup-return-check-038; their other parts stand.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
         {
           "at": "2026-10-21T22:53:04+00:00",
           "choice": "The status page reads /v1/status with a fresh pass traded from the store key on every load, the way checkout does, so it always shows the current answer. (1) A Store key setting (secret) is added to the Payments plugin, pasted from DinkusKit.com's Set up Commerce box like Ship's; the Store ID comes from the existing Connect binding. (2) The pass is the existing payments:checkout / dinkus-payments pair at the fixed https://dinkuskit.com/api/store-passes; the Payments Worker accepts payments:admin or payments:checkout on GET /v1/status only, so there is no DinkusKit.com change. The key is never sent to Payments or shown on a page. (3) The DinkusKit sign-in (Connect / Sign in again) is needed only for actions that change Stripe (Set up or resume Stripe, provider identity, recovery); pressing one with a lapsed sign-in shows the current status and asks to Sign in again. Status never asks for it. (4) A fresh pass is traded each load; no pass is kept. (5) Real problems are named: no key pasted says to paste it (with the last checked status when this admin has one); DinkusKit.com refusals use Ship's wording (unknown key, another store's key, Payments not connected for the store, cut off, suspended, busy); only Payments not connected offers Sign in again. Supersedes the sign-in-pass part of payments-setup-status-wording-037 and the lapsed-sign-in Last checked view of payments-setup-return-check-038; their other parts stand.",
@@ -2931,20 +906,6 @@
         {
           "at": "2026-10-22T01:03:25+00:00",
           "choice": "Accepted as-is. (1) A store that already has Payments installed shows Payment status not checked with paste instructions (or that admin's last-read status) until the Store key is pasted once; there is no admin-sign-in status fallback. (2) Rule: a store's DinkusKit Payments connection must be set up by the store owner. DinkusKit.com Connect already admits only the owning organization's owner (src/account/connect.ts: role owner and authority subject), so Payments records the owner's account and the owner-issued store pass reads it; a connection filed under anyone else is refused by Payments, as checkout already is.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-22T01:03:25+00:00",
-          "choice": "Accepted as-is. (1) A store that already has Payments installed shows Payment status not checked with paste instructions (or that admin's last-read status) until the Store key is pasted once; there is no admin-sign-in status fallback. (2) Rule: a store's DinkusKit Payments connection must be set up by the store owner. DinkusKit.com Connect already admits only the owning organization's owner (src/account/connect.ts: role owner and authority subject), so Payments records the owner's account and the owner-issued store pass reads it; a connection filed under anyone else is refused by Payments, as checkout already is.",
           "from": "locked",
           "implementation_ref": null,
           "note": "bounded implementation recorded",
@@ -2988,34 +949,6 @@
         {
           "at": "2026-10-22T01:24:48+00:00",
           "choice": "storeReturnPages sets cancelUrl to ${principal.siteOrigin}/checkout across supported providers (stripe and authorize_net) instead of /cart, returning shoppers to the dedicated storefront checkout route while keeping successUrl at /checkout/success (with ?session_id={CHECKOUT_SESSION_ID} for Stripe). Updates the cancel path of payments-store-return-pages-033; its origin verification and other parts stand.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-22T01:24:48+00:00",
-          "choice": "storeReturnPages sets cancelUrl to ${principal.siteOrigin}/checkout across supported providers (stripe and authorize_net) instead of /cart, returning shoppers to the dedicated storefront checkout route while keeping successUrl at /checkout/success (with ?session_id={CHECKOUT_SESSION_ID} for Stripe). Updates the cancel path of payments-store-return-pages-033; its origin verification and other parts stand.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-22T01:24:48+00:00",
-          "choice": "storeReturnPages sets cancelUrl to ${principal.siteOrigin}/checkout across supported providers (stripe and authorize_net) instead of /cart, returning shoppers to the dedicated storefront checkout route while keeping successUrl at /checkout/success (with ?session_id={CHECKOUT_SESSION_ID} for Stripe). Updates the cancel path of payments-store-return-pages-033; its origin verification and other parts stand.",
           "from": "implemented",
           "implementation_ref": "src/checkout/return-pages.ts;tests/stripe-checkout.test.mjs;tests/authorize-net.test.mjs;tests/runtime/checkout-sessions.test.ts;tests/runtime/merchant-http.test.ts;DEPLOY.md;docs/checkout-sessions.md;docs/stripe-test-mode.md",
           "note": "verification recorded in cumulative context",
@@ -3054,34 +987,6 @@
       "dependencies": [],
       "domain": "Checkout return pages",
       "history": [
-        {
-          "at": "2026-10-25T17:25:28+00:00",
-          "choice": "Yes. Payments works with or without Commerce, through the same hosted payments.dinkuskit.com (Stripe Connect onboarding, store-account bindings, hosted checkout, verified webhooks). On a Commerce store nothing changes: Commerce owns prices, checkout and the one order list, and payments.dinkuskit.com passes paid notices to Commerce because EmDash 1.2 Registry plugins cannot call each other. On a plain EmDash site Payments adds a Buy button that reads the price from the CMS on the server, keeps a small Sales list inside EmDash, and still uses Connect Stripe (and the owner's Authorize.net keys). That Sales list and Buy button switch off when Commerce is connected. Payments may create the store's DinkusKit ID when Commerce is absent (dinkuskit store-connect-flow-081, store-connect-commerce-optional-085). The charter line 'does not create a competing checkout or order model' is amended to allow that standalone Sales list only. A plugin-only 'use my own Stripe keys, no DinkusKit server' mode is held for later, not built. Building waits until smokyclub.com is selling; checkout shape, cart, refunds display, snippet and docs are each settled when the build is scoped.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-25T18:14:32+00:00",
-          "choice": "Yes. Payments works with or without Commerce, through the same hosted payments.dinkuskit.com (Stripe Connect onboarding, store-account bindings, hosted checkout, verified webhooks). On a Commerce store nothing changes: Commerce owns prices, checkout and the one order list, and payments.dinkuskit.com passes paid notices to Commerce because EmDash 1.2 Registry plugins cannot call each other. On a plain EmDash site Payments adds a Buy button that reads the price from the CMS on the server, keeps a small Sales list inside EmDash, and still uses Connect Stripe (and the owner's Authorize.net keys). That Sales list and Buy button switch off when Commerce is connected. Payments may create the store's DinkusKit ID when Commerce is absent (dinkuskit store-connect-flow-081, store-connect-commerce-optional-085). The charter line 'does not create a competing checkout or order model' is amended to allow that standalone Sales list only. A plugin-only 'use my own Stripe keys, no DinkusKit server' mode is held for later, not built. Building waits until smokyclub.com is selling; checkout shape, cart, refunds display, snippet and docs are each settled when the build is scoped.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "Ronald (18:13 UTC 25 Oct 2026, 'Agreed'): make the owner's-own-Stripe-key route for sites without Commerce planned, built alongside the Connect route, instead of held for later.",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "reopened",
-          "verification_ref": null
-        },
         {
           "at": "2026-10-25T18:14:32+00:00",
           "choice": "Yes. Payments works with or without Commerce, through the same hosted payments.dinkuskit.com (Stripe Connect onboarding, store-account bindings, hosted checkout, verified webhooks). On a Commerce store nothing changes: Commerce owns prices, checkout and the one order list, and payments.dinkuskit.com passes paid notices to Commerce because EmDash 1.2 Registry plugins cannot call each other. On a plain EmDash site Payments adds a Buy button that reads the price from the CMS on the server, keeps a small Sales list inside EmDash, and still uses Connect Stripe (and the owner's Authorize.net keys). That Sales list and Buy button switch off when Commerce is connected. Payments may create the store's DinkusKit ID when Commerce is absent (dinkuskit store-connect-flow-081, store-connect-commerce-optional-085). The charter line 'does not create a competing checkout or order model' is amended to allow that standalone Sales list only. A plugin-only 'use my own Stripe keys, no DinkusKit server' mode is held for later, not built. Building waits until smokyclub.com is selling; checkout shape, cart, refunds display, snippet and docs are each settled when the build is scoped.",
@@ -3123,20 +1028,6 @@
       "dependencies": [],
       "domain": "Checkout return pages",
       "history": [
-        {
-          "at": "2026-10-25T18:17:10+00:00",
-          "choice": "Through an EmDash-provided payment-provider slot, modelled on EmDash's exclusive email:deliver hook: the site owner picks one plugin as the payment provider, and Commerce asks EmDash to take payment for an order and hears 'paid' back the same way, without knowing which plugin answered. Needs an upstream EmDash Ideas Discussion, posted by Ronald or Matt (upstream AI policy bars agents), and then an RFC. Until then Commerce stores use Connect through payments.dinkuskit.com only.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "Ronald (18:16 UTC 25 Oct 2026): defer until the upstream EmDash Discussion is opened and answered. He holds whether and when to post it.",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "deferred",
-          "verification_ref": null
-        },
         {
           "at": "2026-10-25T19:02:11+00:00",
           "choice": "Through an EmDash-provided payment-provider slot, modelled on EmDash's exclusive email:deliver hook: the site owner picks one plugin as the payment provider, and Commerce asks EmDash to take payment for an order and hears 'paid' back the same way, without knowing which plugin answered. Needs an upstream EmDash Ideas Discussion, posted by Ronald or Matt (upstream AI policy bars agents), and then an RFC. Until then Commerce stores use Connect through payments.dinkuskit.com only.",
@@ -3222,34 +1113,6 @@
       "domain": "Authorize.net hosted checkout page",
       "history": [
         {
-          "at": "2026-10-28T03:05:54+00:00",
-          "choice": "Payments serves its own page at payments.dinkuskit.com/pay/{session} and returns it as the session's redirectUrl. The session Commerce sees never changes: sessionId becomes a stable Payments id (not the Authorize.net token), with the same redirectUrl, createdAt and expiresAt on every call, because Commerce refuses a changed session. Sessions already open keep their old shape until they expire. When the shopper opens the page, Payments first runs the authoritative lookup: paid or past expiresAt sends the shopper back to the store; otherwise it mints a fresh getHostedPaymentPageRequest token for the same attempt, amount and store-bound invoice reference and auto-submits it to Authorize.net by POST. The page takes no input, holds no card data (SAQ-A) and never shows the token in a URL. Every try from any token carries the same invoice reference, so lookups, webhooks and the every-try-counts rule (payments#95) are unchanged; a shopper paying in two tabs at once falls under payments-authorize-net-paid-twice-044. Requests also send duplicateWindow=0 so a declined shopper who fixes CVV or ZIP can retry within 2 minutes. Fraud holds (FDSPendingReview, FDSAuthorizedPendingReview) stay unknown, never expired-unpaid. Commerce does not change. Hosted Worker change only; deploy with --keep-vars on a quiet beta, on Ronald's go.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-28T03:15:32+00:00",
-          "choice": "Payments serves its own page at payments.dinkuskit.com/v1/pay/authorize-net/{siteId}/{sessionId} and returns it as the session's redirectUrl. The session Commerce sees never changes: for new sessions sessionId is a stable unguessable Payments id (attempt id plus 128 random bits), not the Authorize.net token, with the same redirectUrl, createdAt and expiresAt on every call, because Commerce refuses a changed session. Sessions already open keep their old token shape until they expire. When the shopper opens the page, Payments checks the checkout: paid, past expiresAt or unknown sends the shopper back to the store; otherwise it mints a fresh getHostedPaymentPageRequest token for the same attempt, amount and store-bound invoice reference and auto-submits it to Authorize.net by POST. The page takes no input, holds no card data (SAQ-A), never puts the token in a URL, and is not cached. Every try from any token carries the same invoice reference, so lookups, webhooks and the every-try-counts rule (payments#95) are unchanged; a shopper paying in two tabs at once falls under payments-authorize-net-paid-twice-044. Requests send duplicateWindow=0 so a declined shopper who fixes CVV or ZIP can retry at once. A checkout whose tries are all unpaid stays open (lookup returns open) until expiresAt; expired-unpaid is returned only once every try is unpaid and both expiresAt and the last minted token's 15-minute life plus a 5-minute margin have passed. Fraud holds (FDSPendingReview, FDSAuthorizedPendingReview) and any other unrecognized status stay unknown, never unpaid. Commerce does not change. Hosted Worker change only; deploy with --keep-vars on a quiet beta, on Ronald's go.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
           "at": "2026-10-28T12:15:41+00:00",
           "choice": "Payments serves its own page at payments.dinkuskit.com/v1/pay/authorize-net/{siteId}/{sessionId} and returns it as the session's redirectUrl. The session Commerce sees never changes: for new sessions sessionId is a stable unguessable Payments id (attempt id plus 128 random bits), not the Authorize.net token, with the same redirectUrl, createdAt and expiresAt on every call, because Commerce refuses a changed session. Sessions already open keep their old token shape until they expire. When the shopper opens the page, Payments checks the checkout: paid, past expiresAt or unknown sends the shopper back to the store; otherwise it mints a fresh getHostedPaymentPageRequest token for the same attempt, amount and store-bound invoice reference and auto-submits it to Authorize.net by POST. The page takes no input, holds no card data (SAQ-A), never puts the token in a URL, and is not cached. Every try from any token carries the same invoice reference, so lookups, webhooks and the every-try-counts rule (payments#95) are unchanged; a shopper paying in two tabs at once falls under payments-authorize-net-paid-twice-044. Requests send duplicateWindow=0 so a declined shopper who fixes CVV or ZIP can retry at once. A checkout whose tries are all unpaid stays open (lookup returns open) until expiresAt; expired-unpaid is returned only once every try is unpaid and both expiresAt and the last minted token's 15-minute life plus a 5-minute margin have passed. Fraud holds (FDSPendingReview, FDSAuthorizedPendingReview) and any other unrecognized status stay unknown, never unpaid. Commerce does not change. Hosted Worker change only; deploy with --keep-vars on a quiet beta, on Ronald's go.",
           "from": "implemented",
@@ -3295,62 +1158,6 @@
       "domain": "Existing Stripe account attachment",
       "history": [
         {
-          "at": "2026-10-29T23:37:42+00:00",
-          "choice": "Keep Accounts v2 (2026-09-30.endive, POST /v2/core/accounts + /v2/core/account_links) for 'Create a Stripe account', and add Connect Standard OAuth (GET https://connect.stripe.com/oauth/authorize + single-use POST https://connect.stripe.com/oauth/token, scope=read_write) for 'I already have Stripe' on Payment settings when no account is bound. Discard deprecated OAuth access/refresh tokens; store only stripe_user_id (acct_...) with creationProtocol 'oauth_standard' and continue using platform-key Stripe-Account direct charges, full Stripe Dashboard, and Stripe fee/loss ownership. Evaluate oauth_standard readiness via GET /v1/accounts/:id on 2026-08-26.dahlia (avoiding Accounts v2's missing-configuration and 10-minute v1 sync limits, and without minting v2 accountLinks). Report it through the unchanged public /v1/status contract (state, mode, bindingRef, connectionEvidence, testOrder; existing states only): ready/verified, action_required, setup_required/unknown, checking/unknown on transient errors, and recovery_required with no evidence once the owner deauthorizes; creationProtocol stays internal and new checkout keeps refusing with 409 payments_not_ready. Enforce 1:1 account-to-store uniqueness via a mode-scoped Account Claim Registry (and reject self-binding to the platform account), forbid overwriting a bound stripeAccountId, and persist append-only connection_bindings so existingBinding and lookup/wakes always recover payments from historical bindings. No secret keys in the plugin, no global_fetch_strictly_public, and <= 8 bridge calls per setup action. Build timing is Ronald's call after he locks this proposal; the 'wait until smokyclub.com sells' gate was deferred on 29 Oct 2026.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-29T23:41:41+00:00",
-          "choice": "Keep Accounts v2 (2026-09-30.endive, POST /v2/core/accounts + /v2/core/account_links) for 'Create a Stripe account', and add Connect Standard OAuth (GET https://connect.stripe.com/oauth/authorize + single-use POST https://connect.stripe.com/oauth/token, scope=read_write) for 'I already have Stripe' on Payment settings when no account is bound. Discard deprecated OAuth access/refresh tokens; store only stripe_user_id (acct_...) with creationProtocol 'oauth_standard' and continue using platform-key Stripe-Account direct charges, full Stripe Dashboard, and Stripe fee/loss ownership. Evaluate oauth_standard readiness via GET /v1/accounts/:id on 2026-08-26.dahlia (avoiding Accounts v2's missing-configuration and 10-minute v1 sync limits, and without minting v2 accountLinks). Report it through the unchanged public /v1/status contract (state, mode, bindingRef, connectionEvidence, testOrder; existing states only): ready/verified, action_required, setup_required/unknown, checking/unknown on transient errors, and recovery_required with no evidence once the owner deauthorizes; creationProtocol stays internal and new checkout keeps refusing with 409 payments_not_ready. Enforce 1:1 account-to-store uniqueness via a mode-scoped Account Claim Registry (and reject self-binding to the platform account), forbid overwriting a bound stripeAccountId, and persist append-only connection_bindings so existingBinding and lookup/wakes always recover payments from historical bindings. No secret keys in the plugin, no global_fetch_strictly_public, and <= 8 bridge calls per setup action. Build timing is Ronald's call after he locks this proposal; the 'wait until smokyclub.com sells' gate was deferred on 29 Oct 2026.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "Ronald, 29 Oct 2026 23:39-23:40 UTC: his Computer Use agent stopped at Stripe's 'Accounts v1 support' setting, which Stripe no longer recommends for new integrations. Stripe's docs confirm OAuth to attach an existing account requires Accounts v1 and that OAuth 'isn't recommended for new Connect platforms'; Stripe's recommended path is networked onboarding. He answered 'agreed' to: use Stripe's way, don't turn on v1, amend 046, change the Payment settings wording.",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "reopened",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-29T23:41:41+00:00",
-          "choice": "Keep Accounts v2 (2026-09-30.endive, POST /v2/core/accounts + /v2/core/account_links) for 'Create a Stripe account', and add Connect Standard OAuth (GET https://connect.stripe.com/oauth/authorize + single-use POST https://connect.stripe.com/oauth/token, scope=read_write) for 'I already have Stripe' on Payment settings when no account is bound. Discard deprecated OAuth access/refresh tokens; store only stripe_user_id (acct_...) with creationProtocol 'oauth_standard' and continue using platform-key Stripe-Account direct charges, full Stripe Dashboard, and Stripe fee/loss ownership. Evaluate oauth_standard readiness via GET /v1/accounts/:id on 2026-08-26.dahlia (avoiding Accounts v2's missing-configuration and 10-minute v1 sync limits, and without minting v2 accountLinks). Report it through the unchanged public /v1/status contract (state, mode, bindingRef, connectionEvidence, testOrder; existing states only): ready/verified, action_required, setup_required/unknown, checking/unknown on transient errors, and recovery_required with no evidence once the owner deauthorizes; creationProtocol stays internal and new checkout keeps refusing with 409 payments_not_ready. Enforce 1:1 account-to-store uniqueness via a mode-scoped Account Claim Registry (and reject self-binding to the platform account), forbid overwriting a bound stripeAccountId, and persist append-only connection_bindings so existingBinding and lookup/wakes always recover payments from historical bindings. No secret keys in the plugin, no global_fetch_strictly_public, and <= 8 bridge calls per setup action. Build timing is Ronald's call after he locks this proposal; the 'wait until smokyclub.com sells' gate was deferred on 29 Oct 2026.",
-          "from": "reopened",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-29T23:42:19+00:00",
-          "choice": "Follow Stripe's recommended path: no Connect OAuth and no Accounts v1. Owners who already have Stripe use the existing 'Set up or resume Stripe' flow (Accounts v2 creation on 2026-09-30.endive plus Stripe-hosted account links), where Stripe's networked onboarding (on by default for the platform) lets the signed-in owner reuse an existing account's verified business details and bank. The store gets its own connected account under the same Stripe login, with its own balance and payment history; direct charges, the full Stripe Dashboard and Stripe fee/loss ownership are unchanged. Payment settings tells a store with no account: 'Already have Stripe? Sign in during setup to reuse your details.' No new routes, fields, states, secrets or Stripe settings; Accounts v1 support and OAuth stay off. The OAuth design in docs/existing-stripe-account-scope.md stays as research only.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
-        {
           "at": "2026-10-29T23:42:19+00:00",
           "choice": "Follow Stripe's recommended path: no Connect OAuth and no Accounts v1. Owners who already have Stripe use the existing 'Set up or resume Stripe' flow (Accounts v2 creation on 2026-09-30.endive plus Stripe-hosted account links), where Stripe's networked onboarding (on by default for the platform) lets the signed-in owner reuse an existing account's verified business details and bank. The store gets its own connected account under the same Stripe login, with its own balance and payment history; direct charges, the full Stripe Dashboard and Stripe fee/loss ownership are unchanged. Payment settings tells a store with no account: 'Already have Stripe? Sign in during setup to reuse your details.' No new routes, fields, states, secrets or Stripe settings; Accounts v1 support and OAuth stay off. The OAuth design in docs/existing-stripe-account-scope.md stays as research only.",
           "from": "implemented",
@@ -3393,34 +1200,6 @@
       ],
       "domain": "Existing Stripe account attachment",
       "history": [
-        {
-          "at": "2026-10-30T12:39:26+00:00",
-          "choice": "Payment settings asks every Stripe store for a required Business country (where the business is registered) before Set up or resume Stripe, in TEST and LIVE alike, with no operator list or store cap. The choice is a select of Stripe's supported business countries; nothing is preselected and nothing is inferred (not from IP, hosting, currency, email, browser, Commerce store or shipping countries). Set up or resume Stripe sends the chosen ISO alpha-2 code to hosted POST /v1/connect, which validates it against the same list, saves it as the connection's creationCountry before the Accounts v2 create call and sends it as identity.country. Once saved, the country is fixed: the page shows it read-only and later setup presses reuse it, since Stripe does not let an account change country. A missing or unsupported country is refused before any Stripe call and creates nothing. Authorize.net is unchanged and never asks: its owner brings an existing merchant account whose country the acquirer already set. The operator-only TEST country bindings (STRIPE_TEST_MERCHANT_COUNTRY_SITES, STRIPE_TEST_MERCHANT_COUNTRY_CONFIG, their 16-store cap) and the one-time rejected-legacy-v2 preparation path tied to them are removed; no real stores exist yet, so no compatibility path is kept.",
-          "from": "proposed",
-          "implementation_ref": null,
-          "note": "user accepted the scoped decision",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "locked",
-          "verification_ref": null
-        },
-        {
-          "at": "2026-10-30T12:55:30+00:00",
-          "choice": "Payment settings asks every Stripe store for a required Business country (where the business is registered) before Set up or resume Stripe, in TEST and LIVE alike, with no operator list or store cap. The choice is a select of Stripe's supported business countries; nothing is preselected and nothing is inferred (not from IP, hosting, currency, email, browser, Commerce store or shipping countries). Set up or resume Stripe sends the chosen ISO alpha-2 code to hosted POST /v1/connect, which validates it against the same list, saves it as the connection's creationCountry before the Accounts v2 create call and sends it as identity.country. Once saved, the country is fixed: the page shows it read-only and later setup presses reuse it, since Stripe does not let an account change country. A missing or unsupported country is refused before any Stripe call and creates nothing. Authorize.net is unchanged and never asks: its owner brings an existing merchant account whose country the acquirer already set. The operator-only TEST country bindings (STRIPE_TEST_MERCHANT_COUNTRY_SITES, STRIPE_TEST_MERCHANT_COUNTRY_CONFIG, their 16-store cap) and the one-time rejected-legacy-v2 preparation path tied to them are removed; no real stores exist yet, so no compatibility path is kept.",
-          "from": "locked",
-          "implementation_ref": null,
-          "note": "bounded implementation recorded",
-          "repair_required": false,
-          "review_classifications": [],
-          "review_ref": null,
-          "review_result": null,
-          "review_source_identity": null,
-          "to": "implemented",
-          "verification_ref": null
-        },
         {
           "at": "2026-10-30T12:55:30+00:00",
           "choice": "Payment settings asks every Stripe store for a required Business country (where the business is registered) before Set up or resume Stripe, in TEST and LIVE alike, with no operator list or store cap. The choice is a select of Stripe's supported business countries; nothing is preselected and nothing is inferred (not from IP, hosting, currency, email, browser, Commerce store or shipping countries). Set up or resume Stripe sends the chosen ISO alpha-2 code to hosted POST /v1/connect, which validates it against the same list, saves it as the connection's creationCountry before the Accounts v2 create call and sends it as identity.country. Once saved, the country is fixed: the page shows it read-only and later setup presses reuse it, since Stripe does not let an account change country. A missing or unsupported country is refused before any Stripe call and creates nothing. Authorize.net is unchanged and never asks: its owner brings an existing merchant account whose country the acquirer already set. The operator-only TEST country bindings (STRIPE_TEST_MERCHANT_COUNTRY_SITES, STRIPE_TEST_MERCHANT_COUNTRY_CONFIG, their 16-store cap) and the one-time rejected-legacy-v2 preparation path tied to them are removed; no real stores exist yet, so no compatibility path is kept.",
@@ -3472,5 +1251,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-10-30T12:55:30+00:00"
+  "updated_at": "2026-11-01T03:59:25+00:00"
 }
