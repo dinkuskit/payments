@@ -18,7 +18,6 @@ case "$mode" in
     npm run test:runtime
     npm run build
     npm run plugin:validate
-    npm run plugin:build
     node scripts/registry-build-identity.mjs
     npm run test:plugin-runtime
     ;;
