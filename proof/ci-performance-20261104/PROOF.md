@@ -3,7 +3,7 @@
 Repository: `dinkuskit/payments`
 Branch: `codex/ci-performance-20261104`
 Base: `3f31db55a28e9ce9f6e6ae2d0f88cc8228cfe549`
-Measured source change: `15a3f584826b5cb9b17ff78082db965609a8df4a`; subsequent commits change only this proof.
+Measured source change: `15a3f584826b5cb9b17ff78082db965609a8df4a`; subsequent commits change only proof and non-release changeset metadata.
 Environment: macOS arm64, Node 24.22.0, npm 11.19.1. Timings are local, not hosted-Linux CI measurements.
 
 ## 1. Scope & Mechanism
