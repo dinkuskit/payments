@@ -14,9 +14,9 @@ case "$mode" in
     npm run audit:repo
     ;;
   full)
+    npm run build
     "$script_dir/verify-payments" quick
     npm run test:runtime
-    npm run build
     npm run plugin:validate
     node scripts/registry-build-identity.mjs
     npm run test:plugin-runtime
