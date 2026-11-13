@@ -57,6 +57,12 @@ export interface CartLine {
 export interface CheckoutLine extends CartLine {
   name: string;
   unitPrice: Money;
+  /**
+   * The shopper's frozen choices as Commerce's order page shows them, such as
+   * "Size: M · Colour: Red": one line, at most 200 characters. Absent for an
+   * item without options. Stripe shows it under the item name.
+   */
+  options?: string;
 }
 
 export const CHECKOUT_PRICING_SCHEMA = "dinkuskit.commerce.checkout-pricing/v1" as const;

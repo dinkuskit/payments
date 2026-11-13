@@ -184,15 +184,13 @@ test("wrong account amount currency and mode fail closed", async () => {
   await assert.rejects(f.checkout().lookupFor(owner, request()), /session_mismatch/);
 });
 
-test("expired unpaid without a canceled PaymentIntent stays unknown", async () => {
+test("once a card was tried, expired unpaid without a canceled PaymentIntent stays unknown", async () => {
   const f = fixture(); await f.ready();
   await f.checkout().ensureSessionFor(owner, request());
   const mapped = f.sessions.get("dinkus-checkout:attempt-one");
   mapped.status = "expired"; mapped.paymentStatus = "unpaid"; mapped.url = null;
   mapped.paymentIntentId = "pi_open";
   f.provider.retrievePaymentIntent = async id => ({ id, status: "processing", amount: 1200, currency: "usd", latestCharge: { state: "absent" } });
-  assert.equal((await f.checkout().lookupFor(owner, request())).outcome, "unknown");
-  mapped.paymentIntentId = null;
   assert.equal((await f.checkout().lookupFor(owner, request())).outcome, "unknown");
   mapped.paymentIntentId = "pi_canceled";
   f.provider.retrievePaymentIntent = async id => ({ id, status: "canceled", amount: 1200, currency: "usd", latestCharge: { state: "absent" } });
@@ -1178,7 +1176,7 @@ test("claim snapshots transport mapping before await and retries original after 
   payment.pricing.shipping.revision=9;payment.pricing.coupon.quote.quoteId="changed";
   assert.equal((await pending).outcome,"unknown");
   const record=structuredClone(f.attempts.get(original.attemptId));
-  assert.deepEqual(record.pricing,original.pricing);assert.equal(record.mappingVersion,"stripe-whole-line-v1");
+  assert.deepEqual(record.pricing,original.pricing);assert.equal(record.mappingVersion,"stripe-whole-line-v2");
   assert.deepEqual(record.chargeLines,[{quantity:1,amountMinor:"1200",name:"Shipping",description:"Flat shipping"}]);
   assert.deepEqual(f.calls[0][1].chargeLines,record.chargeLines);
   f.setCreateDown(false);
@@ -1191,10 +1189,76 @@ test("claim snapshots transport mapping before await and retries original after 
   const final=f.attempts.get(original.attemptId);assert.equal(final.requestFingerprint,record.requestFingerprint);assert.equal(final.requestedExpiresAtSeconds,record.requestedExpiresAtSeconds);
 });
 
+test("an attempt claimed before line options retries with its original v1 Stripe parameters", async () => {
+  const f=fixture();await f.ready();f.setCreateDown(true);
+  // Merchandise worth charging, so the v1 quantity wording is in the record.
+  const payment=priced();payment.pricing.couponDiscount.minor="0";payment.pricing.netMerchandise.minor="1200";
+  payment.pricing.lines[0].discount.minor="0";payment.pricing.lines[0].netAmount.minor="1200";
+  payment.pricing.finalTotal.minor="2400";payment.total.minor="2400";delete payment.pricing.coupon;
+  assert.equal((await f.checkout().ensureSessionFor(owner,payment)).outcome,"unknown");
+  // Exactly what Payments 0.5.0 stored for this claim before its create response was lost.
+  const v1=[{quantity:1,amountMinor:"1200",name:"Hat (quantity 2)",description:"Original catalog quantity: 2"},
+    {quantity:1,amountMinor:"1200",name:"Shipping",description:"Flat shipping"}];
+  const stored=f.attempts.get(payment.attemptId);
+  assert.equal(stored.mappingVersion,"stripe-whole-line-v2");
+  assert.deepEqual(stored.chargeLines[0],{quantity:1,amountMinor:"1200",name:"Hat × 2"});
+  stored.mappingVersion="stripe-whole-line-v1";stored.chargeLines=structuredClone(v1);
+  f.setCreateDown(false);
+  assert.equal((await f.checkout().ensureSessionFor(owner,payment)).outcome,"open");
+  const creates=f.calls.filter(([kind])=>kind==="create");
+  const retried=creates[creates.length-1][1];
+  assert.deepEqual(retried.chargeLines,v1);assert.equal(retried.mappingVersion,"stripe-whole-line-v1");
+  assert.equal(retried.idempotencyKey,creates[0][1].idempotencyKey);
+  // A v1 record whose lines are not exactly v1's own wording is still refused.
+  const g=fixture();await g.ready();g.setCreateDown(true);await g.checkout().ensureSessionFor(owner,payment);
+  const bent=g.attempts.get(payment.attemptId);bent.mappingVersion="stripe-whole-line-v1";
+  const calls=g.calls.length;g.setCreateDown(false);
+  assert.equal((await g.checkout().ensureSessionFor(owner,payment)).outcome,"unknown");assert.equal(g.calls.length,calls);
+});
+
 test("partial or corrupted priced mapping stays unknown without a second create", async () => {
   for(const corrupt of [r=>{delete r.chargeLines;},r=>{r.mappingVersion="unsupported";},r=>{r.chargeLines[0].amountMinor="1";}]) {
     const f=fixture();await f.ready();f.setCreateDown(true);const payment=priced();assert.equal((await f.checkout().ensureSessionFor(owner,payment)).outcome,"unknown");
     corrupt(f.attempts.get(payment.attemptId));const calls=f.calls.length;f.setCreateDown(false);
     assert.equal((await f.checkout().ensureSessionFor(owner,payment)).outcome,"unknown");assert.equal(f.calls.length,calls);
   }
+});
+
+test("a line's options travel to the provider, count in the fingerprint, and anything but one short line is refused", async () => {
+  const f = fixture(); await f.ready();
+  const line = { catalogItemId: "sku-1", quantity: 2, name: "Hat", unitPrice: { currency: "USD", minor: "600" } };
+  for (const options of ["", " Size: M", "Size: M ", "Size:\nM", "Size: M ", "x".repeat(201), 7, null]) {
+    await assert.rejects(f.checkout().ensureSessionFor(owner, request({ attemptId: "bad-options", lines: [{ ...line, options }] })), /invalid_request/);
+  }
+  assert.equal(f.calls.length, 0);
+  const sized = request({ attemptId: "sized", lines: [{ ...line, options: "Size: M · Colour: Red" }] });
+  assert.equal((await f.checkout().ensureSessionFor(owner, sized)).outcome, "open");
+  assert.equal(f.calls[0][1].lines[0].options, "Size: M · Colour: Red");
+  assert.equal(f.attempts.get("sized").lines[0].options, "Size: M · Colour: Red");
+  assert.notEqual(requestFingerprint(sized), requestFingerprint(request({ attemptId: "sized" })));
+  // The same attempt with its options changed is a different request, never a second checkout.
+  await assert.rejects(f.checkout().ensureSessionFor(owner, request({ attemptId: "sized", lines: [{ ...line, options: "Size: L" }] })), /request_mutation/);
+  // An item without options sends none and keeps none.
+  assert.equal((await f.checkout().ensureSessionFor(owner, request({ attemptId: "plain" }))).outcome, "open");
+  assert.equal(Object.hasOwn(f.attempts.get("plain").lines[0], "options"), false);
+});
+
+test("an expired checkout where no card was ever submitted is finished and not paid", async () => {
+  const f = fixture(); await f.ready();
+  await f.checkout().ensureSessionFor(owner, request());
+  const mapped = f.sessions.get("dinkus-checkout:attempt-one");
+  mapped.status = "expired"; mapped.paymentStatus = "unpaid"; mapped.url = null; mapped.paymentIntentId = null;
+  f.provider.retrievePaymentIntent = async () => { throw Error("no PaymentIntent to read"); };
+  const expired = await f.checkout().lookupFor(owner, request());
+  assert.equal(expired.outcome, "expired-unpaid");
+  assert.equal(expired.session.expiresAt, expired.session.createdAt + 1860);
+  assert.equal(f.calls.some(([kind]) => kind === "pi"), false);
+  // Stripe not saying whether a PaymentIntent exists is not the same answer.
+  delete mapped.paymentIntentId;
+  assert.equal((await f.checkout().lookupFor(owner, request())).outcome, "unknown");
+  // Still open, or paid without a PaymentIntent, is never finished-unpaid.
+  mapped.paymentIntentId = null; mapped.status = "open";
+  assert.equal((await f.checkout().lookupFor(owner, request())).outcome, "open");
+  mapped.status = "expired"; mapped.paymentStatus = "paid";
+  assert.equal((await f.checkout().lookupFor(owner, request())).outcome, "unknown");
 });

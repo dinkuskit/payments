@@ -197,7 +197,7 @@ test("mode mismatch fails before checkout transport", () => {
   assert.throws(() => createStripeCheckout({ apiKey: "sk_test_synthetic_fixture", mode: "live" }), /mode_mismatch/);
 });
 
-test("pricing maps whole-line net amounts, honest original quantity, and frozen shipping exactly", async () => {
+test("pricing maps whole-line net amounts, the quantity in the name, and frozen shipping exactly", async () => {
   const calls = [];
   const httpClient = Stripe.createFetchHttpClient(async (url, init) => {
     calls.push({ body: String(init.body ?? ""), headers: new Headers(init.headers) });
@@ -226,9 +226,50 @@ test("pricing maps whole-line net amounts, honest original quantity, and frozen 
   const params = new URLSearchParams(calls[0].body);
   assert.equal(params.get("line_items[0][quantity]"), "1");
   assert.equal(params.get("line_items[0][price_data][unit_amount]"), "150");
-  assert.equal(params.get("line_items[0][price_data][product_data][name]"), "Hat (quantity 2)");
+  assert.equal(params.get("line_items[0][price_data][product_data][name]"), "Hat × 2");
+  // A line without options gets no grey description line.
+  assert.equal(params.has("line_items[0][price_data][product_data][description]"), false);
   assert.equal(params.get("line_items[1][price_data][unit_amount]"), "50");
   assert.equal(params.get("line_items[1][price_data][product_data][name]"), "Shipping");
+});
+
+test("each size shows under its own name, and one of an item carries no quantity", async () => {
+  const calls = [];
+  const httpClient = Stripe.createFetchHttpClient(async (url, init) => {
+    calls.push(String(init.body ?? ""));
+    return new Response(JSON.stringify({
+      object: "checkout.session", id: "cs_sizes", url: "https://checkout.stripe.com/c/pay/cs_sizes",
+      status: "open", payment_status: "unpaid", amount_total: 7500, currency: "usd",
+      created: 1800000000, expires_at: 1800001860, livemode: false, payment_intent: null,
+      metadata: { dinkus_attempt: "sizes", dinkus_binding: "bind", dinkus_site: "site" }, payment_method_types: ["card"],
+    }), { headers: { "content-type": "application/json" } });
+  });
+  const provider = createStripeCheckout({ apiKey: "sk_test_sizes", mode: "test", httpClient });
+  const usd = minor => ({ currency: "USD", minor });
+  const priced = (catalogItemId, quantity, net) => ({ catalogItemId, quantity, unitPrice: usd("2500"),
+    lineSubtotal: usd(net), discount: usd("0"), netAmount: usd(net) });
+  await provider.createSession({
+    attemptId: "sizes", bindingRef: "bind", siteId: "site", stripeAccountId: "acct",
+    lines: [
+      { catalogItemId: "tee-m", quantity: 1, name: "Wrong Turn Tee", unitPrice: usd("2500"), options: "Size: M" },
+      { catalogItemId: "tee-l", quantity: 2, name: "Wrong Turn Tee", unitPrice: usd("2500"), options: "Size: L · Colour: Red" },
+    ],
+    total: usd("7500"), expiresAtSeconds: 1800001860,
+    successUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel", idempotencyKey: "key",
+    pricing: {
+      schema: "dinkuskit.commerce.checkout-pricing/v1",
+      merchandiseSubtotal: usd("7500"), couponDiscount: usd("0"), netMerchandise: usd("7500"),
+      shipping: { configurationId: "ship", revision: 1, mode: "free", charge: usd("0") },
+      finalTotal: usd("7500"), lines: [priced("tee-m", 1, "2500"), priced("tee-l", 2, "5000")],
+    },
+  });
+  const params = new URLSearchParams(calls[0]);
+  assert.equal(params.get("line_items[0][price_data][product_data][name]"), "Wrong Turn Tee");
+  assert.equal(params.get("line_items[0][price_data][product_data][description]"), "Size: M");
+  assert.equal(params.get("line_items[1][price_data][product_data][name]"), "Wrong Turn Tee × 2");
+  assert.equal(params.get("line_items[1][price_data][product_data][description]"), "Size: L · Colour: Red");
+  assert.equal(params.has("line_items[2][quantity]"), false);
+  assert.doesNotMatch(calls[0], /Original(\+|%20)catalog/);
 });
 
 test("shipping-only priced carts work and 100 merchandise plus shipping rejects before contact", async () => {
@@ -412,4 +453,49 @@ test("stored 1799-second remaining expiry is replayed on the official Stripe wir
   assert.equal(omissionTrapTaken, false);
   assert.equal(attempts.get(payment.attemptId).requestedExpiresAtSeconds, pinnedExpires);
   assert.equal(attempts.get(payment.attemptId).stripeSessionId, null);
+});
+
+test("a session reports no PaymentIntent only when Stripe says null", async () => {
+  let body = {};
+  const httpClient = Stripe.createFetchHttpClient(async () => new Response(JSON.stringify({
+    object: "checkout.session", id: "cs_no_pi", url: null, status: "expired", payment_status: "unpaid",
+    amount_total: 1200, currency: "usd", created: 1800000000, expires_at: 1800001860, livemode: false,
+    metadata: {}, payment_method_types: ["card"], ...body,
+  }), { headers: { "content-type": "application/json" } }));
+  const provider = createStripeCheckout({ apiKey: "sk_test_no_pi", mode: "test", httpClient });
+  body = { payment_intent: null };
+  assert.equal((await provider.retrieveSession("cs_no_pi", "acct_one")).paymentIntentId, null);
+  body = {};
+  assert.equal((await provider.retrieveSession("cs_no_pi", "acct_one")).paymentIntentId, undefined);
+  body = { payment_intent: { object: "payment_intent", id: "pi_tried" } };
+  assert.equal((await provider.retrieveSession("cs_no_pi", "acct_one")).paymentIntentId, "pi_tried");
+});
+
+test("a v1 attempt's retry sends Stripe its original wording, and v1 lines never pass as current", async () => {
+  const bodies = [];
+  const httpClient = Stripe.createFetchHttpClient(async (url, init) => {
+    bodies.push(String(init.body ?? ""));
+    return new Response(JSON.stringify({
+      object: "checkout.session", id: "cs_v1", url: "https://checkout.stripe.com/c/pay/cs_v1", status: "open", payment_status: "unpaid",
+      amount_total: 300, currency: "usd", created: 1800000000, expires_at: 1800001860, livemode: false, payment_intent: null,
+      metadata: {}, payment_method_types: ["card"],
+    }), { headers: { "content-type": "application/json" } });
+  });
+  const provider = createStripeCheckout({ apiKey: "sk_test_v1", mode: "test", httpClient });
+  const usd = minor => ({ currency: "USD", minor });
+  const input = {
+    attemptId: "v1", bindingRef: "bind", siteId: "site", stripeAccountId: "acct", expiresAtSeconds: 1800001860,
+    successUrl: "https://store.example/r", cancelUrl: "https://store.example/c", idempotencyKey: "dinkus-checkout:v1",
+    lines: [{ catalogItemId: "hat", quantity: 2, name: "Hat", unitPrice: usd("150") }], total: usd("300"),
+    pricing: { schema: "dinkuskit.commerce.checkout-pricing/v1", merchandiseSubtotal: usd("300"), couponDiscount: usd("0"), netMerchandise: usd("300"),
+      shipping: { configurationId: "ship", revision: 1, mode: "free", charge: usd("0") }, finalTotal: usd("300"),
+      lines: [{ catalogItemId: "hat", quantity: 2, unitPrice: usd("150"), lineSubtotal: usd("300"), discount: usd("0"), netAmount: usd("300") }] },
+    chargeLines: [{ quantity: 1, amountMinor: "300", name: "Hat (quantity 2)", description: "Original catalog quantity: 2" }],
+  };
+  await provider.createSession({ ...input, mappingVersion: "stripe-whole-line-v1" });
+  const params = new URLSearchParams(bodies[0]);
+  assert.equal(params.get("line_items[0][price_data][product_data][name]"), "Hat (quantity 2)");
+  assert.equal(params.get("line_items[0][price_data][product_data][description]"), "Original catalog quantity: 2");
+  await assert.rejects(provider.createSession(input), /invalid_pricing_mapping/);
+  assert.equal(bodies.length, 1);
 });

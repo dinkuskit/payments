@@ -13,6 +13,8 @@ Payments connects a store to its server-selected processor. It owns provider tra
 
 One provider is active per store. A shopper cannot select a processor in checkout input, and an unknown provider does not trigger fallback to another one. The inspected code includes Stripe and Authorize.net adapters, with USD integer minor units and no currency conversion. An adapter's presence does not qualify its owner setup or release.
 
+On Stripe's payment page each item shows its name, with the quantity when there is more than one ("Wrong Turn Tee × 2"), and the shopper's choices in grey beneath it, such as "Size: M". Items without options have no grey line. Authorize.net's hosted page shows only the order total.
+
 ## Release scope
 
 This reference describes Payments `{{version}}`, released on the EmDash Registry as `dinkus-payments` on {{release_date}} (tag `v{{version}}`). It requires EmDash `1.4.0`. Changes merged after that release are not described here until they ship in a stable release.
@@ -55,6 +57,8 @@ The amount includes `currency: "USD"` and integer `minor` text. `paidAt` is mill
 ## Troubleshooting the handoff
 
 If the page is waiting for Commerce, check that the site's scheduler is actually invoking Commerce's five-minute reconciliation hook. An activation hook in source is not proof that a deployed host has its Cron Trigger configured. Inspect the existing order before placing a replacement order.
+
+A shopper who opens Stripe's payment page and leaves without submitting a card can check out again once that page expires, about half an hour after it opened: no card was tried, so nothing can be charged. If a card was tried, Payments waits until Stripe shows the payment as cancelled or failed before the cart lets the shopper check out again.
 
 If the page asks for Sign in again or Connect again, follow it, then press Check connection. The page's sign-in is separate from checkout's own store key. If the payment service cannot authenticate with Stripe, reconnecting the page does not repair the service-side problem; contact the operator.
 

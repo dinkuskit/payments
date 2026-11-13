@@ -114,7 +114,7 @@ test.each(["historical-unpriced", "priced-v1"])("SQLite mapping survives evictio
       const row=instance.ctx.storage.sql.exec<{value:string}>("SELECT value FROM checkout_attempts WHERE attempt_id=?",payment.attemptId).one();
       const record=JSON.parse(row.value);
       expect(record.pricing).toEqual(payment.pricing);
-      expect(record.mappingVersion).toBe("stripe-whole-line-v1");
+      expect(record.mappingVersion).toBe("stripe-whole-line-v2");
       expect(record.chargeLines.map((line:{amountMinor:string})=>line.amountMinor)).toEqual(["1149","51"]);
     });
     const params=new URLSearchParams([...operations.values()][0].params);
