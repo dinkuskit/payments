@@ -48,8 +48,10 @@ Existing onboarding times stay milliseconds.
   optional coupon quote, then stores and fingerprints the complete snapshot
   before provider contact. Pricing-bearing legacy requests are rejected.
 - Priced Stripe charges use each positive merchandise whole-line net as one
-  quantity-one item, with the original catalog quantity retained in its
-  description, plus one frozen shipping item. Zero-net merchandise and free
+  quantity-one item, plus one frozen shipping item. The item's name carries
+  the original quantity ("Wrong Turn Tee", or "Wrong Turn Tee × 2"), and its
+  description is the line's optional `options` text from Commerce, such as
+  "Size: M"; an item without options has no description. Zero-net merchandise and free
   shipping are omitted. More than 100 positive mapped items is rejected
   before provider contact; this conservative Stripe item limit is not
   truncation or fallback.
@@ -102,10 +104,16 @@ production acceptance proof.
 3. **`Session.url` is null after terminal statuses.** Commerce still needs
    the original redirect URL. Payments returns the first stored URL and does
    not invent one.
-4. **Expired + unpaid is not terminal unpaid.** Stripe documents
-   `complete` as possibly still processing, and a PaymentIntent can remain
-   `processing` or later `succeeded` after the Session object expires.
-   `expired-unpaid` requires an authoritative `canceled` PaymentIntent whose
+4. **Expired + unpaid is terminal unpaid only when nothing could still be
+   charged.** Since Stripe API 2022-08-01 ("Deferred PaymentIntent creation
+   in Checkout Session payment mode") a Session creates its PaymentIntent only
+   when the shopper confirms payment, so an expired, unpaid Session whose
+   `payment_intent` is `null` never took a card; an expired Session cannot be
+   paid, so it is `expired-unpaid` and Commerce lets the shopper check out
+   again. A missing `payment_intent` field is not that answer and stays
+   `unknown`. Once a card was tried, Stripe documents `complete` as possibly
+   still processing, and a PaymentIntent can remain `processing` or later
+   `succeeded` after the Session object expires, so `expired-unpaid` requires an authoritative `canceled` PaymentIntent whose
    latest charge is proven absent (`latest_charge: null`, confirmation not
    attempted) or expanded with status `failed`. Pending, unknown, and unexpanded charge IDs or
    omitted `latest_charge` stay `unknown`. Stripe documents that a canceled
@@ -135,6 +143,7 @@ Primary Stripe sources:
 - https://docs.stripe.com/api/idempotent_requests
 - https://docs.stripe.com/api/checkout/sessions/create
 - https://docs.stripe.com/api/checkout/sessions/retrieve
+- https://docs.stripe.com/changelog/2022-08-01/deferred-paymentintent-checkout-session
 - https://docs.stripe.com/api/checkout/sessions/object
 - https://docs.stripe.com/api/payment_intents/object
 - https://docs.stripe.com/api/payment_intents/cancel

@@ -4,11 +4,11 @@
   "current_focus": {
     "cadence": "sequential",
     "confirmed": true,
-    "confirmed_at": "2026-10-29T23:42:19+00:00",
-    "domain": "Existing Stripe account attachment",
-    "started_at": "2026-10-29T23:41:41+00:00",
+    "confirmed_at": "2026-11-13T16:15:09+00:00",
+    "domain": "Stripe hosted checkout page",
+    "started_at": "2026-11-13T16:15:09+00:00",
     "status": "confirmed",
-    "summary": "Ronald, 29 Oct 2026 23:40 UTC: 'agreed' to use Stripe's recommended way for owners who already have Stripe: no Accounts v1 or Connect OAuth, rely on networked onboarding in the existing Set up or resume Stripe flow, amend 046, and add 'Already have Stripe? Sign in during setup to reuse your details.' to Payment settings. 23:41: his Computer Use check found networked onboarding already ON in the dinkuskit-playground sandbox."
+    "summary": "Ronald, 13 Nov 2026 16:03 UTC, 'agreed' to the #262 pick: Commerce sends the same 'Size: M' text its order page shows with each payment line, Payments puts it in Stripe's grey description line and drops the 'Original catalog quantity' note, the name reads 'Wrong Turn Tee' or 'Wrong Turn Tee \u00d7 2', items without options get no grey line, a ledger entry first. 16:05 UTC, on #118: 'seems like we should follow suit here' (Stripe expires an unused checkout and it cannot be paid; Shopify lets the shopper check out again)."
   },
   "decisions": [
     {
@@ -3548,6 +3548,148 @@
       "superseded_by": null,
       "updated_at": "2026-10-30T12:55:30+00:00",
       "verification_ref": "tests/business-country.test.mjs; tests/registry-status.test.mjs ('a store with no Stripe connection picks its business country before setup'); tests/registry-connection.test.mjs ('Set up Stripe sends a listed business country and nothing else'); tests/registry-runtime.test.ts ('compiled business-country form ...'); tests/runtime/merchant-http.test.ts; bin/verify-payments full steps green locally 2026-10-30"
+    },
+    {
+      "baseline_ref": "git:f3f4700",
+      "candidate_refs": [],
+      "choice": "A payment line from Commerce may carry options: the line's frozen variant choices as one line of text, exactly as the Commerce order page shows them (such as 'Size: M \u00b7 Colour: Red'), at most 200 characters, no leading or trailing space and no line breaks or control characters; anything else is refused as invalid_request before any Stripe call. Absent for an item without options. options is part of the canonical line, the stored attempt and the request fingerprint. Each Stripe item's name is the item name for one, or 'Name \u00d7 N' for more (each line stays one charge at its net total so discounts split cleanly), and its description is the options text; an item without options sends no description. The 'Original catalog quantity: N' note is removed. Shipping stays 'Shipping' / 'Flat shipping'. Amounts, item ids, quantities, the whole-line mapping and frozen attempts are unchanged; mappingVersion stays stripe-whole-line-v1 because amounts are unchanged. Authorize.net's hosted page shows only the total and is unchanged. The Payments Worker must be deployed before a Commerce release that sends options, since older Payments refuses the extra field.",
+      "context_ref": "https://github.com/dinkuskit/commerce/issues/262",
+      "created_at": "2026-11-13T16:15:31+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-checkout-pricing-v1-001"
+      ],
+      "domain": "Stripe hosted checkout page",
+      "history": [
+        {
+          "at": "2026-11-13T16:15:31+00:00",
+          "choice": "A payment line from Commerce may carry options: the line's frozen variant choices as one line of text, exactly as the Commerce order page shows them (such as 'Size: M \u00b7 Colour: Red'), at most 200 characters, no leading or trailing space and no line breaks or control characters; anything else is refused as invalid_request before any Stripe call. Absent for an item without options. options is part of the canonical line, the stored attempt and the request fingerprint. Each Stripe item's name is the item name for one, or 'Name \u00d7 N' for more (each line stays one charge at its net total so discounts split cleanly), and its description is the options text; an item without options sends no description. The 'Original catalog quantity: N' note is removed. Shipping stays 'Shipping' / 'Flat shipping'. Amounts, item ids, quantities, the whole-line mapping and frozen attempts are unchanged; mappingVersion stays stripe-whole-line-v1 because amounts are unchanged. Authorize.net's hosted page shows only the total and is unchanged. The Payments Worker must be deployed before a Commerce release that sends options, since older Payments refuses the extra field.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-11-13T16:15:31+00:00",
+          "choice": "A payment line from Commerce may carry options: the line's frozen variant choices as one line of text, exactly as the Commerce order page shows them (such as 'Size: M \u00b7 Colour: Red'), at most 200 characters, no leading or trailing space and no line breaks or control characters; anything else is refused as invalid_request before any Stripe call. Absent for an item without options. options is part of the canonical line, the stored attempt and the request fingerprint. Each Stripe item's name is the item name for one, or 'Name \u00d7 N' for more (each line stays one charge at its net total so discounts split cleanly), and its description is the options text; an item without options sends no description. The 'Original catalog quantity: N' note is removed. Shipping stays 'Shipping' / 'Flat shipping'. Amounts, item ids, quantities, the whole-line mapping and frozen attempts are unchanged; mappingVersion stays stripe-whole-line-v1 because amounts are unchanged. Authorize.net's hosted page shows only the total and is unchanged. The Payments Worker must be deployed before a Commerce release that sends options, since older Payments refuses the extra field.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-11-13T16:15:31+00:00",
+          "choice": "A payment line from Commerce may carry options: the line's frozen variant choices as one line of text, exactly as the Commerce order page shows them (such as 'Size: M \u00b7 Colour: Red'), at most 200 characters, no leading or trailing space and no line breaks or control characters; anything else is refused as invalid_request before any Stripe call. Absent for an item without options. options is part of the canonical line, the stored attempt and the request fingerprint. Each Stripe item's name is the item name for one, or 'Name \u00d7 N' for more (each line stays one charge at its net total so discounts split cleanly), and its description is the options text; an item without options sends no description. The 'Original catalog quantity: N' note is removed. Shipping stays 'Shipping' / 'Flat shipping'. Amounts, item ids, quantities, the whole-line mapping and frozen attempts are unchanged; mappingVersion stays stripe-whole-line-v1 because amounts are unchanged. Authorize.net's hosted page shows only the total and is unchanged. The Payments Worker must be deployed before a Commerce release that sends options, since older Payments refuses the extra field.",
+          "from": "implemented",
+          "implementation_ref": "src/commerce/checkout-port.ts (CheckoutLine.options); src/checkout/sessions.ts (validation, canonical line); src/checkout/charge-lines.ts (name 'Name \u00d7 N', description = options); src/stripe/checkout.ts (description only when present, priced and unpriced); docs/checkout-sessions.md; docs/website/reference/payments.md; .changeset/stripe-line-options.md",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-stripe-line-options-048",
+      "implementation_ref": "src/commerce/checkout-port.ts (CheckoutLine.options); src/checkout/sessions.ts (validation, canonical line); src/checkout/charge-lines.ts (name 'Name \u00d7 N', description = options); src/stripe/checkout.ts (description only when present, priced and unpriced); docs/checkout-sessions.md; docs/website/reference/payments.md; .changeset/stripe-line-options.md",
+      "question": "What does Stripe's hosted payment page show for each item, now that Commerce can send the shopper's chosen options with each payment line?",
+      "rationale": "Ronald 13 Nov 2026 16:03 UTC: 'agreed' to this pick in the Dad's PRs sweep.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "verified",
+      "superseded_by": null,
+      "updated_at": "2026-11-13T16:15:31+00:00",
+      "verification_ref": "tests/stripe-checkout.test.mjs ('each size shows under its own name, and one of an item carries no quantity'; 'pricing maps whole-line net amounts, the quantity in the name, and frozen shipping exactly'); tests/checkout-sessions.test.mjs ('a line's options travel to the provider, count in the fingerprint, and anything but one short line is refused'); bin/verify-payments quick green locally 2026-11-13 (304 tests)"
+    },
+    {
+      "baseline_ref": "git:f3f4700",
+      "candidate_refs": [],
+      "choice": "Yes. A Stripe Checkout Session that is expired, payment_status unpaid, with payment_intent explicitly null maps to expired-unpaid, so Commerce releases the checkout and the cart offers Check out again. Since Stripe API 2022-08-01 (Deferred PaymentIntent creation in Checkout Session payment mode) a Session creates its PaymentIntent only when the shopper confirms, so null means no card was ever submitted, and an expired Session cannot be paid, so nothing can be charged. A missing payment_intent field is not that answer and stays unknown. Once a PaymentIntent exists the existing rule is unchanged: expired-unpaid needs a canceled PaymentIntent whose latest charge is absent or failed. No PaymentIntent read is made for the null case. Abandoned-cart recovery links are out of scope.",
+      "context_ref": "https://github.com/dinkuskit/payments/issues/118",
+      "created_at": "2026-11-13T16:15:31+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [
+        "payments-checkout-sessions-001"
+      ],
+      "domain": "Stripe hosted checkout page",
+      "history": [
+        {
+          "at": "2026-11-13T16:15:31+00:00",
+          "choice": "Yes. A Stripe Checkout Session that is expired, payment_status unpaid, with payment_intent explicitly null maps to expired-unpaid, so Commerce releases the checkout and the cart offers Check out again. Since Stripe API 2022-08-01 (Deferred PaymentIntent creation in Checkout Session payment mode) a Session creates its PaymentIntent only when the shopper confirms, so null means no card was ever submitted, and an expired Session cannot be paid, so nothing can be charged. A missing payment_intent field is not that answer and stays unknown. Once a PaymentIntent exists the existing rule is unchanged: expired-unpaid needs a canceled PaymentIntent whose latest charge is absent or failed. No PaymentIntent read is made for the null case. Abandoned-cart recovery links are out of scope.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-11-13T16:15:31+00:00",
+          "choice": "Yes. A Stripe Checkout Session that is expired, payment_status unpaid, with payment_intent explicitly null maps to expired-unpaid, so Commerce releases the checkout and the cart offers Check out again. Since Stripe API 2022-08-01 (Deferred PaymentIntent creation in Checkout Session payment mode) a Session creates its PaymentIntent only when the shopper confirms, so null means no card was ever submitted, and an expired Session cannot be paid, so nothing can be charged. A missing payment_intent field is not that answer and stays unknown. Once a PaymentIntent exists the existing rule is unchanged: expired-unpaid needs a canceled PaymentIntent whose latest charge is absent or failed. No PaymentIntent read is made for the null case. Abandoned-cart recovery links are out of scope.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-11-13T16:15:31+00:00",
+          "choice": "Yes. A Stripe Checkout Session that is expired, payment_status unpaid, with payment_intent explicitly null maps to expired-unpaid, so Commerce releases the checkout and the cart offers Check out again. Since Stripe API 2022-08-01 (Deferred PaymentIntent creation in Checkout Session payment mode) a Session creates its PaymentIntent only when the shopper confirms, so null means no card was ever submitted, and an expired Session cannot be paid, so nothing can be charged. A missing payment_intent field is not that answer and stays unknown. Once a PaymentIntent exists the existing rule is unchanged: expired-unpaid needs a canceled PaymentIntent whose latest charge is absent or failed. No PaymentIntent read is made for the null case. Abandoned-cart recovery links are out of scope.",
+          "from": "implemented",
+          "implementation_ref": "src/checkout/sessions.ts interpret(); src/stripe/checkout.ts asSession (null only when Stripe says null); docs/checkout-sessions.md item 4; docs/website/reference/payments.md troubleshooting; .changeset/expired-checkout-no-card.md",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-expired-no-card-049",
+      "implementation_ref": "src/checkout/sessions.ts interpret(); src/stripe/checkout.ts asSession (null only when Stripe says null); docs/checkout-sessions.md item 4; docs/website/reference/payments.md troubleshooting; .changeset/expired-checkout-no-card.md",
+      "question": "When Stripe's payment page expires and the shopper never submitted a card, is the checkout finished so the shopper can check out again?",
+      "rationale": "Ronald 13 Nov 2026 16:05 UTC: 'seems like we should follow suit here' on following Stripe and Shopify for expired unused checkouts; the coordinator passed #118 to this thread to build.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "verified",
+      "superseded_by": null,
+      "updated_at": "2026-11-13T16:15:31+00:00",
+      "verification_ref": "tests/checkout-sessions.test.mjs ('an expired checkout where no card was ever submitted is finished and not paid'; 'once a card was tried, expired unpaid without a canceled PaymentIntent stays unknown'); tests/stripe-checkout.test.mjs ('a session reports no PaymentIntent only when Stripe says null'); bin/verify-payments quick green locally 2026-11-13"
     }
   ],
   "last_activation": {
@@ -3570,5 +3712,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-11-01T04:28:00+00:00"
+  "updated_at": "2026-11-13T16:15:31+00:00"
 }

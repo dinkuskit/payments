@@ -16,7 +16,8 @@ function asSession(session: Stripe.Checkout.Session): ProviderSession {
     created: session.created,
     expiresAt: session.expires_at,
     livemode: session.livemode,
-    paymentIntentId: typeof paymentIntent === "string" ? paymentIntent : paymentIntent?.id ?? null,
+    // null only when Stripe says there is none; a missing field is not that answer.
+    paymentIntentId: paymentIntent === undefined ? undefined : typeof paymentIntent === "string" ? paymentIntent : paymentIntent?.id ?? null,
     metadata: session.metadata ?? {},
     paymentMethodTypes: session.payment_method_types ?? [],
   };
@@ -57,14 +58,14 @@ export function createStripeCheckout(options: {
       if (input.chargeLines && JSON.stringify(input.chargeLines) !== JSON.stringify(priced)) throw new Error("invalid_pricing_mapping");
       const lineItems = priced
         ? (input.chargeLines ?? priced).map(line => ({ quantity: line.quantity, price_data: {
-          currency: "usd", unit_amount: Number(line.amountMinor), product_data: { name: line.name, description: line.description },
+          currency: "usd", unit_amount: Number(line.amountMinor), product_data: { name: line.name, ...(line.description ? { description: line.description } : {}) },
         } }))
         : input.lines.map(line => ({
           quantity: line.quantity,
           price_data: {
             currency: "usd",
             unit_amount: Number(line.unitPrice.minor),
-            product_data: { name: line.name },
+            product_data: { name: line.name, ...(line.options ? { description: line.options } : {}) },
           },
         }));
       if (lineItems.length > 100) throw new Error("stripe_line_item_limit");
