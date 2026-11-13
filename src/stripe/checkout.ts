@@ -54,7 +54,7 @@ export function createStripeCheckout(options: {
   const stripe = createStripeClient(options.apiKey, options.mode, options.httpClient);
   return {
     async createSession(input) {
-      const priced = input.pricing ? createPricedChargeLines(input.lines, input.pricing, input.total.minor) : undefined;
+      const priced = input.pricing ? createPricedChargeLines(input.lines, input.pricing, input.total.minor, input.mappingVersion) : undefined;
       if (input.chargeLines && JSON.stringify(input.chargeLines) !== JSON.stringify(priced)) throw new Error("invalid_pricing_mapping");
       const lineItems = priced
         ? (input.chargeLines ?? priced).map(line => ({ quantity: line.quantity, price_data: {

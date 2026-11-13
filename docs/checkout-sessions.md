@@ -51,7 +51,12 @@ Existing onboarding times stay milliseconds.
   quantity-one item, plus one frozen shipping item. The item's name carries
   the original quantity ("Wrong Turn Tee", or "Wrong Turn Tee × 2"), and its
   description is the line's optional `options` text from Commerce, such as
-  "Size: M"; an item without options has no description. Zero-net merchandise and free
+  "Size: M"; an item without options has no description. New claims store
+  this as `mappingVersion: "stripe-whole-line-v2"`. Attempts claimed earlier
+  keep `stripe-whole-line-v1` ("Hat (quantity 2)" with "Original catalog
+  quantity: 2"), and a same-key retry of one resends exactly those
+  parameters, because Stripe refuses changed parameters under a used
+  idempotency key. Any other version stays `unknown`. Zero-net merchandise and free
   shipping are omitted. More than 100 positive mapped items is rejected
   before provider contact; this conservative Stripe item limit is not
   truncation or fallback.

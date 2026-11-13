@@ -4,11 +4,11 @@
   "current_focus": {
     "cadence": "sequential",
     "confirmed": true,
-    "confirmed_at": "2026-11-13T16:15:09+00:00",
+    "confirmed_at": "2026-11-13T16:34:18+00:00",
     "domain": "Stripe hosted checkout page",
-    "started_at": "2026-11-13T16:15:09+00:00",
+    "started_at": "2026-11-13T16:34:09+00:00",
     "status": "confirmed",
-    "summary": "Ronald, 13 Nov 2026 16:03 UTC, 'agreed' to the #262 pick: Commerce sends the same 'Size: M' text its order page shows with each payment line, Payments puts it in Stripe's grey description line and drops the 'Original catalog quantity' note, the name reads 'Wrong Turn Tee' or 'Wrong Turn Tee \u00d7 2', items without options get no grey line, a ledger entry first. 16:05 UTC, on #118: 'seems like we should follow suit here' (Stripe expires an unused checkout and it cannot be paid; Shopify lets the shopper check out again)."
+    "summary": "Reopened 048 on ClawSweeper's P2 for payments#119: the product choice Ronald agreed (13 Nov 2026 16:03 UTC) is unchanged; new claims record stripe-whole-line-v2 and attempts claimed as v1 keep their exact v1 Stripe parameters for same-key retry."
   },
   "decisions": [
     {
@@ -3552,7 +3552,7 @@
     {
       "baseline_ref": "git:f3f4700",
       "candidate_refs": [],
-      "choice": "A payment line from Commerce may carry options: the line's frozen variant choices as one line of text, exactly as the Commerce order page shows them (such as 'Size: M \u00b7 Colour: Red'), at most 200 characters, no leading or trailing space and no line breaks or control characters; anything else is refused as invalid_request before any Stripe call. Absent for an item without options. options is part of the canonical line, the stored attempt and the request fingerprint. Each Stripe item's name is the item name for one, or 'Name \u00d7 N' for more (each line stays one charge at its net total so discounts split cleanly), and its description is the options text; an item without options sends no description. The 'Original catalog quantity: N' note is removed. Shipping stays 'Shipping' / 'Flat shipping'. Amounts, item ids, quantities, the whole-line mapping and frozen attempts are unchanged; mappingVersion stays stripe-whole-line-v1 because amounts are unchanged. Authorize.net's hosted page shows only the total and is unchanged. The Payments Worker must be deployed before a Commerce release that sends options, since older Payments refuses the extra field.",
+      "choice": "A payment line from Commerce may carry options: the line's frozen variant choices as one line of text, exactly as the Commerce order page shows them (such as 'Size: M \u00b7 Colour: Red'), at most 200 characters, no leading or trailing space and no line breaks or control characters; anything else is refused as invalid_request before any Stripe call. Absent for an item without options. options is part of the canonical line, the stored attempt and the request fingerprint. Each Stripe item's name is the item name for one, or 'Name \u00d7 N' for more (each line stays one charge at its net total so discounts split cleanly), and its description is the options text; an item without options sends no description. The 'Original catalog quantity: N' note is removed. Shipping stays 'Shipping' / 'Flat shipping'. Amounts, item ids, quantities and frozen attempts are unchanged. New priced claims record mappingVersion stripe-whole-line-v2 (this naming and description); attempts already claimed as stripe-whole-line-v1 keep and are validated against the exact v1 wording (\"Name (quantity N)\" with \"Original catalog quantity: N\"), so a same-key retry after a lost create response resends the original Stripe parameters. Any other mapping version stays unknown. Authorize.net's hosted page shows only the total and is unchanged. The Payments Worker must be deployed before a Commerce release that sends options, since older Payments refuses the extra field.",
       "context_ref": "https://github.com/dinkuskit/commerce/issues/262",
       "created_at": "2026-11-13T16:15:31+00:00",
       "deferred_reason": null,
@@ -3603,22 +3603,132 @@
           "review_source_identity": null,
           "to": "verified",
           "verification_ref": null
+        },
+        {
+          "at": "2026-11-13T16:34:09+00:00",
+          "choice": "A payment line from Commerce may carry options: the line's frozen variant choices as one line of text, exactly as the Commerce order page shows them (such as 'Size: M \u00b7 Colour: Red'), at most 200 characters, no leading or trailing space and no line breaks or control characters; anything else is refused as invalid_request before any Stripe call. Absent for an item without options. options is part of the canonical line, the stored attempt and the request fingerprint. Each Stripe item's name is the item name for one, or 'Name \u00d7 N' for more (each line stays one charge at its net total so discounts split cleanly), and its description is the options text; an item without options sends no description. The 'Original catalog quantity: N' note is removed. Shipping stays 'Shipping' / 'Flat shipping'. Amounts, item ids, quantities, the whole-line mapping and frozen attempts are unchanged; mappingVersion stays stripe-whole-line-v1 because amounts are unchanged. Authorize.net's hosted page shows only the total and is unchanged. The Payments Worker must be deployed before a Commerce release that sends options, since older Payments refuses the extra field.",
+          "from": "verified",
+          "implementation_ref": "src/commerce/checkout-port.ts (CheckoutLine.options); src/checkout/sessions.ts (validation, canonical line); src/checkout/charge-lines.ts (name 'Name \u00d7 N', description = options); src/stripe/checkout.ts (description only when present, priced and unpriced); docs/checkout-sessions.md; docs/website/reference/payments.md; .changeset/stripe-line-options.md",
+          "note": "ClawSweeper P2 on payments#119: pin a new mapping version for new claims and keep exact v1 replay for attempts claimed before it.",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "reopened",
+          "verification_ref": "tests/stripe-checkout.test.mjs ('each size shows under its own name, and one of an item carries no quantity'; 'pricing maps whole-line net amounts, the quantity in the name, and frozen shipping exactly'); tests/checkout-sessions.test.mjs ('a line's options travel to the provider, count in the fingerprint, and anything but one short line is refused'); bin/verify-payments quick green locally 2026-11-13 (304 tests)"
+        },
+        {
+          "at": "2026-11-13T16:34:09+00:00",
+          "choice": "A payment line from Commerce may carry options: the line's frozen variant choices as one line of text, exactly as the Commerce order page shows them (such as 'Size: M \u00b7 Colour: Red'), at most 200 characters, no leading or trailing space and no line breaks or control characters; anything else is refused as invalid_request before any Stripe call. Absent for an item without options. options is part of the canonical line, the stored attempt and the request fingerprint. Each Stripe item's name is the item name for one, or 'Name \u00d7 N' for more (each line stays one charge at its net total so discounts split cleanly), and its description is the options text; an item without options sends no description. The 'Original catalog quantity: N' note is removed. Shipping stays 'Shipping' / 'Flat shipping'. Amounts, item ids, quantities, the whole-line mapping and frozen attempts are unchanged; mappingVersion stays stripe-whole-line-v1 because amounts are unchanged. Authorize.net's hosted page shows only the total and is unchanged. The Payments Worker must be deployed before a Commerce release that sends options, since older Payments refuses the extra field.",
+          "from": "reopened",
+          "implementation_ref": "src/commerce/checkout-port.ts (CheckoutLine.options); src/checkout/sessions.ts (validation, canonical line); src/checkout/charge-lines.ts (name 'Name \u00d7 N', description = options); src/stripe/checkout.ts (description only when present, priced and unpriced); docs/checkout-sessions.md; docs/website/reference/payments.md; .changeset/stripe-line-options.md",
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": "tests/stripe-checkout.test.mjs ('each size shows under its own name, and one of an item carries no quantity'; 'pricing maps whole-line net amounts, the quantity in the name, and frozen shipping exactly'); tests/checkout-sessions.test.mjs ('a line's options travel to the provider, count in the fingerprint, and anything but one short line is refused'); bin/verify-payments quick green locally 2026-11-13 (304 tests)"
+        },
+        {
+          "at": "2026-11-13T16:34:18+00:00",
+          "choice": "A payment line from Commerce may carry options: the line's frozen variant choices as one line of text, exactly as the Commerce order page shows them (such as 'Size: M \u00b7 Colour: Red'), at most 200 characters, no leading or trailing space and no line breaks or control characters; anything else is refused as invalid_request before any Stripe call. Absent for an item without options. options is part of the canonical line, the stored attempt and the request fingerprint. Each Stripe item's name is the item name for one, or 'Name \u00d7 N' for more (each line stays one charge at its net total so discounts split cleanly), and its description is the options text; an item without options sends no description. The 'Original catalog quantity: N' note is removed. Shipping stays 'Shipping' / 'Flat shipping'. Amounts, item ids, quantities and frozen attempts are unchanged. New priced claims record mappingVersion stripe-whole-line-v2 (this naming and description); attempts already claimed as stripe-whole-line-v1 keep and are validated against the exact v1 wording (\"Name (quantity N)\" with \"Original catalog quantity: N\"), so a same-key retry after a lost create response resends the original Stripe parameters. Any other mapping version stays unknown. Authorize.net's hosted page shows only the total and is unchanged. The Payments Worker must be deployed before a Commerce release that sends options, since older Payments refuses the extra field.",
+          "from": "locked",
+          "implementation_ref": "src/commerce/checkout-port.ts (CheckoutLine.options); src/checkout/sessions.ts (validation, canonical line); src/checkout/charge-lines.ts (name 'Name \u00d7 N', description = options); src/stripe/checkout.ts (description only when present, priced and unpriced); docs/checkout-sessions.md; docs/website/reference/payments.md; .changeset/stripe-line-options.md",
+          "note": "bounded implementation recorded",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "implemented",
+          "verification_ref": "tests/stripe-checkout.test.mjs ('each size shows under its own name, and one of an item carries no quantity'; 'pricing maps whole-line net amounts, the quantity in the name, and frozen shipping exactly'); tests/checkout-sessions.test.mjs ('a line's options travel to the provider, count in the fingerprint, and anything but one short line is refused'); bin/verify-payments quick green locally 2026-11-13 (304 tests)"
+        },
+        {
+          "at": "2026-11-13T16:34:18+00:00",
+          "choice": "A payment line from Commerce may carry options: the line's frozen variant choices as one line of text, exactly as the Commerce order page shows them (such as 'Size: M \u00b7 Colour: Red'), at most 200 characters, no leading or trailing space and no line breaks or control characters; anything else is refused as invalid_request before any Stripe call. Absent for an item without options. options is part of the canonical line, the stored attempt and the request fingerprint. Each Stripe item's name is the item name for one, or 'Name \u00d7 N' for more (each line stays one charge at its net total so discounts split cleanly), and its description is the options text; an item without options sends no description. The 'Original catalog quantity: N' note is removed. Shipping stays 'Shipping' / 'Flat shipping'. Amounts, item ids, quantities and frozen attempts are unchanged. New priced claims record mappingVersion stripe-whole-line-v2 (this naming and description); attempts already claimed as stripe-whole-line-v1 keep and are validated against the exact v1 wording (\"Name (quantity N)\" with \"Original catalog quantity: N\"), so a same-key retry after a lost create response resends the original Stripe parameters. Any other mapping version stays unknown. Authorize.net's hosted page shows only the total and is unchanged. The Payments Worker must be deployed before a Commerce release that sends options, since older Payments refuses the extra field.",
+          "from": "implemented",
+          "implementation_ref": "src/checkout/charge-lines.ts (ChargeLineMapping v1/v2, CURRENT_CHARGE_LINE_MAPPING); src/checkout/sessions.ts (claims record v2, recovery accepts v1 or v2 and recomputes with the record's own version, createSession gets mappingVersion); src/stripe/checkout.ts (adapter compares with the attempt's version); src/commerce/checkout-port.ts; docs/checkout-sessions.md; docs/website/reference/payments.md; .changeset/stripe-line-options.md",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": "tests/stripe-checkout.test.mjs ('each size shows under its own name, and one of an item carries no quantity'; 'pricing maps whole-line net amounts, the quantity in the name, and frozen shipping exactly'); tests/checkout-sessions.test.mjs ('a line's options travel to the provider, count in the fingerprint, and anything but one short line is refused'); bin/verify-payments quick green locally 2026-11-13 (304 tests)"
+        },
+        {
+          "at": "2026-11-13T16:34:18+00:00",
+          "choice": "A payment line from Commerce may carry options: the line's frozen variant choices as one line of text, exactly as the Commerce order page shows them (such as 'Size: M \u00b7 Colour: Red'), at most 200 characters, no leading or trailing space and no line breaks or control characters; anything else is refused as invalid_request before any Stripe call. Absent for an item without options. options is part of the canonical line, the stored attempt and the request fingerprint. Each Stripe item's name is the item name for one, or 'Name \u00d7 N' for more (each line stays one charge at its net total so discounts split cleanly), and its description is the options text; an item without options sends no description. The 'Original catalog quantity: N' note is removed. Shipping stays 'Shipping' / 'Flat shipping'. Amounts, item ids, quantities and frozen attempts are unchanged. New priced claims record mappingVersion stripe-whole-line-v2 (this naming and description); attempts already claimed as stripe-whole-line-v1 keep and are validated against the exact v1 wording (\"Name (quantity N)\" with \"Original catalog quantity: N\"), so a same-key retry after a lost create response resends the original Stripe parameters. Any other mapping version stays unknown. Authorize.net's hosted page shows only the total and is unchanged. The Payments Worker must be deployed before a Commerce release that sends options, since older Payments refuses the extra field.",
+          "from": "verified",
+          "implementation_ref": "src/checkout/charge-lines.ts (ChargeLineMapping v1/v2, CURRENT_CHARGE_LINE_MAPPING); src/checkout/sessions.ts (claims record v2, recovery accepts v1 or v2 and recomputes with the record's own version, createSession gets mappingVersion); src/stripe/checkout.ts (adapter compares with the attempt's version); src/commerce/checkout-port.ts; docs/checkout-sessions.md; docs/website/reference/payments.md; .changeset/stripe-line-options.md",
+          "note": "adjudicated review requires a fix",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "needs_reverification",
+          "verification_ref": "tests/checkout-sessions.test.mjs ('an attempt claimed before line options retries with its original v1 Stripe parameters'; options travel/refused); tests/stripe-checkout.test.mjs ('a v1 attempt's retry sends Stripe its original wording, and v1 lines never pass as current'; sizes and \u00d7 N naming); tests/runtime/checkout-sessions.test.ts (Worker stores v2); bin/verify-payments quick green 2026-11-13 (306 tests); test:plugin-runtime 34 pass"
+        },
+        {
+          "at": "2026-11-13T16:34:25+00:00",
+          "choice": "A payment line from Commerce may carry options: the line's frozen variant choices as one line of text, exactly as the Commerce order page shows them (such as 'Size: M \u00b7 Colour: Red'), at most 200 characters, no leading or trailing space and no line breaks or control characters; anything else is refused as invalid_request before any Stripe call. Absent for an item without options. options is part of the canonical line, the stored attempt and the request fingerprint. Each Stripe item's name is the item name for one, or 'Name \u00d7 N' for more (each line stays one charge at its net total so discounts split cleanly), and its description is the options text; an item without options sends no description. The 'Original catalog quantity: N' note is removed. Shipping stays 'Shipping' / 'Flat shipping'. Amounts, item ids, quantities and frozen attempts are unchanged. New priced claims record mappingVersion stripe-whole-line-v2 (this naming and description); attempts already claimed as stripe-whole-line-v1 keep and are validated against the exact v1 wording (\"Name (quantity N)\" with \"Original catalog quantity: N\"), so a same-key retry after a lost create response resends the original Stripe parameters. Any other mapping version stays unknown. Authorize.net's hosted page shows only the total and is unchanged. The Payments Worker must be deployed before a Commerce release that sends options, since older Payments refuses the extra field.",
+          "from": "needs_reverification",
+          "implementation_ref": "src/checkout/charge-lines.ts (ChargeLineMapping v1/v2, CURRENT_CHARGE_LINE_MAPPING); src/checkout/sessions.ts (claims record v2, recovery accepts v1 or v2 and recomputes with the record's own version, createSession gets mappingVersion); src/stripe/checkout.ts (adapter compares with the attempt's version); src/commerce/checkout-port.ts; docs/checkout-sessions.md; docs/website/reference/payments.md; .changeset/stripe-line-options.md",
+          "note": "bounded implementation recorded",
+          "repair_required": true,
+          "review_classifications": [
+            "required_fix"
+          ],
+          "review_ref": "https://github.com/dinkuskit/payments/pull/119#issuecomment-6858843010 (ClawSweeper P2: pre-upgrade priced attempts would lose same-key retry; fixed by the v2 mapping version)",
+          "review_result": "findings",
+          "review_source_identity": "git:9e27e34e51d2171e2e158f01f4d1cf181d4f2eb8",
+          "to": "implemented",
+          "verification_ref": "tests/checkout-sessions.test.mjs ('an attempt claimed before line options retries with its original v1 Stripe parameters'; options travel/refused); tests/stripe-checkout.test.mjs ('a v1 attempt's retry sends Stripe its original wording, and v1 lines never pass as current'; sizes and \u00d7 N naming); tests/runtime/checkout-sessions.test.ts (Worker stores v2); bin/verify-payments quick green 2026-11-13 (306 tests); test:plugin-runtime 34 pass"
+        },
+        {
+          "at": "2026-11-13T16:34:26+00:00",
+          "choice": "A payment line from Commerce may carry options: the line's frozen variant choices as one line of text, exactly as the Commerce order page shows them (such as 'Size: M \u00b7 Colour: Red'), at most 200 characters, no leading or trailing space and no line breaks or control characters; anything else is refused as invalid_request before any Stripe call. Absent for an item without options. options is part of the canonical line, the stored attempt and the request fingerprint. Each Stripe item's name is the item name for one, or 'Name \u00d7 N' for more (each line stays one charge at its net total so discounts split cleanly), and its description is the options text; an item without options sends no description. The 'Original catalog quantity: N' note is removed. Shipping stays 'Shipping' / 'Flat shipping'. Amounts, item ids, quantities and frozen attempts are unchanged. New priced claims record mappingVersion stripe-whole-line-v2 (this naming and description); attempts already claimed as stripe-whole-line-v1 keep and are validated against the exact v1 wording (\"Name (quantity N)\" with \"Original catalog quantity: N\"), so a same-key retry after a lost create response resends the original Stripe parameters. Any other mapping version stays unknown. Authorize.net's hosted page shows only the total and is unchanged. The Payments Worker must be deployed before a Commerce release that sends options, since older Payments refuses the extra field.",
+          "from": "implemented",
+          "implementation_ref": "ClawSweeper P2 fix: new claims record stripe-whole-line-v2; v1 attempts recompute and replay with the exact v1 wording (src/checkout/charge-lines.ts, src/checkout/sessions.ts, src/stripe/checkout.ts)",
+          "note": "verification recorded in cumulative context",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "verified",
+          "verification_ref": "tests/checkout-sessions.test.mjs ('an attempt claimed before line options retries with its original v1 Stripe parameters'; options travel/refused); tests/stripe-checkout.test.mjs ('a v1 attempt's retry sends Stripe its original wording, and v1 lines never pass as current'; sizes and \u00d7 N naming); tests/runtime/checkout-sessions.test.ts (Worker stores v2); bin/verify-payments quick green 2026-11-13 (306 tests); test:plugin-runtime 34 pass"
         }
       ],
       "id": "payments-stripe-line-options-048",
-      "implementation_ref": "src/commerce/checkout-port.ts (CheckoutLine.options); src/checkout/sessions.ts (validation, canonical line); src/checkout/charge-lines.ts (name 'Name \u00d7 N', description = options); src/stripe/checkout.ts (description only when present, priced and unpriced); docs/checkout-sessions.md; docs/website/reference/payments.md; .changeset/stripe-line-options.md",
+      "implementation_ref": "ClawSweeper P2 fix: new claims record stripe-whole-line-v2; v1 attempts recompute and replay with the exact v1 wording (src/checkout/charge-lines.ts, src/checkout/sessions.ts, src/stripe/checkout.ts)",
       "question": "What does Stripe's hosted payment page show for each item, now that Commerce can send the shopper's chosen options with each payment line?",
-      "rationale": "Ronald 13 Nov 2026 16:03 UTC: 'agreed' to this pick in the Dad's PRs sweep.",
+      "rationale": "Same product decision Ronald agreed 13 Nov 2026 16:03 UTC; only the stored mapping version changes so earlier attempts keep same-key retry.",
       "repair_required": false,
       "review_classifications": [],
-      "review_history": [],
+      "review_history": [
+        {
+          "classifications": [
+            "required_fix"
+          ],
+          "ref": "https://github.com/dinkuskit/payments/pull/119#issuecomment-6858843010 (ClawSweeper P2: pre-upgrade priced attempts would lose same-key retry; fixed by the v2 mapping version)",
+          "result": "findings",
+          "reviewed_at": "2026-11-13T16:34:18+00:00",
+          "source_identity": "git:9e27e34e51d2171e2e158f01f4d1cf181d4f2eb8"
+        }
+      ],
       "review_ref": null,
       "review_result": null,
       "review_source_identity": null,
       "status": "verified",
       "superseded_by": null,
-      "updated_at": "2026-11-13T16:15:31+00:00",
-      "verification_ref": "tests/stripe-checkout.test.mjs ('each size shows under its own name, and one of an item carries no quantity'; 'pricing maps whole-line net amounts, the quantity in the name, and frozen shipping exactly'); tests/checkout-sessions.test.mjs ('a line's options travel to the provider, count in the fingerprint, and anything but one short line is refused'); bin/verify-payments quick green locally 2026-11-13 (304 tests)"
+      "updated_at": "2026-11-13T16:34:26+00:00",
+      "verification_ref": "Re-verified after the ClawSweeper P2 fix: tests/checkout-sessions.test.mjs upgrade regression and tests/stripe-checkout.test.mjs v1 replay pass; bin/verify-payments quick green 2026-11-13 (306 tests); runtime checkout-sessions 4 pass"
     },
     {
       "baseline_ref": "git:f3f4700",
@@ -3693,7 +3803,7 @@
     }
   ],
   "last_activation": {
-    "at": "2026-10-29T23:41:41+00:00",
+    "at": "2026-11-13T16:34:09+00:00",
     "mechanism": "implicit"
   },
   "last_pause": null,
@@ -3712,5 +3822,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-11-13T16:15:31+00:00"
+  "updated_at": "2026-11-13T16:34:26+00:00"
 }

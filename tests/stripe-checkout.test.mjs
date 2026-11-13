@@ -470,3 +470,32 @@ test("a session reports no PaymentIntent only when Stripe says null", async () =
   body = { payment_intent: { object: "payment_intent", id: "pi_tried" } };
   assert.equal((await provider.retrieveSession("cs_no_pi", "acct_one")).paymentIntentId, "pi_tried");
 });
+
+test("a v1 attempt's retry sends Stripe its original wording, and v1 lines never pass as current", async () => {
+  const bodies = [];
+  const httpClient = Stripe.createFetchHttpClient(async (url, init) => {
+    bodies.push(String(init.body ?? ""));
+    return new Response(JSON.stringify({
+      object: "checkout.session", id: "cs_v1", url: "https://checkout.stripe.com/c/pay/cs_v1", status: "open", payment_status: "unpaid",
+      amount_total: 300, currency: "usd", created: 1800000000, expires_at: 1800001860, livemode: false, payment_intent: null,
+      metadata: {}, payment_method_types: ["card"],
+    }), { headers: { "content-type": "application/json" } });
+  });
+  const provider = createStripeCheckout({ apiKey: "sk_test_v1", mode: "test", httpClient });
+  const usd = minor => ({ currency: "USD", minor });
+  const input = {
+    attemptId: "v1", bindingRef: "bind", siteId: "site", stripeAccountId: "acct", expiresAtSeconds: 1800001860,
+    successUrl: "https://store.example/r", cancelUrl: "https://store.example/c", idempotencyKey: "dinkus-checkout:v1",
+    lines: [{ catalogItemId: "hat", quantity: 2, name: "Hat", unitPrice: usd("150") }], total: usd("300"),
+    pricing: { schema: "dinkuskit.commerce.checkout-pricing/v1", merchandiseSubtotal: usd("300"), couponDiscount: usd("0"), netMerchandise: usd("300"),
+      shipping: { configurationId: "ship", revision: 1, mode: "free", charge: usd("0") }, finalTotal: usd("300"),
+      lines: [{ catalogItemId: "hat", quantity: 2, unitPrice: usd("150"), lineSubtotal: usd("300"), discount: usd("0"), netAmount: usd("300") }] },
+    chargeLines: [{ quantity: 1, amountMinor: "300", name: "Hat (quantity 2)", description: "Original catalog quantity: 2" }],
+  };
+  await provider.createSession({ ...input, mappingVersion: "stripe-whole-line-v1" });
+  const params = new URLSearchParams(bodies[0]);
+  assert.equal(params.get("line_items[0][price_data][product_data][name]"), "Hat (quantity 2)");
+  assert.equal(params.get("line_items[0][price_data][product_data][description]"), "Original catalog quantity: 2");
+  await assert.rejects(provider.createSession(input), /invalid_pricing_mapping/);
+  assert.equal(bodies.length, 1);
+});

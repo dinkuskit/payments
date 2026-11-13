@@ -16,7 +16,7 @@ import {
   type PaymentWindowPolicyKind,
 } from "../commerce/checkout-port.js";
 import type { CheckoutBinding, Mode, Principal } from "../hosted/connection.js";
-import { createPricedChargeLines, type CheckoutChargeLine } from "./charge-lines.js";
+import { createPricedChargeLines, CURRENT_CHARGE_LINE_MAPPING, type ChargeLineMapping, type CheckoutChargeLine } from "./charge-lines.js";
 
 export class CheckoutError extends Error {}
 
@@ -58,7 +58,7 @@ export interface AttemptRecord {
   redirectUrl: string | null;
   policyKind?: PaymentWindowPolicyKind;
   pricing?: CheckoutPricingSnapshot;
-  mappingVersion?: "stripe-whole-line-v1";
+  mappingVersion?: ChargeLineMapping;
   chargeLines?: CheckoutChargeLine[];
   /** Pinned at claim so a same-key retry resends the exact original request; absent on older attempts. */
   checkoutText?: "test-card-v1";
@@ -105,6 +105,8 @@ export interface CheckoutProvider {
     total: Money;
     pricing?: CheckoutPricingSnapshot;
     chargeLines?: CheckoutChargeLine[];
+    /** How chargeLines were made; a retry keeps the attempt's own. Absent means current. */
+    mappingVersion?: ChargeLineMapping;
     expiresAtSeconds: number;
     successUrl: string;
     cancelUrl: string;
@@ -581,7 +583,7 @@ export function createCheckoutSessionService(options: {
       policyKind,
       ...(options.mode === "test" ? { checkoutText: "test-card-v1" as const } : {}),
       ...(request.pricing ? {
-        pricing: canonicalizePricing(request.pricing), mappingVersion: "stripe-whole-line-v1" as const,
+        pricing: canonicalizePricing(request.pricing), mappingVersion: CURRENT_CHARGE_LINE_MAPPING,
         chargeLines: createPricedChargeLines(request.lines, request.pricing, request.total.minor),
       } : {}),
     };
@@ -660,7 +662,9 @@ export function createCheckoutSessionService(options: {
     if (now() - record.claimedAtMs >= CREATION_RETRY_WINDOW_MS) return unknown();
     if (record.pricing) {
       // A partial or corrupted priced claim cannot authorize another create.
-      if (record.mappingVersion !== "stripe-whole-line-v1" || !Array.isArray(record.chargeLines)) return unknown();
+      // v1 attempts were claimed before line options; their retry resends the v1 parameters unchanged.
+      if ((record.mappingVersion !== "stripe-whole-line-v1" && record.mappingVersion !== "stripe-whole-line-v2") ||
+          !Array.isArray(record.chargeLines)) return unknown();
       try {
         const original = validatePaymentRequest({
           attemptId: record.attemptId, bindingRef: record.bindingRef, lines: record.lines,
@@ -668,7 +672,7 @@ export function createCheckoutSessionService(options: {
           paymentWindow: { minSeconds: 1800, maxSeconds: 1860 }, paymentMethods: ["card"],
         });
         if (record.policyKind !== "current-bounded-1800-1860" || requestFingerprint(original) !== record.requestFingerprint ||
-            JSON.stringify(record.chargeLines) !== JSON.stringify(createPricedChargeLines(record.lines, record.pricing, record.amountMinor))) return unknown();
+            JSON.stringify(record.chargeLines) !== JSON.stringify(createPricedChargeLines(record.lines, record.pricing, record.amountMinor, record.mappingVersion))) return unknown();
       } catch { return unknown(); }
     } else if (record.mappingVersion !== undefined || record.chargeLines !== undefined) return unknown();
     // Retry the original pinned expires_at and persisted transport params.
@@ -684,7 +688,7 @@ export function createCheckoutSessionService(options: {
         stripeAccountId: record.stripeAccountId,
         lines: record.lines,
         total: { currency: "USD", minor: record.amountMinor },
-        ...(record.pricing ? { pricing: structuredClone(record.pricing), chargeLines: structuredClone(record.chargeLines) } : {}),
+        ...(record.pricing ? { pricing: structuredClone(record.pricing), chargeLines: structuredClone(record.chargeLines), mappingVersion: record.mappingVersion } : {}),
         expiresAtSeconds: record.requestedExpiresAtSeconds,
         successUrl: record.successUrl,
         cancelUrl: record.cancelUrl,

@@ -1176,7 +1176,7 @@ test("claim snapshots transport mapping before await and retries original after 
   payment.pricing.shipping.revision=9;payment.pricing.coupon.quote.quoteId="changed";
   assert.equal((await pending).outcome,"unknown");
   const record=structuredClone(f.attempts.get(original.attemptId));
-  assert.deepEqual(record.pricing,original.pricing);assert.equal(record.mappingVersion,"stripe-whole-line-v1");
+  assert.deepEqual(record.pricing,original.pricing);assert.equal(record.mappingVersion,"stripe-whole-line-v2");
   assert.deepEqual(record.chargeLines,[{quantity:1,amountMinor:"1200",name:"Shipping",description:"Flat shipping"}]);
   assert.deepEqual(f.calls[0][1].chargeLines,record.chargeLines);
   f.setCreateDown(false);
@@ -1187,6 +1187,33 @@ test("claim snapshots transport mapping before await and retries original after 
     assert.equal(params.idempotencyKey,record.idempotencyKey);assert.equal(params.expiresAtSeconds,record.requestedExpiresAtSeconds);
   }
   const final=f.attempts.get(original.attemptId);assert.equal(final.requestFingerprint,record.requestFingerprint);assert.equal(final.requestedExpiresAtSeconds,record.requestedExpiresAtSeconds);
+});
+
+test("an attempt claimed before line options retries with its original v1 Stripe parameters", async () => {
+  const f=fixture();await f.ready();f.setCreateDown(true);
+  // Merchandise worth charging, so the v1 quantity wording is in the record.
+  const payment=priced();payment.pricing.couponDiscount.minor="0";payment.pricing.netMerchandise.minor="1200";
+  payment.pricing.lines[0].discount.minor="0";payment.pricing.lines[0].netAmount.minor="1200";
+  payment.pricing.finalTotal.minor="2400";payment.total.minor="2400";delete payment.pricing.coupon;
+  assert.equal((await f.checkout().ensureSessionFor(owner,payment)).outcome,"unknown");
+  // Exactly what Payments 0.5.0 stored for this claim before its create response was lost.
+  const v1=[{quantity:1,amountMinor:"1200",name:"Hat (quantity 2)",description:"Original catalog quantity: 2"},
+    {quantity:1,amountMinor:"1200",name:"Shipping",description:"Flat shipping"}];
+  const stored=f.attempts.get(payment.attemptId);
+  assert.equal(stored.mappingVersion,"stripe-whole-line-v2");
+  assert.deepEqual(stored.chargeLines[0],{quantity:1,amountMinor:"1200",name:"Hat × 2"});
+  stored.mappingVersion="stripe-whole-line-v1";stored.chargeLines=structuredClone(v1);
+  f.setCreateDown(false);
+  assert.equal((await f.checkout().ensureSessionFor(owner,payment)).outcome,"open");
+  const creates=f.calls.filter(([kind])=>kind==="create");
+  const retried=creates[creates.length-1][1];
+  assert.deepEqual(retried.chargeLines,v1);assert.equal(retried.mappingVersion,"stripe-whole-line-v1");
+  assert.equal(retried.idempotencyKey,creates[0][1].idempotencyKey);
+  // A v1 record whose lines are not exactly v1's own wording is still refused.
+  const g=fixture();await g.ready();g.setCreateDown(true);await g.checkout().ensureSessionFor(owner,payment);
+  const bent=g.attempts.get(payment.attemptId);bent.mappingVersion="stripe-whole-line-v1";
+  const calls=g.calls.length;g.setCreateDown(false);
+  assert.equal((await g.checkout().ensureSessionFor(owner,payment)).outcome,"unknown");assert.equal(g.calls.length,calls);
 });
 
 test("partial or corrupted priced mapping stays unknown without a second create", async () => {

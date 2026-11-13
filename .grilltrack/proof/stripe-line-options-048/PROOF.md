@@ -33,6 +33,15 @@ line_items[3][price_data][product_data][description]=Flat shipping
 Before this change the same tee lines read `Wrong Turn Tee (quantity 1)` with
 description `Original catalog quantity: 1`, and a line could not carry a size.
 
+Attempts claimed before this change (`stripe-whole-line-v1`) keep their
+original wording: `tests/checkout-sessions.test.mjs` ("an attempt claimed
+before line options retries with its original v1 Stripe parameters") stores a
+v1 merchandise record as Payments 0.5.0 wrote it, loses the create response,
+and shows the retry resending the v1 lines under the same idempotency key;
+`tests/stripe-checkout.test.mjs` shows the Stripe adapter sending "Hat
+(quantity 2)" / "Original catalog quantity: 2" for a v1 attempt and refusing
+v1 lines presented as current.
+
 ## 049: expired with no PaymentIntent
 
 `tests/checkout-sessions.test.mjs` ("an expired checkout where no card was
@@ -47,5 +56,5 @@ session has no access to that store's Stripe account.
 
 ## Checks
 
-`bin/verify-payments quick`: 304 tests pass, typecheck, repository contract clean.
+`bin/verify-payments quick`: 306 tests pass, typecheck, repository contract clean.
 `npm run test:plugin-runtime`: 34 pass.
