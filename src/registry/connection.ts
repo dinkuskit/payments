@@ -101,6 +101,9 @@ export type SetupRefusal = typeof SETUP_REFUSALS[number];
 const IN_FLIGHT: readonly string[] = ["starting", "finishing", "pending", "exchanging"];
 // How long Finish setup holds its reservation before Connect may start again.
 const FINISH_HOLD_MS = 30_000;
+// Finish setup writes a secret only while this much of its hold is left, so no other
+// Connect can have reserved control before that write lands.
+const FINISH_WRITE_MARGIN_MS = 5_000;
 type Control = {
   // "finishing" is Finish setup's own in-flight reservation: it serves the store
   // receipt but nothing can exchange it, because its verifier is not saved yet.
@@ -459,6 +462,7 @@ export function createRegistryConnection(options: {
    * Stripe. If DinkusKit.com wants the owner's Approve, the page shows the usual link.
    * Ten bridge calls at most, like a new grant through Continue.
    */
+  const holding = (c: Control) => now() + FINISH_WRITE_MARGIN_MS < c.expiresAt;
   async function finishSetup(user: UserInfo): Promise<RegistryFlowResult> {
     if (!origin || !user?.id || !options.http) return { state: "unconfigured" };
     const prior = await current();
@@ -509,7 +513,8 @@ export function createRegistryConnection(options: {
         if (grant?.error === "owner_approval_required" && expiresAt > now()) {
           // The owner's Approve is still the way in. Save this connection's secret
           // first, then show the link: Continue can only ever see a pending flow
-          // whose verifier is already saved.
+          // whose verifier is already saved. Only while this reservation still holds.
+          if (!holding(c) || (await current())?.revision !== mine.revision) return fail(mine);
           if (!(await options.settings.compareAndSet(STATE_SETTING, stored?.revision ?? null, flow)).applied) return fail(mine);
           const next: Control = { ...c, phase: "pending", expiresAt, interval, nextPollAt: now() + interval * 1000, secretHash: await sha256(flow) };
           return (await options.kv.compareAndSet(CONTROL_KEY, mine.revision, next)).applied ? pending(next) : failure();
@@ -527,6 +532,8 @@ export function createRegistryConnection(options: {
       const checked: RegistryFlowResult = url ? await readStatus({ ...c, binding }, binding, verified.token, url, { diagnostics: false }) : { state: "ready" };
       const shown = checked.state === "ready" && "status" in checked ? (checked.status as { status?: unknown } | undefined)?.status : undefined;
       const session = JSON.stringify({ kind: "session", flowId, token: verified.token, storeKey: grant.store_key } satisfies SessionSecret);
+      // A reply that comes back after the hold lapsed writes nothing: a newer Connect may own control by now.
+      if (!holding(c)) return fail(mine);
       if (!(await options.settings.compareAndSet(STATE_SETTING, stored?.revision ?? null, session)).applied) return fail(mine);
       const next: Control = { ...c, phase: "complete", binding, secretHash: await sha256(session), expiresAt: verified.expiresAt,
         receipt: undefined, verificationUri: undefined, ...(shown ? { lastStatus: { checkedAt: now(), status: shown } } : {}) };

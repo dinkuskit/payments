@@ -80,6 +80,7 @@ async function fixture({ testOnly, installedPluginId, pluginId, endpoint = { sta
       }
       if (url === REGISTRY_CONNECT_URL) {
         f.starts++; const body = JSON.parse(init.body);
+        if (f.connectGate) await f.connectGate;
         if (f.connectRefusal) return json({ error: f.connectRefusal }, 409);
         assert.equal(body.protocol_version, 2); assert.equal(body.service, 'payments'); assert.equal('site_id' in body, false);
         assert.equal(body.callback_uri, `${testOnly?.storeOrigin ?? 'https://shop.example'}/_emdash/admin/plugins/${expectedPluginId}/status`);
@@ -521,6 +522,28 @@ test('a page load while Finish setup waits on DinkusKit.com cannot take the conn
   assert.equal(result.state, 'ready', 'Finish setup still completes and keeps its key');
   assert.equal(f.starts, 1); assert.equal(f.exchanges, 0);
   assert.equal(await sessionKey(store), KEY);
+});
+
+test('a Finish setup reply that comes back after its hold lapsed writes nothing, and the newer Connect still works', async () => {
+  for (const refusal of [null, 'owner_approval_required']) {
+    const { f, connection, store } = await fixture(); f.joinable = true; f.finishRefusal = refusal;
+    let newer, release;
+    // DinkusKit.com answers after the 30-second hold. Meanwhile another Administrator presses
+    // Connect, which has reserved control and read the setting but not yet saved its verifier.
+    f.duringFinish = async () => {
+      f.now += 31_000; f.connectGate = new Promise(resolve => { release = resolve; });
+      newer = connection.start({ id: 'admin' });
+      for (let i = 0; i < 20; i++) await new Promise(resolve => setImmediate(resolve));
+    };
+    const late = await connection.finishSetup({ id: 'admin' });
+    f.connectGate = null; release();
+    assert.deepEqual(late, { state: 'failed', message: 'restart_required' }, `${refusal}: the late reply is dropped`);
+    assert.equal((await newer).state, 'pending', `${refusal}: the newer Connect saves its verifier and waits for Approve`);
+    assert.equal(await sessionKey(store), undefined, `${refusal}: the late reply wrote no key or session`);
+    f.finishRefusal = null; f.now += 5000; f.approved = true;
+    assert.equal((await connection.exchange({ id: 'admin' })).state, 'ready', `${refusal}: and Continue finishes it`);
+    assert.equal(await sessionKey(store), KEY);
+  }
 });
 
 test('the page says which business the store is connected to, read with this plugin\'s own pass', async () => {
