@@ -2,8 +2,9 @@
    [DinkusKit Commerce](https://plugins.emdashcms.com/plugins/@dinkuskit.com/dinkus-commerce)
    first. Its connection creates the store that Payments joins.
 2. Install DinkusKit Payments from the Registry in your EmDash admin.
-3. Open **Store > Payment settings**, press **Connect**, and follow
-   the link to approve at DinkusKit.com.
+3. Open **Store > Payment settings**. If Commerce is already connected,
+   press **Finish setup**: no second approval is needed. Otherwise press
+   **Connect** and follow the link to approve at DinkusKit.com.
 4. Follow the
    [Payments guide](https://dinkuskit.com/docs/reference/payments)
    through Stripe test setup and checking the connection.

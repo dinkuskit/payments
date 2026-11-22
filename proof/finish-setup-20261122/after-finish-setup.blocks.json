@@ -1,0 +1,244 @@
+{
+  "blocks": [
+    {
+      "type": "header",
+      "text": "Payment setup"
+    },
+    {
+      "type": "banner",
+      "title": "Not ready to sell",
+      "description": "Complete both steps before accepting regular customer payments.",
+      "variant": "alert"
+    },
+    {
+      "type": "section",
+      "text": "Connect payments: Not complete. DinkusKit Payments status was checked. No processor account is connected. Choose your business country and select Set up Stripe to connect your processor account. Already have Stripe? Sign in during setup to reuse your details."
+    },
+    {
+      "type": "section",
+      "text": "Place a test order: Not complete. A paid TEST order visible in Commerce admin has not been confirmed. Connect payments first, then place a test order."
+    },
+    {
+      "type": "section",
+      "text": "Connected to Acme Goods on DinkusKit. DinkusKit plugins on this store: Commerce, Payments and Ship. To disconnect one, open Your stores at DinkusKit.com."
+    },
+    {
+      "type": "form",
+      "block_id": "business-country",
+      "fields": [
+        {
+          "type": "select",
+          "action_id": "businessCountry",
+          "label": "Business country (where your business is registered; Stripe can't change it later)",
+          "options": [
+            {
+              "label": "Choose a country",
+              "value": ""
+            },
+            {
+              "label": "Australia",
+              "value": "AU"
+            },
+            {
+              "label": "Austria",
+              "value": "AT"
+            },
+            {
+              "label": "Belgium",
+              "value": "BE"
+            },
+            {
+              "label": "Brazil",
+              "value": "BR"
+            },
+            {
+              "label": "Bulgaria",
+              "value": "BG"
+            },
+            {
+              "label": "Canada",
+              "value": "CA"
+            },
+            {
+              "label": "Croatia",
+              "value": "HR"
+            },
+            {
+              "label": "Cyprus",
+              "value": "CY"
+            },
+            {
+              "label": "Czech Republic",
+              "value": "CZ"
+            },
+            {
+              "label": "Denmark",
+              "value": "DK"
+            },
+            {
+              "label": "Estonia",
+              "value": "EE"
+            },
+            {
+              "label": "Finland",
+              "value": "FI"
+            },
+            {
+              "label": "France",
+              "value": "FR"
+            },
+            {
+              "label": "Germany",
+              "value": "DE"
+            },
+            {
+              "label": "Gibraltar",
+              "value": "GI"
+            },
+            {
+              "label": "Greece",
+              "value": "GR"
+            },
+            {
+              "label": "Hong Kong",
+              "value": "HK"
+            },
+            {
+              "label": "Hungary",
+              "value": "HU"
+            },
+            {
+              "label": "Ireland",
+              "value": "IE"
+            },
+            {
+              "label": "Italy",
+              "value": "IT"
+            },
+            {
+              "label": "Japan",
+              "value": "JP"
+            },
+            {
+              "label": "Latvia",
+              "value": "LV"
+            },
+            {
+              "label": "Liechtenstein",
+              "value": "LI"
+            },
+            {
+              "label": "Lithuania",
+              "value": "LT"
+            },
+            {
+              "label": "Luxembourg",
+              "value": "LU"
+            },
+            {
+              "label": "Malaysia",
+              "value": "MY"
+            },
+            {
+              "label": "Malta",
+              "value": "MT"
+            },
+            {
+              "label": "Mexico",
+              "value": "MX"
+            },
+            {
+              "label": "Netherlands",
+              "value": "NL"
+            },
+            {
+              "label": "New Zealand",
+              "value": "NZ"
+            },
+            {
+              "label": "Norway",
+              "value": "NO"
+            },
+            {
+              "label": "Poland",
+              "value": "PL"
+            },
+            {
+              "label": "Portugal",
+              "value": "PT"
+            },
+            {
+              "label": "Romania",
+              "value": "RO"
+            },
+            {
+              "label": "Singapore",
+              "value": "SG"
+            },
+            {
+              "label": "Slovakia",
+              "value": "SK"
+            },
+            {
+              "label": "Slovenia",
+              "value": "SI"
+            },
+            {
+              "label": "Spain",
+              "value": "ES"
+            },
+            {
+              "label": "Sweden",
+              "value": "SE"
+            },
+            {
+              "label": "Switzerland",
+              "value": "CH"
+            },
+            {
+              "label": "Thailand",
+              "value": "TH"
+            },
+            {
+              "label": "United Arab Emirates",
+              "value": "AE"
+            },
+            {
+              "label": "United Kingdom",
+              "value": "GB"
+            },
+            {
+              "label": "United States",
+              "value": "US"
+            }
+          ],
+          "initial_value": ""
+        }
+      ],
+      "submit": {
+        "label": "Set up Stripe",
+        "action_id": "setup_processor"
+      }
+    },
+    {
+      "type": "actions",
+      "elements": [
+        {
+          "type": "button",
+          "label": "Check connection",
+          "action_id": "check"
+        },
+        {
+          "type": "button",
+          "label": "Reconnect",
+          "action_id": "connect"
+        },
+        {
+          "type": "button",
+          "label": "Check provider identity",
+          "action_id": "check_provider_identity"
+        }
+      ]
+    }
+  ]
+}

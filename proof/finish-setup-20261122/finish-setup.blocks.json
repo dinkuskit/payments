@@ -1,0 +1,32 @@
+{
+  "blocks": [
+    {
+      "type": "header",
+      "text": "Payment setup"
+    },
+    {
+      "type": "banner",
+      "title": "Not ready to sell",
+      "description": "Complete both steps before accepting regular customer payments.",
+      "variant": "alert"
+    },
+    {
+      "type": "section",
+      "text": "Connect payments: Not complete. Almost ready: this store is already connected to DinkusKit. Select Finish setup to connect Payments to the same business, then choose your business country and set up Stripe here."
+    },
+    {
+      "type": "section",
+      "text": "Place a test order: Not complete. A paid TEST order visible in Commerce admin has not been confirmed. Connect payments first, then place a test order."
+    },
+    {
+      "type": "actions",
+      "elements": [
+        {
+          "type": "button",
+          "label": "Finish setup",
+          "action_id": "finish_setup"
+        }
+      ]
+    }
+  ]
+}
