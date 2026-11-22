@@ -25,6 +25,13 @@ function authorizedOr(result: Awaited<ReturnType<ReturnType<typeof createRegistr
 
 export function createPaymentsPlugin(config: PaymentsPluginConfig = DEFAULT_CONFIG): SandboxedPlugin {
   return {
+  hooks: {
+    // Uninstall cancels only this plugin's DinkusKit key (connect-uninstall-cancels-key-134).
+    // The store, Commerce's and Ship's keys and the Stripe account stay as they are.
+    "plugin:uninstall": async (_event, ctx) => {
+      await buildConnection(ctx, config).cancelKey();
+    },
+  },
   routes: {
     admin: {
       public: false,
@@ -47,6 +54,8 @@ export function createPaymentsPlugin(config: PaymentsPluginConfig = DEFAULT_CONF
             if (actionId === "check_provider_identity") return renderSetupScreen(await connection.providerIdentity(routeCtx.user));
             if (actionId === "setup_processor") return renderSetupScreen(await connection.setupProcessor(routeCtx.user));
             if (actionId === "connect") return renderSetupScreen(await connection.start(routeCtx.user));
+            // Approve once (store-connect-approve-once-125): join the store DinkusKit.com already knows.
+            if (actionId === "finish_setup") return renderSetupScreen(await connection.finishSetup(routeCtx.user));
             if (actionId === "continue" || actionId === "check") return renderSetupScreen(authorizedOr(await connection.exchange(user)));
           }
           // DinkusKit's Approve sends the owner back to this page, so a pending

@@ -151,6 +151,13 @@ function connectionStep(status: PaymentsStatus | null, connectionState?: string,
     const description = diagnostics?.lastFailure ? messages[diagnostics.lastFailure.category] : "The payment account has not been confirmed. No recorded failure detail is available for this attempt.";
     return { title: "Connect payments", status: "incomplete", description: `${description} ${status.state === "recovery_required" ? "The safe setup retry window has ended. Contact support to recover this connection; do not start another account." : "Your DinkusKit authorization is connected. Check status before deciding whether to explicitly resume setup."}` };
   }
+  if (connectionState === "finish_setup") {
+    return {
+      title: "Connect payments",
+      status: "incomplete",
+      description: "Almost ready: this store is already connected to DinkusKit. Select Finish setup to connect Payments to the same business, then choose your business country and set up Stripe here.",
+    };
+  }
   if (connectionState === "unconfigured") {
     return {
       title: "Connect payments",
@@ -343,6 +350,20 @@ function lastCheckedProjection(input: unknown): { projection: SetupScreenProject
   return { projection: projectSetupScreen({ availability: "available", status }), at };
 }
 
+const PLUGIN_LABELS = { commerce: "Commerce", payments: "Payments", ship: "Ship" } as const;
+
+// connect-shows-siblings-133: the business DinkusKit.com has this store under, and the
+// DinkusKit plugins that share it. Shown only; nothing here decides checkout.
+export function describeConnectedTo(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return;
+  const { business, plugins } = value as { business?: unknown; plugins?: unknown };
+  if (typeof business !== "string" || !business.trim() || !Array.isArray(plugins)) return;
+  const names = plugins.filter((name): name is keyof typeof PLUGIN_LABELS => typeof name === "string" && Object.hasOwn(PLUGIN_LABELS, name)).map(name => PLUGIN_LABELS[name]);
+  if (names.length === 0) return;
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `Connected to ${business.trim()} on DinkusKit. DinkusKit plugins on this store: ${list}. To disconnect one, open Your stores at DinkusKit.com.`;
+}
+
 export function renderSetupScreen(input: unknown) {
   const nested = input && typeof input === "object" && "state" in input && "status" in input ? input.status : input;
   const lastChecked = lastCheckedProjection(input);
@@ -356,7 +377,7 @@ export function renderSetupScreen(input: unknown) {
   // A missing or refused key is fixed by Connect again, which hands over a new one.
   const keyProblem = state === "store_key_required" || state === "pass_refused" && (refusal === "invalid_store_key" || refusal === "site_mismatch");
   const otherRefusal = state === "pass_refused" && !keyProblem && refusal !== "service_not_enabled";
-  const action = state === "pending" || state === "connecting" ? "continue" : otherRefusal || state === "provider_identity" || state === "authorized" || state === "checking" || state === "check_failed" || state === "setup_unconfirmed" || state === "setup_refused" || state === "ready" || state === "processor_setup" ? "check" : "connect";
+  const action = state === "finish_setup" ? "finish_setup" : state === "pending" || state === "connecting" ? "continue" : otherRefusal || state === "provider_identity" || state === "authorized" || state === "checking" || state === "check_failed" || state === "setup_unconfirmed" || state === "setup_refused" || state === "ready" || state === "processor_setup" ? "check" : "connect";
   // A Stripe change was asked for after this page's DinkusKit sign-in lapsed.
   const signIn = state === "ready" && input && typeof input === "object" && (input as { signIn?: unknown }).signIn === true;
   // The setup failure detail is admin-only, so it needs this admin's own sign-in.
@@ -373,10 +394,11 @@ export function renderSetupScreen(input: unknown) {
   const statusRecord = statusValue && typeof statusValue === "object" ? statusValue as { state?: unknown; businessCountry?: unknown } : undefined;
   const savedCountry = statusRecord?.businessCountry;
   const needsCountry = canSetup && savedCountry === null && statusRecord?.state === "disconnected";
-  const actionLabel = action === "continue" ? "Continue" : action === "check" ? "Check connection" : keyProblem ? "Connect again" : state === "action_required" || state === "pass_refused" ? "Sign in again" : "Connect";
+  const actionLabel = action === "finish_setup" ? "Finish setup" : action === "continue" ? "Continue" : action === "check" ? "Check connection" : keyProblem ? "Connect again" : state === "action_required" || state === "pass_refused" ? "Sign in again" : "Connect";
   const isConnected = state === "ready" || state === "processor_setup" || state === "provider_identity";
   const supportReference = (state === "ready" || state === "processor_setup") && input && typeof input === "object" && "diagnostics" in input
     ? setupSupportReference(statusValue, input.diagnostics) : undefined;
+  const connectedTo = state === "ready" ? describeConnectedTo((input as { connectedTo?: unknown }).connectedTo) : undefined;
   const rawProviderIdentity = input && typeof input === "object" && "providerIdentity" in input
     ? (input as { providerIdentity?: unknown }).providerIdentity
     : undefined;
@@ -397,6 +419,7 @@ export function renderSetupScreen(input: unknown) {
         type: "section",
         text: `${step.title}: ${STEP_LABELS[step.status]}. ${step.description}`,
       })),
+      ...(connectedTo ? [{ type: "section", text: connectedTo }] : []),
       ...(typeof savedCountry === "string" && Object.hasOwn(BUSINESS_COUNTRIES, savedCountry)
         ? [{ type: "section", text: `Business country: ${BUSINESS_COUNTRIES[savedCountry]}. Stripe can't change it.` }] : []),
       ...(supportReference ? [{ type: "section", text: `Setup support reference: ${supportReference}` }] : []),

@@ -38,6 +38,14 @@ export const REGISTRY_ORIGIN = "https://dinkuskit.com";
 export const REGISTRY_ISSUER = "https://dinkuskit.com/account";
 export const REGISTRY_JWKS_URL = `${REGISTRY_ORIGIN}/account/.well-known/jwks.json`;
 export const REGISTRY_CONNECT_URL = `${REGISTRY_ORIGIN}/api/store-connections`;
+/** Finish setup (store-connect-approve-once-125): whether this store is already connected, and joining it. */
+export const REGISTRY_LOOKUP_URL = `${REGISTRY_CONNECT_URL}/lookup`;
+export const REGISTRY_FINISH_URL = `${REGISTRY_CONNECT_URL}/finish`;
+/** The business and plugins the store is connected to (connect-shows-siblings-133). */
+export const STORE_CONNECTION_URL = `${REGISTRY_ORIGIN}/api/store-connection`;
+export const STORE_CONNECTION_SCOPE = "store:connection";
+/** Uninstall cancels this plugin's own key (connect-uninstall-cancels-key-134). */
+export const STORE_KEY_CANCEL_URL = `${REGISTRY_ORIGIN}/api/store-keys/cancel`;
 export const REGISTRY_CLIENT_ID = "dinkus-payments-emdash";
 export const REGISTRY_SERVICE = "payments";
 export const REGISTRY_CALLBACK_PATH = `/_emdash/admin/plugins/${registryInstallationIdentity.installedPluginId}/status`;
@@ -80,6 +88,9 @@ export type ProofReceipt = Readonly<{
   site_origin: string; callback_uri: string; code_challenge: string; expires_at: number;
 }>;
 type Binding = { siteId: string; origin: string; issuer: string; subject: string };
+/** What DinkusKit.com says the store is connected to; shown on the page, never used for checkout. */
+export type ConnectedTo = { business: string; plugins: ("commerce" | "payments" | "ship")[] };
+const PLUGIN_NAMES = ["commerce", "payments", "ship"] as const;
 type FlowSecret = { kind: "flow"; flowId: string; verifier: string; storeKey?: string };
 type SessionSecret = { kind: "session"; flowId: string; token: string; storeKey?: string };
 type LastStatus = { siteId: string; origin: string; adminId: string; checkedAt: number; status: unknown };
@@ -87,8 +98,16 @@ type LastStatus = { siteId: string; origin: string; adminId: string; checkedAt: 
 // Never carry any other response text to the page.
 export const SETUP_REFUSALS = ["merchant_country_required", "payments_service_unconfigured"] as const;
 export type SetupRefusal = typeof SETUP_REFUSALS[number];
+const IN_FLIGHT: readonly string[] = ["starting", "finishing", "pending", "exchanging"];
+// How long Finish setup holds its reservation before Connect may start again.
+const FINISH_HOLD_MS = 30_000;
+// Finish setup writes a secret only while this much of its hold is left, so no other
+// Connect can have reserved control before that write lands.
+const FINISH_WRITE_MARGIN_MS = 5_000;
 type Control = {
-  phase: "starting" | "pending" | "exchanging" | "complete" | "failed";
+  // "finishing" is Finish setup's own in-flight reservation: it serves the store
+  // receipt but nothing can exchange it, because its verifier is not saved yet.
+  phase: "starting" | "finishing" | "pending" | "exchanging" | "complete" | "failed";
   flowId: string; adminId: string; origin: string; expiresAt: number;
   binding?: Binding; receipt?: ProofReceipt; verificationUri?: string;
   interval?: number; nextPollAt?: number; secretHash?: string;
@@ -97,7 +116,8 @@ type Control = {
 };
 export type RegistryFlowResult =
   | { state: "provider_identity"; providerIdentity: ProviderIdentityDiagnostic }
-  | { state: "unconfigured" | "disconnected" | "connecting" | "ready" | "checking" | "recovery_required"; receipt?: ProofReceipt; status?: unknown; diagnostics?: ConnectionDiagnostics; signIn?: true; detailSignIn?: true }
+  | { state: "unconfigured" | "disconnected" | "connecting" | "ready" | "checking" | "recovery_required"; receipt?: ProofReceipt; status?: unknown; diagnostics?: ConnectionDiagnostics; signIn?: true; detailSignIn?: true; connectedTo?: ConnectedTo }
+  | { state: "finish_setup" }
   | { state: "action_required" }
   | { state: "store_key_required"; lastChecked?: { at: number; status: unknown } }
   | { state: "pass_refused"; refusal: PassRefusal }
@@ -202,7 +222,7 @@ export function createRegistryConnection(options: {
     if (!origin || !user?.id || !options.http) return { state: "unconfigured" };
     const prior = await current();
     const p = prior?.value;
-    if (p && ["starting", "pending", "exchanging"].includes(p.phase) && p.expiresAt > now()) {
+    if (p && IN_FLIGHT.includes(p.phase) && p.expiresAt > now()) {
       return p.phase === "pending" && p.adminId === user.id ? pending(p) : { state: "connecting" };
     }
     if (p?.binding && p.binding.origin !== origin) return failure();
@@ -248,7 +268,7 @@ export function createRegistryConnection(options: {
   }
   async function receipt(connectionId: string): Promise<ProofReceipt | null> {
     const c = (await current())?.value;
-    return origin && c && ["pending", "exchanging"].includes(c.phase) && c.origin === origin && c.expiresAt > now() &&
+    return origin && c && ["finishing", "pending", "exchanging"].includes(c.phase) && c.origin === origin && c.expiresAt > now() &&
       c.receipt?.connection_id === connectionId ? c.receipt : null;
   }
   async function verifySessionToken(token: string, siteId: string) {
@@ -281,7 +301,7 @@ export function createRegistryConnection(options: {
     // A finished, lapsed or other admin's sign-in is reported the way the page
     // load reports it, never as a broken connection.
     if (c.phase === "complete" || c.phase === "failed" || c.adminId !== user?.id || c.origin !== origin || c.expiresAt <= now()) return status(user);
-    if (c.phase === "exchanging") return { state: "connecting" };
+    if (c.phase === "exchanging" || c.phase === "finishing") return { state: "connecting" };
     if (c.phase !== "pending") return failure();
     if (now() < c.nextPollAt!) {
       const wait = c.nextPollAt! - now();
@@ -337,7 +357,7 @@ export function createRegistryConnection(options: {
     try {
       const c = (await current())?.value;
       if (!origin || !options.http) return { state: "unconfigured" };
-      if (!c) return { state: configured ? "disconnected" : "unconfigured" };
+      if (!c) return { state: !configured ? "unconfigured" : await joinable() ? "finish_setup" : "disconnected" };
       if (c.origin !== origin) return { state: "action_required" };
       // This admin's own sign-in still in progress; anyone else reads status.
       if (c.adminId === user?.id && c.expiresAt > now() && c.phase !== "failed" && c.phase !== "complete") {
@@ -369,7 +389,11 @@ export function createRegistryConnection(options: {
         return stored?.parsed.kind === "session" ? stored.parsed.token : null;
       };
       const checked = await readStatus(c, c.binding, token, url, { remember: true, storePass: true, diagnosticsToken: adminToken });
-      return checked.state === "action_required" ? { state: "pass_refused", refusal: "payments_refused" } : checked;
+      if (checked.state === "action_required") return { state: "pass_refused", refusal: "payments_refused" };
+      // Diagnostics already used this request's bridge calls; the line waits for the next load.
+      if (checked.state !== "ready" || checked.diagnostics || checked.detailSignIn) return checked;
+      const shared = await connectedTo(storeKey, c.binding.siteId);
+      return shared ? { ...checked, connectedTo: shared } : checked;
     } catch { return checkFailure(stage); }
   }
   // Payments verifies the signature; this only refuses a pass that is plainly
@@ -420,6 +444,140 @@ export function createRegistryConnection(options: {
       if (opts.remember) await rememberStatus(c, binding, decoded);
       return { state: "ready", status: { availability: "available", status: decoded, message: "Payments status checked." }, ...(diagnostics ? { diagnostics } : {}), ...(detailSignIn ? { detailSignIn: true as const } : {}) };
     } catch { return checkFailure(stage); }
+  }
+  // Whether this page offers Finish setup instead of Connect: DinkusKit.com says the
+  // store is already connected and this plugin may join it without a second Approve.
+  async function joinable(): Promise<boolean> {
+    try {
+      const response = await options.http!.fetch(REGISTRY_LOOKUP_URL, noRedirect({ method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ protocol_version: 2, client_id: REGISTRY_CLIENT_ID, service: REGISTRY_SERVICE, site_origin: origin, callback_uri: exactCallback(origin!) }) }));
+      return response.ok && (await response.json() as { finish_setup?: unknown })?.finish_setup === true;
+    } catch { return false; }
+  }
+  /**
+   * Finish setup (store-connect-approve-once-125, connect-payments-straight-to-stripe-132):
+   * starts a connection as Connect does, then asks DinkusKit.com to approve it for the
+   * business that already connected this store. On success it saves this plugin's key and
+   * session and reads status, so the page goes straight on to the business country and
+   * Stripe. If DinkusKit.com wants the owner's Approve, the page shows the usual link.
+   * Ten bridge calls at most, like a new grant through Continue.
+   */
+  const holding = (c: Control) => now() + FINISH_WRITE_MARGIN_MS < c.expiresAt;
+  async function finishSetup(user: UserInfo): Promise<RegistryFlowResult> {
+    if (!origin || !user?.id || !options.http) return { state: "unconfigured" };
+    const prior = await current();
+    const p = prior?.value;
+    if (p && IN_FLIGHT.includes(p.phase) && p.expiresAt > now()) {
+      return p.phase === "pending" && p.adminId === user.id ? pending(p) : { state: "connecting" };
+    }
+    // A store this plugin connected before reconnects with Connect.
+    if (p?.binding) return start(user);
+    let reserved: Versioned<Control> | null = null;
+    try {
+      const stored = await options.settings.getVersioned<string>(STATE_SETTING);
+      const verifier = base64url(randomBytes(32));
+      const challenge = await sha256(verifier);
+      const response = await options.http.fetch(REGISTRY_CONNECT_URL, noRedirect({ method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ protocol_version: 2, client_id: REGISTRY_CLIENT_ID, service: REGISTRY_SERVICE,
+          site_origin: origin, callback_uri: exactCallback(origin), code_challenge: challenge, code_challenge_method: "S256" }) }));
+      if (!response.ok) {
+        const refusal = response.status === 409 ? await response.json().then(value => (value as { error?: unknown })?.error, () => undefined) : undefined;
+        return refusal === "connect_commerce_first" ? { state: "commerce_required" } : failure();
+      }
+      const body = await response.json() as Record<string, unknown>;
+      const { site_id: siteId, connection_id: connectionId, expires_at: expiresAt, interval } = body;
+      if (body.protocol_version !== 2 || !safeString(siteId, 200) || !SITE_ID_RE.test(siteId) ||
+          !safeString(connectionId, 200) || !safeString(body.challenge, 512) ||
+          typeof expiresAt !== "number" || !Number.isSafeInteger(expiresAt) || expiresAt <= now() || expiresAt > now() + MAX_TRANSACTION_MS ||
+          typeof interval !== "number" || !Number.isInteger(interval) || interval < 1 || interval > 60 ||
+          body.verification_uri !== `${verificationOrigin}/account/connect?connection_id=${encodeURIComponent(connectionId)}`) return failure();
+      const storeKey = storeKeyIn(stored?.value);
+      const flowId = newId();
+      const flow = JSON.stringify({ kind: "flow", flowId, verifier, ...(storeKey ? { storeKey } : {}) } satisfies FlowSecret);
+      // Reserve first, as Connect does: DinkusKit.com reads the receipt from this
+      // store's proof route. "finishing" serves that receipt, but no page load can
+      // exchange it, and it lapses after FINISH_HOLD_MS if this request never ends.
+      const c: Control = { phase: "finishing", flowId, adminId: user.id, origin, expiresAt: Math.min(expiresAt, now() + FINISH_HOLD_MS),
+        verificationUri: body.verification_uri as string,
+        receipt: { version: 2, site_id: siteId, connection_id: connectionId, challenge: body.challenge,
+          client_id: REGISTRY_CLIENT_ID, service: REGISTRY_SERVICE, site_origin: origin,
+          callback_uri: exactCallback(origin), code_challenge: challenge, expires_at: expiresAt } };
+      if (!(await options.kv.compareAndSet(CONTROL_KEY, prior?.revision ?? null, c)).applied) return { state: "connecting" };
+      const mine = await current();
+      if (!mine || mine.value.flowId !== flowId || mine.value.phase !== "finishing") return failure();
+      reserved = mine;
+      const finished = await options.http.fetch(REGISTRY_FINISH_URL, noRedirect({ method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: REGISTRY_CLIENT_ID, connection_id: connectionId, code_verifier: verifier }) }));
+      const grant = await finished.json().catch(() => ({})) as Record<string, unknown>;
+      if (!finished.ok) {
+        if (grant?.error === "owner_approval_required" && expiresAt > now()) {
+          // The owner's Approve is still the way in. Save this connection's secret
+          // first, then show the link: Continue can only ever see a pending flow
+          // whose verifier is already saved. Only while this reservation still holds.
+          if (!holding(c) || (await current())?.revision !== mine.revision) return fail(mine);
+          if (!(await options.settings.compareAndSet(STATE_SETTING, stored?.revision ?? null, flow)).applied) return fail(mine);
+          const next: Control = { ...c, phase: "pending", expiresAt, interval, nextPollAt: now() + interval * 1000, secretHash: await sha256(flow) };
+          return (await options.kv.compareAndSet(CONTROL_KEY, mine.revision, next)).applied ? pending(next) : failure();
+        }
+        // Any other refusal ends this attempt, so Connect or Finish setup starts afresh.
+        await fail(mine);
+        return grant?.error === "connect_commerce_first" ? { state: "commerce_required" } : failure();
+      }
+      if (!safeString(grant.access_token, 4096) || grant.token_type !== "Bearer" || grant.site_id !== siteId ||
+          typeof grant.expires_in !== "number" || !Number.isInteger(grant.expires_in) || grant.expires_in < 1 || grant.expires_in > 300 ||
+          typeof grant.store_key !== "string" || !STORE_KEY_RE.test(grant.store_key)) return fail(mine);
+      const verified = await verifySessionToken(grant.access_token, siteId);
+      const binding: Binding = { siteId, origin, issuer: REGISTRY_ISSUER, subject: verified.subject };
+      const url = statusUrl();
+      const checked: RegistryFlowResult = url ? await readStatus({ ...c, binding }, binding, verified.token, url, { diagnostics: false }) : { state: "ready" };
+      const shown = checked.state === "ready" && "status" in checked ? (checked.status as { status?: unknown } | undefined)?.status : undefined;
+      const session = JSON.stringify({ kind: "session", flowId, token: verified.token, storeKey: grant.store_key } satisfies SessionSecret);
+      // A reply that comes back after the hold lapsed writes nothing: a newer Connect may own control by now.
+      if (!holding(c)) return fail(mine);
+      if (!(await options.settings.compareAndSet(STATE_SETTING, stored?.revision ?? null, session)).applied) return fail(mine);
+      const next: Control = { ...c, phase: "complete", binding, secretHash: await sha256(session), expiresAt: verified.expiresAt,
+        receipt: undefined, verificationUri: undefined, ...(shown ? { lastStatus: { checkedAt: now(), status: shown } } : {}) };
+      return (await options.kv.compareAndSet(CONTROL_KEY, mine.revision, next)).applied ? checked : failure();
+    } catch {
+      // A transport or reply failure after the reservation ends it too.
+      if (reserved) { try { return await fail(reserved); } catch { /* It lapses after FINISH_HOLD_MS. */ } }
+      return failure();
+    }
+  }
+  /**
+   * Which business the store is connected to and which DinkusKit plugins share it
+   * (connect-shows-siblings-133), read with this plugin's own key. Two bridge calls;
+   * nothing is shown if either fails.
+   */
+  async function connectedTo(storeKey: string, siteId: string): Promise<ConnectedTo | undefined> {
+    try {
+      const traded = await options.http!.fetch(STORE_PASSES_URL, noRedirect({ method: "POST",
+        headers: { Authorization: `Bearer ${storeKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ site_id: siteId, scope: STORE_CONNECTION_SCOPE, audience: "dinkuskit" }) }));
+      const pass = traded.ok ? (await traded.json() as { access_token?: unknown })?.access_token : undefined;
+      if (!safeString(pass, 4096)) return;
+      const read = await options.http!.fetch(STORE_CONNECTION_URL, noRedirect({ headers: { Authorization: `Bearer ${pass}` } }));
+      if (!read.ok) return;
+      const body = await read.json() as { business?: unknown; plugins?: unknown };
+      if (!safeString(body?.business, 200) || !Array.isArray(body.plugins) || body.plugins.some(name => !PLUGIN_NAMES.includes(name))) return;
+      return { business: body.business, plugins: body.plugins as ConnectedTo["plugins"] };
+    } catch { return; }
+  }
+  /**
+   * The plugin:uninstall hook (connect-uninstall-cancels-key-134): cancels only this
+   * plugin's key at DinkusKit.com. A failure changes nothing here, and the owner can
+   * still press Disconnect under Your stores.
+   */
+  async function cancelKey(): Promise<boolean> {
+    try {
+      const c = (await current())?.value;
+      const storeKey = storeKeyIn(await options.settings.get<unknown>(STATE_SETTING));
+      if (!c?.binding || !storeKey || !options.http) return false;
+      const response = await options.http.fetch(STORE_KEY_CANCEL_URL, noRedirect({ method: "POST",
+        headers: { Authorization: `Bearer ${storeKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ site_id: c.binding.siteId }) }));
+      return response.ok;
+    } catch { return false; }
   }
   async function setupProcessor(user: UserInfo, country?: unknown): Promise<RegistryFlowResult> {
     const prior = await current();
@@ -486,6 +644,8 @@ export function createRegistryConnection(options: {
   }
   return {
     start,
+    finishSetup,
+    cancelKey,
     receipt,
     exchange,
     status,

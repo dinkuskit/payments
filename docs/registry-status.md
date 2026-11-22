@@ -261,7 +261,7 @@ one KV write; neither holds a token. Continue inside the poll interval reuses
 its first control read, so it also stays at ten bridge calls. Until Connect has
 given this plugin its key, the same admin sees that status with "Last checked <time>"; another
 admin sees "Payment status not checked". A store-key page load is six bridge
-calls. Diagnostics for a connecting or recovery status stay admin-only: they use
+calls, plus two for the connected-to line (below) when status is ready. Diagnostics for a connecting or recovery status stay admin-only: they use
 the viewing admin's own live sign-in (nine calls in all), and without one the
 page asks for Sign in again to see the recorded failure detail.
 
@@ -283,3 +283,33 @@ When `POST /v1/connect` refuses with `merchant_country_required` or
 `payments_service_unconfigured`, both of which create nothing, the page names
 that reason. Any other refusal still reads as unconfirmed, and no other
 response text reaches the page.
+
+## Finish setup and the connected-to line (step (b) of store-connect-order-135)
+
+**Finish setup** (store-connect-approve-once-125). When this page has never
+connected, each load asks DinkusKit.com `POST /api/store-connections/lookup`
+whether the store is already connected for the owner's business. If so, the page
+says "Almost ready: this store is already connected to DinkusKit" and shows one
+**Finish setup** button instead of **Connect**. Finish setup starts a connection
+as Connect does, then calls `POST /api/store-connections/finish` with the same
+PKCE verifier. DinkusKit.com reads this store's proof receipt, approves without a
+second visit and hands over the session and this plugin's own key. The page then
+reads status with the new session and goes straight on to the business country and
+**Set up Stripe** (connect-payments-straight-to-stripe-132). The whole press is ten
+bridge calls at most. If DinkusKit.com answers `owner_approval_required` (the
+owner pressed Disconnect or Revoke for Payments), the page shows the usual
+**Authorize Payments at DinkusKit** link and **Continue**. `connect_commerce_first`
+shows the Commerce-first step. DinkusKit.com emails the owner that Dinkus Payments
+joined.
+
+**Connected-to line** (connect-shows-siblings-133). After a ready status read with
+the store key, the page trades the same key for a `store:connection` pass
+(audience `dinkuskit`) and reads `GET /api/store-connection`. It shows "Connected
+to <business> on DinkusKit. DinkusKit plugins on this store: Commerce, Payments
+and Ship." If either call fails, or an answer names an unknown plugin, the line is
+left off and nothing else changes. Loads that read diagnostics skip it.
+
+**Uninstall** (connect-uninstall-cancels-key-134). The `plugin:uninstall` hook
+sends this plugin's key to `POST /api/store-keys/cancel` with its store ID.
+DinkusKit.com deletes only that key. If the call fails, the owner can still
+press Disconnect under Your stores. Installing Payments again shows Finish setup.

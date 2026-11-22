@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { readFile } from 'node:fs/promises';
-import { createRegistryConnection, REGISTRY_CONNECT_URL, REGISTRY_ISSUER, REGISTRY_JWKS_URL, REGISTRY_SCOPE, STORE_PASSES_URL } from '../src/registry/connection.ts';
+import { createRegistryConnection, REGISTRY_CONNECT_URL, REGISTRY_FINISH_URL, REGISTRY_ISSUER, REGISTRY_JWKS_URL, REGISTRY_LOOKUP_URL, REGISTRY_SCOPE, STORE_CONNECTION_URL, STORE_KEY_CANCEL_URL, STORE_PASSES_URL } from '../src/registry/connection.ts';
 import { ACCEPTED_INSTALLED_PLUGIN_IDS } from '../src/registry/identity.ts';
 import { PRODUCTION_STATUS_ENDPOINT } from '../src/plugin.ts';
 
@@ -34,7 +34,7 @@ async function fixture({ testOnly, installedPluginId, pluginId, endpoint = { sta
   const expectedPluginId = installedPluginId === 'dinkus-payments-beta' || pluginId === 'dinkus-payments-beta'
     ? 'r_sffx6l4z6mpqliki'
     : (installedPluginId ?? (pluginId === 'dinkus-payments' ? 'r_3brsc2on3bu673rn' : pluginId) ?? 'r_3brsc2on3bu673rn');
-  const f = { storeKey, connectRefusal: null, now: 1_800_000_000_000, starts: 0, exchanges: 0, statuses: 0, approved: false, siteId: 'site', subject: 'org', error: null, calls: [], gate: null, claims: {}, setupReply: { state: 'setup_required', mode: 'test', bindingRef: 'synthetic-binding', url: 'https://connect.stripe.com/setup/synthetic', expiresAt: 1_800_000_300_000 }, setupStatus: 200, passes: 0, diagnosticScopes: [], passError: null, passClaims: {}, slept: [], statusReply: { state: 'disconnected', mode: 'test', bindingRef: 'synthetic-binding' } };
+  const f = { storeKey, connectRefusal: null, now: 1_800_000_000_000, starts: 0, exchanges: 0, statuses: 0, approved: false, siteId: 'site', subject: 'org', error: null, calls: [], gate: null, claims: {}, setupReply: { state: 'setup_required', mode: 'test', bindingRef: 'synthetic-binding', url: 'https://connect.stripe.com/setup/synthetic', expiresAt: 1_800_000_300_000 }, setupStatus: 200, passes: 0, diagnosticScopes: [], passError: null, passClaims: {}, slept: [], joinable: false, finishRefusal: null, finishes: 0, shared: null, connectionPasses: 0, cancels: [], statusReply: { state: 'disconnected', mode: 'test', bindingRef: 'synthetic-binding' } };
   const connection = createRegistryConnection({
     ...store,
     config: { endpoint, testOnly, ...(installedPluginId ? { installedPluginId } : {}) },
@@ -44,8 +44,43 @@ async function fixture({ testOnly, installedPluginId, pluginId, endpoint = { sta
     sleep: async ms => { f.slept.push(ms); f.now += ms; },
     http: { async fetch(url, init) {
       assert.equal(init.redirect, 'manual'); f.calls.push({ url, init });
+      // Approve once (store-connect-approve-once-125): DinkusKit.com's answers, faked.
+      if (url === REGISTRY_LOOKUP_URL) {
+        const body = JSON.parse(init.body);
+        assert.deepEqual(Object.keys(body).sort(), ['callback_uri', 'client_id', 'protocol_version', 'service', 'site_origin']);
+        return json({ finish_setup: f.joinable });
+      }
+      if (url === REGISTRY_FINISH_URL) {
+        f.finishes++; const body = JSON.parse(init.body);
+        assert.deepEqual(Object.keys(body).sort(), ['client_id', 'code_verifier', 'connection_id']);
+        assert.equal(Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body.code_verifier))).toString('base64url'), f.challenge);
+        // DinkusKit.com reads the receipt from the store's proof route before it approves.
+        // That read is the proof route's own request, so the meter leaves it out.
+        f.paused = true; try { f.receiptSeen = await connection.receipt(body.connection_id); if (f.duringFinish) await f.duringFinish(); } finally { f.paused = false; }
+        if (f.finishThrow) throw new Error('connection reset');
+        if (f.finishRefusal) return json({ error: f.finishRefusal }, 409);
+        f.approved = true;
+        const token = await new SignJWT({ site_id: f.siteId, scope: REGISTRY_SCOPE, ...f.claims })
+          .setProtectedHeader({ alg: 'ES256', kid: 'test-key' }).setIssuer(REGISTRY_ISSUER).setAudience('dinkus-payments')
+          .setSubject(f.subject).setIssuedAt(Math.floor(f.now / 1000)).setExpirationTime(Math.floor(f.now / 1000) + 300).sign(privateKey);
+        return json({ access_token: token, token_type: 'Bearer', site_id: f.siteId, expires_in: 300, store_key: f.storeKey });
+      }
+      if (url === STORE_PASSES_URL && JSON.parse(init.body).scope === 'store:connection') {
+        f.connectionPasses++; assert.equal(init.headers.Authorization, `Bearer ${await sessionKey(store)}`);
+        assert.deepEqual(JSON.parse(init.body), { site_id: f.siteId, scope: 'store:connection', audience: 'dinkuskit' });
+        return f.shared ? json({ access_token: 'connection-pass', token_type: 'Bearer', expires_in: 300 }) : json({ error: 'scope_not_allowed' }, 403);
+      }
+      if (url === STORE_CONNECTION_URL) {
+        assert.equal(init.headers.Authorization, 'Bearer connection-pass');
+        return json(f.shared);
+      }
+      if (url === STORE_KEY_CANCEL_URL) {
+        f.cancels.push({ key: init.headers.Authorization, body: JSON.parse(init.body) });
+        return json({ cancelled: true });
+      }
       if (url === REGISTRY_CONNECT_URL) {
         f.starts++; const body = JSON.parse(init.body);
+        if (f.connectGate) await f.connectGate;
         if (f.connectRefusal) return json({ error: f.connectRefusal }, 409);
         assert.equal(body.protocol_version, 2); assert.equal(body.service, 'payments'); assert.equal('site_id' in body, false);
         assert.equal(body.callback_uri, `${testOnly?.storeOrigin ?? 'https://shop.example'}/_emdash/admin/plugins/${expectedPluginId}/status`);
@@ -399,4 +434,151 @@ test('a store whose Commerce is not connected yet is told to connect Commerce fi
   assert.deepEqual(await connection.start({ id: 'admin' }), { state: 'commerce_required' });
   f.connectRefusal = 'something_else';
   assert.deepEqual(await connection.start({ id: 'admin' }), { state: 'failed', message: 'restart_required' });
+});
+
+// Counts every bridge call the sandbox would meter: KV, settings and http.
+function meter(f, store) {
+  const counted = { n: 0 };
+  for (const access of [store.kv, store.settings]) for (const name of Object.keys(access)) {
+    const original = access[name]; access[name] = (...args) => { if (!f.paused) counted.n++; return original(...args); };
+  }
+  const calls = f.calls; f.calls = new Proxy(calls, { get(target, prop) { if (prop === 'push') return (...items) => { counted.n++; return target.push(...items); }; return Reflect.get(target, prop); } });
+  return counted;
+}
+
+test('approve once: a store DinkusKit.com already knows shows Finish setup instead of Connect', async () => {
+  const { f, connection } = await fixture();
+  assert.deepEqual(await connection.status({ id: 'admin' }), { state: 'disconnected' });
+  f.joinable = true;
+  assert.deepEqual(await connection.status({ id: 'admin' }), { state: 'finish_setup' });
+  assert.equal(f.starts, 0, 'asking does not start a connection');
+  // Once this plugin has its own connection, Finish setup is never offered again.
+  await f.connect();
+  assert.equal((await connection.status({ id: 'admin' })).state, 'ready');
+});
+
+test('Finish setup saves this plugin\'s key and goes straight on to Stripe in ten bridge calls at most', async () => {
+  const { f, connection, store } = await fixture(); f.joinable = true;
+  const counted = meter(f, store);
+  const result = await connection.finishSetup({ id: 'admin' });
+  assert.equal(result.state, 'ready', 'no second DinkusKit.com step (connect-payments-straight-to-stripe-132)');
+  assert.equal(result.status.status.state, 'disconnected', 'the page shows the business country and Set up Stripe next');
+  assert.ok(counted.n <= 10, `bridge calls: ${counted.n}`);
+  assert.equal(f.finishes, 1); assert.equal(f.starts, 1); assert.equal(f.exchanges, 0, 'no wait for an Approve');
+  assert.equal(f.receiptSeen.connection_id, 'c1', 'DinkusKit.com could read the receipt during the call');
+  assert.equal(f.receiptSeen.code_challenge, f.challenge);
+  assert.equal(await sessionKey(store), KEY, 'the plugin\'s own key is saved like Connect saves it');
+  assert.equal(await connection.receipt('c1'), null, 'the receipt is gone once the connection is complete');
+  f.now += 301000;
+  assert.equal((await connection.status({ id: 'admin' })).state, 'ready', 'status reads with the key afterwards');
+  assert.equal((await connection.finishSetup({ id: 'admin' })).state, 'pending', 'a second press on a connected page is an ordinary Connect');
+});
+
+test('Finish setup falls back to the owner\'s Approve, or Commerce first, when DinkusKit.com says so', async () => {
+  const owner = await fixture(); owner.f.joinable = true; owner.f.finishRefusal = 'owner_approval_required';
+  const waiting = await owner.connection.finishSetup({ id: 'admin' });
+  assert.equal(waiting.state, 'pending'); assert.equal(waiting.verificationUri, 'https://dinkuskit.com/account/connect?connection_id=c1');
+  // The owner approves at DinkusKit.com; Continue then finishes as usual.
+  owner.f.now += 5000; owner.f.approved = true;
+  assert.equal((await owner.connection.exchange({ id: 'admin' })).state, 'ready');
+  assert.equal(await sessionKey(owner.store), KEY);
+  const commerce = await fixture(); commerce.f.finishRefusal = 'connect_commerce_first';
+  assert.deepEqual(await commerce.connection.finishSetup({ id: 'admin' }), { state: 'commerce_required' });
+  const other = await fixture(); other.f.finishRefusal = 'grant_revoked';
+  assert.deepEqual(await other.connection.finishSetup({ id: 'admin' }), { state: 'failed', message: 'restart_required' });
+  assert.equal(await sessionKey(other.store), undefined, 'nothing is saved on a refusal');
+});
+
+test('a Finish setup refusal or a lost reply ends that attempt, so Connect starts a new one at once', async () => {
+  for (const [name, set, shown] of [
+    ['grant_revoked', f => { f.finishRefusal = 'grant_revoked'; }, { state: 'failed', message: 'restart_required' }],
+    ['connect_commerce_first', f => { f.finishRefusal = 'connect_commerce_first'; }, { state: 'commerce_required' }],
+    ['a lost reply', f => { f.finishThrow = true; }, { state: 'failed', message: 'restart_required' }],
+  ]) {
+    const { f, connection, store } = await fixture(); f.joinable = true; set(f);
+    assert.deepEqual(await connection.finishSetup({ id: 'admin' }), shown, name);
+    assert.equal(await connection.receipt('c1'), null, `${name}: the old receipt is no longer served`);
+    f.finishRefusal = null; f.finishThrow = false;
+    const retry = await connection.start({ id: 'admin' });
+    assert.equal(retry.state, 'pending', `${name}: Connect starts afresh, not the old attempt`);
+    assert.equal(retry.verificationUri, 'https://dinkuskit.com/account/connect?connection_id=c2', name);
+    f.now += 5000; f.approved = true;
+    assert.equal((await connection.exchange({ id: 'admin' })).state, 'ready', `${name}: Continue after the Approve works`);
+    assert.equal(await sessionKey(store), KEY, name);
+  }
+});
+
+test('a page load while Finish setup waits on DinkusKit.com cannot take the connection over', async () => {
+  const { f, connection, store } = await fixture(); f.joinable = true;
+  const seen = [];
+  // DinkusKit.com answers slowly: past the poll interval, another load of Payment settings runs.
+  f.duringFinish = async () => {
+    f.now += 6000;
+    seen.push((await connection.exchange({ id: 'admin' })).state, (await connection.exchange({ id: 'admin' }, { wait: false })).state,
+      (await connection.status({ id: 'admin' })).state, (await connection.start({ id: 'admin' })).state);
+  };
+  const result = await connection.finishSetup({ id: 'admin' });
+  assert.deepEqual(seen, ['connecting', 'connecting', 'connecting', 'connecting'], 'nothing else can exchange or restart it');
+  assert.equal(result.state, 'ready', 'Finish setup still completes and keeps its key');
+  assert.equal(f.starts, 1); assert.equal(f.exchanges, 0);
+  assert.equal(await sessionKey(store), KEY);
+});
+
+test('a Finish setup reply that comes back after its hold lapsed writes nothing, and the newer Connect still works', async () => {
+  for (const refusal of [null, 'owner_approval_required']) {
+    const { f, connection, store } = await fixture(); f.joinable = true; f.finishRefusal = refusal;
+    let newer, release;
+    // DinkusKit.com answers after the 30-second hold. Meanwhile another Administrator presses
+    // Connect, which has reserved control and read the setting but not yet saved its verifier.
+    f.duringFinish = async () => {
+      f.now += 31_000; f.connectGate = new Promise(resolve => { release = resolve; });
+      newer = connection.start({ id: 'admin' });
+      for (let i = 0; i < 20; i++) await new Promise(resolve => setImmediate(resolve));
+    };
+    const late = await connection.finishSetup({ id: 'admin' });
+    f.connectGate = null; release();
+    assert.deepEqual(late, { state: 'failed', message: 'restart_required' }, `${refusal}: the late reply is dropped`);
+    assert.equal((await newer).state, 'pending', `${refusal}: the newer Connect saves its verifier and waits for Approve`);
+    assert.equal(await sessionKey(store), undefined, `${refusal}: the late reply wrote no key or session`);
+    f.finishRefusal = null; f.now += 5000; f.approved = true;
+    assert.equal((await connection.exchange({ id: 'admin' })).state, 'ready', `${refusal}: and Continue finishes it`);
+    assert.equal(await sessionKey(store), KEY);
+  }
+});
+
+test('the page says which business the store is connected to, read with this plugin\'s own pass', async () => {
+  const { f, connection, store } = await fixture(); await f.connect();
+  assert.equal('connectedTo' in await connection.status({ id: 'admin' }), false, 'nothing is shown when DinkusKit.com does not answer');
+  f.shared = { business: 'Acme Goods', site_origin: 'https://shop.example', plugins: ['commerce', 'payments', 'ship'] };
+  const passes = f.passes; f.now += 301000;
+  const counted = meter(f, store);
+  const shown = await connection.status({ id: 'admin' });
+  assert.ok(counted.n <= 10, `bridge calls: ${counted.n}`);
+  assert.deepEqual(shown.connectedTo, { business: 'Acme Goods', plugins: ['commerce', 'payments', 'ship'] });
+  assert.equal(f.passes, passes + 1, 'checkout\'s pass is traded once, as before');
+  f.shared = { business: 'Acme Goods', plugins: ['commerce', 'something'] };
+  assert.equal('connectedTo' in await connection.status({ id: 'admin' }), false, 'an unknown plugin name hides the line');
+});
+
+test('uninstall cancels only this plugin\'s key, and does nothing on a page that never connected', async () => {
+  const never = await fixture();
+  assert.equal(await never.connection.cancelKey(), false); assert.equal(never.f.cancels.length, 0);
+  const { f, connection } = await fixture(); await f.connect();
+  assert.equal(await connection.cancelKey(), true);
+  assert.deepEqual(f.cancels, [{ key: `Bearer ${KEY}`, body: { site_id: 'site' } }]);
+});
+
+test('the page draws Finish setup as its one button, and the connected-to line in plain words', async () => {
+  const { renderSetupScreen, describeConnectedTo } = await import('../src/registry/setup.ts');
+  const page = renderSetupScreen({ state: 'finish_setup' });
+  const text = JSON.stringify(page);
+  assert.match(text, /Almost ready: this store is already connected to DinkusKit/);
+  const actions = page.blocks.find(block => block.type === 'actions').elements;
+  assert.deepEqual(actions, [{ type: 'button', label: 'Finish setup', action_id: 'finish_setup' }]);
+  assert.equal(describeConnectedTo({ business: 'Acme Goods', plugins: ['commerce', 'payments', 'ship'] }),
+    'Connected to Acme Goods on DinkusKit. DinkusKit plugins on this store: Commerce, Payments and Ship. To disconnect one, open Your stores at DinkusKit.com.');
+  assert.equal(describeConnectedTo({ business: 'Acme Goods', plugins: ['payments'] }).includes('this store: Payments.'), true);
+  assert.equal(describeConnectedTo({ business: '', plugins: ['payments'] }), undefined);
+  const ready = renderSetupScreen({ state: 'ready', connectedTo: { business: 'Acme Goods', plugins: ['commerce', 'payments'] }, status: { availability: 'available', status: { state: 'disconnected', mode: 'test', bindingRef: 'b', businessCountry: null } } });
+  assert.ok(ready.blocks.some(block => block.text === 'Connected to Acme Goods on DinkusKit. DinkusKit plugins on this store: Commerce and Payments. To disconnect one, open Your stores at DinkusKit.com.'));
 });
