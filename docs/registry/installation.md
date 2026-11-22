@@ -2,7 +2,7 @@
    [DinkusKit Commerce](https://plugins.emdashcms.com/plugins/@dinkuskit.com/dinkus-commerce)
    first. Its connection creates the store that Payments joins.
 2. Install DinkusKit Payments from the Registry in your EmDash admin.
-3. Open **Dinkus Payments > Payment settings**, press **Connect**, and follow
+3. Open **Store > Payment settings**, press **Connect**, and follow
    the link to approve at DinkusKit.com.
 4. Follow the
    [Payments guide](https://dinkuskit.com/docs/reference/payments)
