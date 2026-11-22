@@ -98,8 +98,13 @@ type LastStatus = { siteId: string; origin: string; adminId: string; checkedAt: 
 // Never carry any other response text to the page.
 export const SETUP_REFUSALS = ["merchant_country_required", "payments_service_unconfigured"] as const;
 export type SetupRefusal = typeof SETUP_REFUSALS[number];
+const IN_FLIGHT: readonly string[] = ["starting", "finishing", "pending", "exchanging"];
+// How long Finish setup holds its reservation before Connect may start again.
+const FINISH_HOLD_MS = 30_000;
 type Control = {
-  phase: "starting" | "pending" | "exchanging" | "complete" | "failed";
+  // "finishing" is Finish setup's own in-flight reservation: it serves the store
+  // receipt but nothing can exchange it, because its verifier is not saved yet.
+  phase: "starting" | "finishing" | "pending" | "exchanging" | "complete" | "failed";
   flowId: string; adminId: string; origin: string; expiresAt: number;
   binding?: Binding; receipt?: ProofReceipt; verificationUri?: string;
   interval?: number; nextPollAt?: number; secretHash?: string;
@@ -214,7 +219,7 @@ export function createRegistryConnection(options: {
     if (!origin || !user?.id || !options.http) return { state: "unconfigured" };
     const prior = await current();
     const p = prior?.value;
-    if (p && ["starting", "pending", "exchanging"].includes(p.phase) && p.expiresAt > now()) {
+    if (p && IN_FLIGHT.includes(p.phase) && p.expiresAt > now()) {
       return p.phase === "pending" && p.adminId === user.id ? pending(p) : { state: "connecting" };
     }
     if (p?.binding && p.binding.origin !== origin) return failure();
@@ -260,7 +265,7 @@ export function createRegistryConnection(options: {
   }
   async function receipt(connectionId: string): Promise<ProofReceipt | null> {
     const c = (await current())?.value;
-    return origin && c && ["pending", "exchanging"].includes(c.phase) && c.origin === origin && c.expiresAt > now() &&
+    return origin && c && ["finishing", "pending", "exchanging"].includes(c.phase) && c.origin === origin && c.expiresAt > now() &&
       c.receipt?.connection_id === connectionId ? c.receipt : null;
   }
   async function verifySessionToken(token: string, siteId: string) {
@@ -293,7 +298,7 @@ export function createRegistryConnection(options: {
     // A finished, lapsed or other admin's sign-in is reported the way the page
     // load reports it, never as a broken connection.
     if (c.phase === "complete" || c.phase === "failed" || c.adminId !== user?.id || c.origin !== origin || c.expiresAt <= now()) return status(user);
-    if (c.phase === "exchanging") return { state: "connecting" };
+    if (c.phase === "exchanging" || c.phase === "finishing") return { state: "connecting" };
     if (c.phase !== "pending") return failure();
     if (now() < c.nextPollAt!) {
       const wait = c.nextPollAt! - now();
@@ -458,11 +463,12 @@ export function createRegistryConnection(options: {
     if (!origin || !user?.id || !options.http) return { state: "unconfigured" };
     const prior = await current();
     const p = prior?.value;
-    if (p && ["starting", "pending", "exchanging"].includes(p.phase) && p.expiresAt > now()) {
+    if (p && IN_FLIGHT.includes(p.phase) && p.expiresAt > now()) {
       return p.phase === "pending" && p.adminId === user.id ? pending(p) : { state: "connecting" };
     }
     // A store this plugin connected before reconnects with Connect.
     if (p?.binding) return start(user);
+    let reserved: Versioned<Control> | null = null;
     try {
       const stored = await options.settings.getVersioned<string>(STATE_SETTING);
       const verifier = base64url(randomBytes(32));
@@ -484,38 +490,52 @@ export function createRegistryConnection(options: {
       const storeKey = storeKeyIn(stored?.value);
       const flowId = newId();
       const flow = JSON.stringify({ kind: "flow", flowId, verifier, ...(storeKey ? { storeKey } : {}) } satisfies FlowSecret);
-      // Pending first: DinkusKit.com reads the receipt from this store's proof route.
-      const c: Control = { phase: "pending", flowId, adminId: user.id, origin, expiresAt, interval, nextPollAt: now() + interval * 1000,
-        secretHash: await sha256(flow), verificationUri: body.verification_uri as string,
+      // Reserve first, as Connect does: DinkusKit.com reads the receipt from this
+      // store's proof route. "finishing" serves that receipt, but no page load can
+      // exchange it, and it lapses after FINISH_HOLD_MS if this request never ends.
+      const c: Control = { phase: "finishing", flowId, adminId: user.id, origin, expiresAt: Math.min(expiresAt, now() + FINISH_HOLD_MS),
+        verificationUri: body.verification_uri as string,
         receipt: { version: 2, site_id: siteId, connection_id: connectionId, challenge: body.challenge,
           client_id: REGISTRY_CLIENT_ID, service: REGISTRY_SERVICE, site_origin: origin,
           callback_uri: exactCallback(origin), code_challenge: challenge, expires_at: expiresAt } };
       if (!(await options.kv.compareAndSet(CONTROL_KEY, prior?.revision ?? null, c)).applied) return { state: "connecting" };
+      const mine = await current();
+      if (!mine || mine.value.flowId !== flowId || mine.value.phase !== "finishing") return failure();
+      reserved = mine;
       const finished = await options.http.fetch(REGISTRY_FINISH_URL, noRedirect({ method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ client_id: REGISTRY_CLIENT_ID, connection_id: connectionId, code_verifier: verifier }) }));
-      const grant = await finished.json() as Record<string, unknown>;
+      const grant = await finished.json().catch(() => ({})) as Record<string, unknown>;
       if (!finished.ok) {
-        if (grant?.error === "connect_commerce_first") return { state: "commerce_required" };
-        // The owner's Approve is still the way in: keep this connection's secret for Continue.
-        if (grant?.error !== "owner_approval_required") return failure();
-        return (await options.settings.compareAndSet(STATE_SETTING, stored?.revision ?? null, flow)).applied ? pending(c) : failure();
+        if (grant?.error === "owner_approval_required" && expiresAt > now()) {
+          // The owner's Approve is still the way in. Save this connection's secret
+          // first, then show the link: Continue can only ever see a pending flow
+          // whose verifier is already saved.
+          if (!(await options.settings.compareAndSet(STATE_SETTING, stored?.revision ?? null, flow)).applied) return fail(mine);
+          const next: Control = { ...c, phase: "pending", expiresAt, interval, nextPollAt: now() + interval * 1000, secretHash: await sha256(flow) };
+          return (await options.kv.compareAndSet(CONTROL_KEY, mine.revision, next)).applied ? pending(next) : failure();
+        }
+        // Any other refusal ends this attempt, so Connect or Finish setup starts afresh.
+        await fail(mine);
+        return grant?.error === "connect_commerce_first" ? { state: "commerce_required" } : failure();
       }
-      const reserved = await current();
-      if (!reserved || reserved.value.flowId !== flowId || reserved.value.phase !== "pending") return failure();
       if (!safeString(grant.access_token, 4096) || grant.token_type !== "Bearer" || grant.site_id !== siteId ||
           typeof grant.expires_in !== "number" || !Number.isInteger(grant.expires_in) || grant.expires_in < 1 || grant.expires_in > 300 ||
-          typeof grant.store_key !== "string" || !STORE_KEY_RE.test(grant.store_key)) return fail(reserved);
+          typeof grant.store_key !== "string" || !STORE_KEY_RE.test(grant.store_key)) return fail(mine);
       const verified = await verifySessionToken(grant.access_token, siteId);
       const binding: Binding = { siteId, origin, issuer: REGISTRY_ISSUER, subject: verified.subject };
       const url = statusUrl();
       const checked: RegistryFlowResult = url ? await readStatus({ ...c, binding }, binding, verified.token, url, { diagnostics: false }) : { state: "ready" };
       const shown = checked.state === "ready" && "status" in checked ? (checked.status as { status?: unknown } | undefined)?.status : undefined;
       const session = JSON.stringify({ kind: "session", flowId, token: verified.token, storeKey: grant.store_key } satisfies SessionSecret);
-      if (!(await options.settings.compareAndSet(STATE_SETTING, stored?.revision ?? null, session)).applied) return fail(reserved);
+      if (!(await options.settings.compareAndSet(STATE_SETTING, stored?.revision ?? null, session)).applied) return fail(mine);
       const next: Control = { ...c, phase: "complete", binding, secretHash: await sha256(session), expiresAt: verified.expiresAt,
         receipt: undefined, verificationUri: undefined, ...(shown ? { lastStatus: { checkedAt: now(), status: shown } } : {}) };
-      return (await options.kv.compareAndSet(CONTROL_KEY, reserved.revision, next)).applied ? checked : failure();
-    } catch { return failure(); }
+      return (await options.kv.compareAndSet(CONTROL_KEY, mine.revision, next)).applied ? checked : failure();
+    } catch {
+      // A transport or reply failure after the reservation ends it too.
+      if (reserved) { try { return await fail(reserved); } catch { /* It lapses after FINISH_HOLD_MS. */ } }
+      return failure();
+    }
   }
   /**
    * Which business the store is connected to and which DinkusKit plugins share it

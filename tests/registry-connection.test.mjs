@@ -56,7 +56,8 @@ async function fixture({ testOnly, installedPluginId, pluginId, endpoint = { sta
         assert.equal(Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body.code_verifier))).toString('base64url'), f.challenge);
         // DinkusKit.com reads the receipt from the store's proof route before it approves.
         // That read is the proof route's own request, so the meter leaves it out.
-        f.paused = true; try { f.receiptSeen = await connection.receipt(body.connection_id); } finally { f.paused = false; }
+        f.paused = true; try { f.receiptSeen = await connection.receipt(body.connection_id); if (f.duringFinish) await f.duringFinish(); } finally { f.paused = false; }
+        if (f.finishThrow) throw new Error('connection reset');
         if (f.finishRefusal) return json({ error: f.finishRefusal }, 409);
         f.approved = true;
         const token = await new SignJWT({ site_id: f.siteId, scope: REGISTRY_SCOPE, ...f.claims })
@@ -485,6 +486,41 @@ test('Finish setup falls back to the owner\'s Approve, or Commerce first, when D
   const other = await fixture(); other.f.finishRefusal = 'grant_revoked';
   assert.deepEqual(await other.connection.finishSetup({ id: 'admin' }), { state: 'failed', message: 'restart_required' });
   assert.equal(await sessionKey(other.store), undefined, 'nothing is saved on a refusal');
+});
+
+test('a Finish setup refusal or a lost reply ends that attempt, so Connect starts a new one at once', async () => {
+  for (const [name, set, shown] of [
+    ['grant_revoked', f => { f.finishRefusal = 'grant_revoked'; }, { state: 'failed', message: 'restart_required' }],
+    ['connect_commerce_first', f => { f.finishRefusal = 'connect_commerce_first'; }, { state: 'commerce_required' }],
+    ['a lost reply', f => { f.finishThrow = true; }, { state: 'failed', message: 'restart_required' }],
+  ]) {
+    const { f, connection, store } = await fixture(); f.joinable = true; set(f);
+    assert.deepEqual(await connection.finishSetup({ id: 'admin' }), shown, name);
+    assert.equal(await connection.receipt('c1'), null, `${name}: the old receipt is no longer served`);
+    f.finishRefusal = null; f.finishThrow = false;
+    const retry = await connection.start({ id: 'admin' });
+    assert.equal(retry.state, 'pending', `${name}: Connect starts afresh, not the old attempt`);
+    assert.equal(retry.verificationUri, 'https://dinkuskit.com/account/connect?connection_id=c2', name);
+    f.now += 5000; f.approved = true;
+    assert.equal((await connection.exchange({ id: 'admin' })).state, 'ready', `${name}: Continue after the Approve works`);
+    assert.equal(await sessionKey(store), KEY, name);
+  }
+});
+
+test('a page load while Finish setup waits on DinkusKit.com cannot take the connection over', async () => {
+  const { f, connection, store } = await fixture(); f.joinable = true;
+  const seen = [];
+  // DinkusKit.com answers slowly: past the poll interval, another load of Payment settings runs.
+  f.duringFinish = async () => {
+    f.now += 6000;
+    seen.push((await connection.exchange({ id: 'admin' })).state, (await connection.exchange({ id: 'admin' }, { wait: false })).state,
+      (await connection.status({ id: 'admin' })).state, (await connection.start({ id: 'admin' })).state);
+  };
+  const result = await connection.finishSetup({ id: 'admin' });
+  assert.deepEqual(seen, ['connecting', 'connecting', 'connecting', 'connecting'], 'nothing else can exchange or restart it');
+  assert.equal(result.state, 'ready', 'Finish setup still completes and keeps its key');
+  assert.equal(f.starts, 1); assert.equal(f.exchanges, 0);
+  assert.equal(await sessionKey(store), KEY);
 });
 
 test('the page says which business the store is connected to, read with this plugin\'s own pass', async () => {
