@@ -15,7 +15,7 @@
         "path": "/status",
         "label": "Payment settings",
         "icon": "currency-circle-dollar",
-        "group": "Dinkus Payments"
+        "group": "Store"
       }
     ],
     "settingsSchema": {
