@@ -5,6 +5,7 @@ import {
   AUTHORIZE_NET_HOSTED_PRODUCTION_URL,
   AUTHORIZE_NET_HOSTED_SANDBOX_URL,
   AUTHORIZE_NET_INVOICE_MAX_LENGTH,
+  AUTHORIZE_NET_OUTCOME_TRANSITIONS,
   AUTHORIZE_NET_PRODUCTION_URL,
   AUTHORIZE_NET_SANDBOX_URL,
   AUTHORIZE_NET_STORE_TAG_LENGTH,
@@ -615,7 +616,7 @@ test("the pay page refuses anything but the checkout's own session, before any p
   state.clock = 1_800_000_000_000 + 600_000;
   // A checkout started before the pay page has no pay page session.
   const { sessionId: _sessionId, redirectUrl: _redirectUrl, ...legacy } = records.get(payment.attemptId);
-  records.set(payment.attemptId, legacy);
+  records.set(payment.attemptId, { ...legacy, transactionId: null, transactionIds: [] });
   assert.deepEqual(await port.payPage(session.sessionId), { action: "not_found" });
   assert.equal((await port.ensureSession(payment)).session.redirectUrl, `${AUTHORIZE_NET_HOSTED_SANDBOX_URL}?token=token-1`);
 });
@@ -760,5 +761,37 @@ test("a checkout stored before the pay page keeps its session and still reconcil
   assert.deepEqual(await port.lookup(payment), { outcome: "paid", attemptId: payment.attemptId, total: payment.total, session: legacySession, paymentId: "123" });
   assert.deepEqual(await port.payPage(`${"0".repeat(32)}.${payment.attemptId}`), { action: "not_found" });
   assert.deepEqual(records.get(payment.attemptId), { ...preChangeRecord, transactionId: "124", transactionIds: ["123", "124"] });
-  assert.equal(calls, 2);
+  // ensureSession resolves the stored transaction authoritatively (1), plus the two lookup calls (2).
+  assert.equal(calls, 3);
+});
+
+test("ensureSession resolves stored Authorize.Net attempts authoritatively across paid, expired, and late-paid states", async () => {
+  const { state, port, transactions } = payPageHarness();
+  const opened = await port.ensureSession(payment);
+  assert.equal(opened.outcome, "open");
+
+  // Unexpired attempt with no transactions stays open without calling Authorize.Net.
+  state.calls = 0;
+  assert.deepEqual(await port.ensureSession(payment), opened);
+  assert.equal(state.calls, 0);
+
+  // Expired attempt with no transactions must not return open.
+  state.clock = 1_800_000_000_000 + 1860_000;
+  assert.deepEqual(await port.ensureSession(payment), { outcome: "unknown" });
+
+  // Declined attempt past settle margin resolves as expired-unpaid on ensureSession.
+  port.recordTransaction(payment.attemptId, "910");
+  transactions[910] = { responseCode: 2, transactionStatus: "declined" };
+  state.clock = 1_800_000_000_000 + 1860_000 + 300_000;
+  assert.equal((await port.ensureSession(payment)).outcome, "expired-unpaid");
+
+  // Late paid transaction arriving even after expiry/settle resolves authoritatively as paid on ensureSession.
+  port.recordTransaction(payment.attemptId, "911");
+  transactions[911] = { responseCode: 1, transactionStatus: "settledSuccessfully" };
+  const paid = await port.ensureSession(payment);
+  assert.equal(paid.outcome, "paid");
+  assert.equal(paid.paymentId, "911");
+
+  // Paid is absorbing in the explicit transition matrix.
+  assert.deepEqual(AUTHORIZE_NET_OUTCOME_TRANSITIONS.paid, ["paid"]);
 });

@@ -1,5 +1,21 @@
-import type { CheckoutPaymentPort, PaymentRequest } from "../commerce/checkout-port.js";
+import type { CheckoutPaymentPort, PaymentOutcome, PaymentRequest } from "../commerce/checkout-port.js";
 export { resolvePaymentProvider } from "../checkout/providers.js";
+
+export type AuthorizeNetSessionOutcome = Exclude<PaymentOutcome["outcome"], "not-created">;
+
+/**
+ * Explicit outcome progression for an Authorize.Net checkout attempt.
+ * `paid` is absorbing; `expired-unpaid` can still surface a late authoritative
+ * `paid` or `unknown` transaction when Authorize.Net delivers a delayed notice.
+ */
+export const AUTHORIZE_NET_OUTCOME_TRANSITIONS: Readonly<
+  Record<AuthorizeNetSessionOutcome, readonly AuthorizeNetSessionOutcome[]>
+> = {
+  unknown: ["open", "paid", "expired-unpaid", "unknown"],
+  open: ["open", "paid", "expired-unpaid", "unknown"],
+  paid: ["paid"],
+  "expired-unpaid": ["expired-unpaid", "paid", "unknown"],
+};
 
 export const AUTHORIZE_NET_SANDBOX_URL = "https://apitest.authorize.net/xml/v1/request.api";
 export const AUTHORIZE_NET_PRODUCTION_URL = "https://api2.authorize.net/xml/v1/request.api";
@@ -436,18 +452,49 @@ export function createAuthorizeNetPaymentPort(options: {
     return pending ? { pending: true } : { unpaid: ids.length };
   }
 
+  async function lookup(request: PaymentRequest): Promise<PaymentOutcome> {
+    assertUsd(request);
+    const existing = read(request.attemptId);
+    if (!existing || transactionsOf(existing).length === 0) return { outcome: "unknown" };
+    try {
+      const fields = { attemptId: request.attemptId, total: request.total, session: asSession(existing) };
+      const result = await tries(request.attemptId, existing, request.total);
+      if ("paid" in result) return { outcome: "paid", ...fields, paymentId: result.paid };
+      if ("pending" in result) return { outcome: "unknown" };
+      // Every try so far is unpaid. The shopper can still try again until the checkout ends, and a card form
+      // opened just before the end stays usable for a while after it.
+      const at = seconds();
+      if (at < existing.expiresAt) return { outcome: "open", ...fields };
+      if (at < settlesAt(existing)) return { outcome: "unknown" };
+      return { outcome: "expired-unpaid", ...fields };
+    } catch (error) {
+      if (error instanceof AuthorizeNetError &&
+          (error.message === "amount_or_currency_mismatch" || error.message === "identity_mismatch")) {
+        throw error;
+      }
+      return { outcome: "unknown" };
+    }
+  }
+
+  /** Resolves an already-stored attempt authoritatively instead of assuming it is still open. */
+  async function resolveExisting(request: PaymentRequest, existing: AuthorizeNetAttemptRecord): Promise<PaymentOutcome> {
+    if (transactionsOf(existing).length > 0) return lookup(request);
+    if (seconds() >= existing.expiresAt) return { outcome: "unknown" };
+    return {
+      outcome: "open",
+      attemptId: request.attemptId,
+      total: request.total,
+      session: asSession(existing),
+    };
+  }
+
   return {
     async ensureSession(request) {
       assertUsd(request);
       const existing = read(request.attemptId);
       if (existing) {
         if (mismatched(existing, request)) throw new AuthorizeNetError("attempt_mismatch");
-        return {
-        outcome: "open",
-        attemptId: request.attemptId,
-        total: request.total,
-        session: asSession(existing),
-        };
+        return resolveExisting(request, existing);
       }
       if (!options.returnUrl || !options.cancelUrl) throw new AuthorizeNetError("invalid_return_url");
       if (!options.payPageUrl) throw new AuthorizeNetError("invalid_pay_page_url");
@@ -463,10 +510,12 @@ export function createAuthorizeNetPaymentPort(options: {
         const expiresAt = createdAt + ("paymentWindow" in request && request.paymentWindow
           ? request.paymentWindow.maxSeconds : request.paymentWindowSeconds);
         const sessionId = newPaySessionId(request.attemptId);
+        let existed = false;
         const saved = options.store.transaction(tx => {
           const current = tx.read(request.attemptId);
           if (current) {
             if (mismatched(current, request)) throw new AuthorizeNetError("attempt_mismatch");
+            existed = true;
             return current;
           }
           const record: AuthorizeNetAttemptRecord = {
@@ -479,6 +528,7 @@ export function createAuthorizeNetPaymentPort(options: {
           tx.write(request.attemptId, record);
           return record;
         });
+        if (existed) return resolveExisting(request, saved);
         return {
           outcome: "open",
           attemptId: request.attemptId,
@@ -486,35 +536,16 @@ export function createAuthorizeNetPaymentPort(options: {
           session: asSession(saved),
         };
       } catch (error) {
-        if (error instanceof AuthorizeNetError && error.message === "attempt_mismatch") {
-          throw error;
-        }
-        return { outcome: "unknown" };
-      }
-    },
-    async lookup(request) {
-      assertUsd(request);
-      const existing = read(request.attemptId);
-      if (!existing || transactionsOf(existing).length === 0) return { outcome: "unknown" };
-      try {
-        const fields = { attemptId: request.attemptId, total: request.total, session: asSession(existing) };
-        const result = await tries(request.attemptId, existing, request.total);
-        if ("paid" in result) return { outcome: "paid", ...fields, paymentId: result.paid };
-        if ("pending" in result) return { outcome: "unknown" };
-        // Every try so far is unpaid. The shopper can still try again until the checkout ends, and a card form
-        // opened just before the end stays usable for a while after it.
-        const at = seconds();
-        if (at < existing.expiresAt) return { outcome: "open", ...fields };
-        if (at < settlesAt(existing)) return { outcome: "unknown" };
-        return { outcome: "expired-unpaid", ...fields };
-      } catch (error) {
         if (error instanceof AuthorizeNetError &&
-            (error.message === "amount_or_currency_mismatch" || error.message === "identity_mismatch")) {
+            (error.message === "attempt_mismatch" ||
+             error.message === "amount_or_currency_mismatch" ||
+             error.message === "identity_mismatch")) {
           throw error;
         }
         return { outcome: "unknown" };
       }
     },
+    lookup,
     async payPage(sessionId) {
       const attemptId = payPageAttemptId(sessionId);
       if (!attemptId) return { action: "not_found" };
