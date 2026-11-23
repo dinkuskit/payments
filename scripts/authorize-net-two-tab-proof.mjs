@@ -99,7 +99,8 @@ async function settle(label, checkout) {
   return { tries, outcome, paid: record?.paidId ? [record.paidId, ...(record.alsoPaid ?? [])] : [] };
 }
 
-const card = "card 4111 1111 1111 1111, expiry 12/30, CVV 123, any name and ZIP 46282";
+// Any ZIP but 46282 and 462xx: Authorize.net's sandbox declines 46282 and uses 462xx for AVS answers.
+const card = "card 4111 1111 1111 1111, expiry 12/30, CVV 123, any name, 1 Test Street, Bellevue, WA, ZIP 98004, phone 425 555 0100";
 
 // A: one card form per checkout.
 const a = await open("a", String(100 + Math.floor(Math.random() * 90)));
