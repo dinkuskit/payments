@@ -213,7 +213,7 @@ export class PaymentConnection extends DurableObject<Env> {
   }
   /** Keeps a paid checkout with an open try on the alarm's list, or takes it off once none is left. */
   private async noteOpenTries(siteId: string, attemptId: string, port: { openTries(attemptId: string): string[] }) {
-    const sql = this.ctx.storage.sql, owner = this.authorizeNetOwner();
+    const sql = this.ctx.storage.sql, owner = this.checkoutOwner(attemptId);
     if (!owner || !port.openTries(attemptId).length) {
       sql.exec("DELETE FROM authorize_net_open_tries WHERE attempt_id=?", attemptId);
       return;
@@ -228,8 +228,8 @@ export class PaymentConnection extends DurableObject<Env> {
       "SELECT attempt_id AS attemptId, site_id AS siteId, tries, owner_account AS owner FROM authorize_net_open_tries WHERE next_at<=? ORDER BY next_at LIMIT ?", now, OPEN_TRY_BATCH,
     ).toArray();
     for (const row of due) {
-      // Work for a connection that is gone, or now owned by another account, is dropped before Authorize.net is asked.
-      if (this.authorizeNetOwner() !== row.owner) {
+      // Work for a connection that is gone, replaced, or now owned by another account, is dropped before Authorize.net is asked.
+      if (this.checkoutOwner(row.attemptId) !== row.owner) {
         sql.exec("DELETE FROM authorize_net_open_tries WHERE attempt_id=?", row.attemptId);
         continue;
       }
@@ -271,8 +271,8 @@ export class PaymentConnection extends DurableObject<Env> {
         })),
       },
       paidTwice: (attemptId, record) => {
-        // Kept only while an account owns this store's Authorize.net connection, and only for that account.
-        const owner = this.authorizeNetOwner();
+        // Kept only while the connection the checkout was opened under still stands, and only for its account.
+        const owner = this.checkoutOwner(attemptId);
         if (!owner) return;
         sql.exec(
           "INSERT INTO authorize_net_paid_twice (attempt_id,transaction_ids,amount_minor,noticed_at,owner_account) VALUES (?,?,?,?,?) ON CONFLICT(attempt_id) DO UPDATE SET transaction_ids=excluded.transaction_ids",
@@ -281,12 +281,21 @@ export class PaymentConnection extends DurableObject<Env> {
       },
     });
   }
-  /** The account that owns this store's Authorize.net connection now, or null when none does. */
-  private authorizeNetOwner(): string | null {
-    const row = this.ctx.storage.sql.exec<{ value: string }>("SELECT value FROM connection_state WHERE id=1").toArray()[0];
-    let record: { owner?: { accountId?: unknown }; providerId?: unknown; mode?: unknown } | null = null;
-    try { record = row ? JSON.parse(row.value) : null; } catch { record = null; }
-    return record?.providerId === "authorize_net" && record.mode === "test" && typeof record.owner?.accountId === "string" ? record.owner.accountId : null;
+  /**
+   * The account a checkout belongs to: the owner of this store's Authorize.net connection, but only while it is the
+   * connection the checkout was opened under. Every connection gets a new binding, so after a reconnect or a new owner
+   * the checkout has none, as its lookups already do, and no late notice or queued read acts for it.
+   */
+  private checkoutOwner(attemptId: string): string | null {
+    const sql = this.ctx.storage.sql;
+    const read = (query: string, ...binds: unknown[]) => {
+      const row = sql.exec<{ value: string }>(query, ...binds).toArray()[0];
+      try { return row ? JSON.parse(row.value) as Record<string, unknown> : null; } catch { return null; }
+    };
+    const connection = read("SELECT value FROM connection_state WHERE id=1") as { owner?: { accountId?: unknown }; providerId?: unknown; mode?: unknown; bindingRef?: unknown } | null;
+    const checkout = read("SELECT value FROM authorize_net_attempts WHERE attempt_id=?", attemptId);
+    return connection?.providerId === "authorize_net" && connection.mode === "test" && typeof connection.owner?.accountId === "string" &&
+      typeof connection.bindingRef === "string" && checkout?.bindingRef === connection.bindingRef ? connection.owner.accountId : null;
   }
   /**
    * Checkouts Authorize.net took payment for more than once, newest first, for the Payments page. Only a plugin
@@ -565,8 +574,10 @@ export class PaymentConnection extends DurableObject<Env> {
   /** The shopper's visit to the Authorize.net pay page; the session segment is the only credential. */
   async authorizeNetPayPage(siteId: string, sessionId: string) {
     const port = this.authorizeNetCheckout(siteId), attemptId = payPageAttemptId(sessionId);
-    try { return await port.payPage(sessionId); }
-    finally { if (attemptId) await this.noteOpenTries(siteId, attemptId, port); }
+    let page: Awaited<ReturnType<typeof port.payPage>> | undefined;
+    // Only a visit whose session the pay page accepted may queue reads of Authorize.net.
+    try { return page = await port.payPage(sessionId); }
+    finally { if (attemptId && page && page.action !== "not_found") await this.noteOpenTries(siteId, attemptId, port); }
   }
   async receiveAuthorizeNetWebhook(payload: Uint8Array, signature: string, eventId: string, siteId: string) {
     const sql = this.ctx.storage.sql;
@@ -608,8 +619,9 @@ export class PaymentConnection extends DurableObject<Env> {
           "INSERT OR IGNORE INTO checkout_wake_events (event_id,attempt_id,site_id,binding_ref,stripe_account_id,authorize_net_merchant_id,mode,received_at,acknowledged_at,delivery_generation) VALUES (?,?,?,?,?,?,?, ?,NULL,1)",
           wakeEventId, parsed.attemptId, stored.siteId, stored.bindingRef, "", merchantId, "test", receivedAt,
         );
-        // A try notified after the checkout was paid is read now, so a second payment reaches the owner.
-        if (event.transactionId) {
+        // A try notified after the checkout was paid is read now, so a second payment reaches the owner: only while
+        // the connection the checkout was opened under stands, so a replaced connection's account never sees it.
+        if (event.transactionId && this.checkoutOwner(parsed.attemptId)) {
           try { await port.checkLateTry(parsed.attemptId, event.transactionId); }
           finally { await this.noteOpenTries(siteId, parsed.attemptId, port); }
         }

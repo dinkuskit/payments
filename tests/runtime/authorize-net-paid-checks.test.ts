@@ -24,7 +24,20 @@ type Instance = {
   authorizeNetPayPage(siteId: string, sessionId: string): Promise<{ action: string; url?: string }>;
   paidTwice(principal: unknown): Promise<unknown[] | undefined>;
   alarm(): Promise<void>;
+  receiveAuthorizeNetWebhook(payload: Uint8Array, signature: string, eventId: string, siteId: string): Promise<void>;
 };
+
+/** Authorize.net's signed payment notice for one transaction of this checkout, as the webhook route passes it on. */
+async function notice(invoiceNumber: string, transactionId: string) {
+  const notificationId = crypto.randomUUID();
+  const payload = new TextEncoder().encode(JSON.stringify({
+    notificationId, eventType: "net.authorize.payment.authcapture.created", eventDate: "2026-11-23T16:00:00.000Z", webhookId: "synthetic-webhook",
+    payload: { responseCode: 1, merchantReferenceId: invoiceNumber, authAmount: 12.0, entityName: "transaction", id: transactionId },
+  }));
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode("synthetic-signature-key"), { name: "HMAC", hash: "SHA-512" }, false, ["sign"]);
+  const digest = [...new Uint8Array(await crypto.subtle.sign("HMAC", key, payload))].map(byte => byte.toString(16).padStart(2, "0")).join("");
+  return { payload, signature: `sha512=${digest}`, notificationId };
+}
 
 /** One Authorize.net store: its connection, owned by `owner`, and one checkout with two notified tries and no lookup yet. */
 async function store() {
@@ -212,6 +225,118 @@ test("queued reads and the paid-twice line stay with the account that owned the 
     expect(result.dropped).toEqual({ readsByAlarm: 0, left: 0 });
     expect(result.nextSees).toEqual([]);
     expect(result.ownerSees).toEqual([{ transactionIds: ["201", "202"], total: { currency: "USD", minor: "500" }, at: expect.any(Number) }]);
+  } finally {
+    provider.restore();
+  }
+});
+
+test("a late notice of a second payment reaches only the account whose connection the checkout was opened under", async () => {
+  /** One store whose checkout was paid with 101 alone; then, unless `replace`, a notice for 102 arrives as is. */
+  async function run(replace: boolean) {
+    const { siteId, owner, invoiceNumber, stub } = await store();
+    const provider = authorizeNet(invoiceNumber);
+    provider.state.down = false;
+    try {
+      return await asAuthorizeNet(stub, async object => {
+        const sql = object.ctx.storage.sql;
+        const stored = JSON.parse(String(sql.exec("SELECT value FROM authorize_net_attempts WHERE attempt_id=?", attemptId).toArray()[0].value));
+        sql.exec("UPDATE authorize_net_attempts SET value=? WHERE attempt_id=?", JSON.stringify({ ...stored, transactionId: "101", transactionIds: ["101"] }), attemptId);
+        const paid = await object.lookup(owner, request);
+        const next = { accountId: "next-owner", siteId };
+        if (replace) {
+          // The store's connection is replaced by another account's before Authorize.net's notice for 102 arrives.
+          const connection = JSON.parse(String(sql.exec("SELECT value FROM connection_state WHERE id=1").toArray()[0].value));
+          sql.exec("UPDATE connection_state SET value=? WHERE id=1", JSON.stringify({ ...connection, owner: next, bindingRef: "binding_next" }));
+        }
+        const reads = provider.state.reads.length;
+        const signed = await notice(invoiceNumber, "102");
+        await object.receiveAuthorizeNetWebhook(signed.payload, signed.signature, signed.notificationId, siteId);
+        sql.exec("UPDATE authorize_net_open_tries SET next_at=0");
+        await object.alarm();
+        return {
+          paid: paid.paymentId,
+          readsAfterNotice: provider.state.reads.slice(reads),
+          rows: sql.exec("SELECT transaction_ids AS ids, owner_account AS owner FROM authorize_net_paid_twice").toArray(),
+          queued: sql.exec("SELECT attempt_id FROM authorize_net_open_tries").toArray().length,
+          seen: replace ? await object.paidTwice(next) : await object.paidTwice(owner),
+        };
+      });
+    } finally {
+      provider.restore();
+    }
+  }
+  const allowed = await run(false), forbidden = await run(true);
+  // Allowed: the checkout's own connection still stands, so 102 is read and its owner sees both payments.
+  expect(allowed).toEqual({ paid: "101", readsAfterNotice: ["102"], rows: [{ ids: JSON.stringify(["101", "102"]), owner: "synthetic-owner" }], queued: 0,
+    seen: [{ transactionIds: ["101", "102"], total: { currency: "USD", minor: "1200" }, at: expect.any(Number) }] });
+  // Forbidden: the replacement account's connection never reads 102, records nothing, and sees nothing.
+  expect(forbidden).toEqual({ paid: "101", readsAfterNotice: [], rows: [], queued: 0, seen: [] });
+  console.log("late notice", JSON.stringify({ allowed: { reads: allowed.readsAfterNotice, owners: allowed.rows.map(row => row.owner) }, forbidden: { reads: forbidden.readsAfterNotice, rows: forbidden.rows.length } }));
+});
+
+test("only a pay-page visit whose session the page accepted queues reads of Authorize.net", async () => {
+  const { siteId, owner, invoiceNumber, stub } = await store();
+  const provider = authorizeNet(invoiceNumber);
+  try {
+    const result = await asAuthorizeNet(stub, async object => {
+      const sql = object.ctx.storage.sql;
+      // Paid with 101; 102 stayed unreadable until its reads ran out, so nothing is queued any more.
+      await object.lookup(owner, request);
+      sql.exec("DELETE FROM authorize_net_open_tries");
+      const queued = () => sql.exec("SELECT attempt_id FROM authorize_net_open_tries").toArray().length;
+      provider.state.down = false;
+      // Forbidden: the checkout's ID with a made-up secret.
+      const wrong = await object.authorizeNetPayPage(siteId, `${"f".repeat(32)}.${attemptId}`);
+      const afterWrong = queued(), reads = provider.state.reads.length;
+      sql.exec("UPDATE authorize_net_open_tries SET next_at=0");
+      await object.alarm();
+      const alarmReadsAfterWrong = provider.state.reads.length - reads;
+      // Allowed: the shopper's own session.
+      const right = await object.authorizeNetPayPage(siteId, sessionId);
+      return { wrong, afterWrong, alarmReadsAfterWrong, right, afterRight: queued() };
+    });
+    expect(result.wrong).toEqual({ action: "not_found" });
+    expect(result.afterWrong).toBe(0);
+    expect(result.alarmReadsAfterWrong).toBe(0);
+    expect(result.right).toEqual({ action: "redirect", url: "https://store.example/checkout/success" });
+    expect(result.afterRight).toBe(1);
+    console.log("pay page", JSON.stringify(result));
+  } finally {
+    provider.restore();
+  }
+});
+
+test("a store stored by the Worker before this change keeps working after the upgrade", async () => {
+  const { siteId, owner, invoiceNumber, stub } = await store();
+  const provider = authorizeNet(invoiceNumber);
+  try {
+    const result = await runInDurableObject(stub, async instance => {
+      const old = instance as unknown as Instance;
+      const sql = old.ctx.storage.sql;
+      // As main 6d78c3b left a store: none of this change's tables, and its checkout in main's record shape
+      // (no paidId, alsoPaid, settled or requestFingerprint), which store() wrote.
+      sql.exec("DROP TABLE authorize_net_paid_twice");
+      sql.exec("DROP TABLE authorize_net_open_tries");
+      const before = String(sql.exec("SELECT value FROM authorize_net_attempts WHERE attempt_id=?", attemptId).toArray()[0].value);
+      // The deploy: this build's Durable Object starts on the same storage.
+      const upgraded = new (instance.constructor as new (ctx: unknown, env: unknown) => Instance)(old.ctx, { ...old.env, PAYMENT_PROVIDER: "authorize_net" });
+      const tables = sql.exec("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('authorize_net_paid_twice','authorize_net_open_tries') ORDER BY name").toArray().map(row => row.name);
+      const page = await upgraded.authorizeNetPayPage(siteId, sessionId);
+      const paid = await upgraded.lookup(owner, request);
+      provider.state.down = false;
+      sql.exec("UPDATE authorize_net_open_tries SET next_at=0");
+      await upgraded.alarm();
+      const after = JSON.parse(String(sql.exec("SELECT value FROM authorize_net_attempts WHERE attempt_id=?", attemptId).toArray()[0].value));
+      return { tables, page, paid, alerts: await upgraded.paidTwice(owner), before: JSON.parse(before), after };
+    });
+    expect(result.tables).toEqual(["authorize_net_open_tries", "authorize_net_paid_twice"]);
+    expect(result.page).toEqual({ action: "redirect", url: "https://store.example/checkout/success" });
+    expect(result.paid).toMatchObject({ outcome: "paid", paymentId: "101" });
+    expect(result.alerts).toEqual([{ transactionIds: ["101", "102"], total: { currency: "USD", minor: "1200" }, at: expect.any(Number) }]);
+    // Every field main stored is kept as it was; this change only adds its own.
+    expect(result.after).toMatchObject(result.before);
+    expect(result.after).toMatchObject({ paidId: "101", alsoPaid: ["102"] });
+    console.log("upgrade", JSON.stringify({ tables: result.tables, paid: result.paid.paymentId, alerts: result.alerts?.length, kept: Object.keys(result.before).length }));
   } finally {
     provider.restore();
   }
