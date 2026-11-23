@@ -7,6 +7,7 @@ import { buildAuthorizeNetInvoiceReference } from "../../src/authorize-net/check
 
 const attemptId = "attempt-two";
 const bindingRef = "binding_anet";
+const sessionId = `${"0123456789abcdef".repeat(2)}.${attemptId}`;
 const request = {
   attemptId, bindingRef,
   lines: [{ catalogItemId: "sku", quantity: 1, name: "Item", unitPrice: { currency: "USD", minor: "1200" } }],
@@ -20,6 +21,7 @@ type Instance = {
   env: Record<string, unknown>;
   ctx: { storage: { sql: Sql; getAlarm(): Promise<number | null> } };
   lookup(principal: unknown, request: unknown): Promise<{ outcome: string; paymentId?: string }>;
+  authorizeNetPayPage(siteId: string, sessionId: string): Promise<{ action: string; url?: string }>;
   paidTwice(principal: unknown): Promise<unknown[] | undefined>;
   alarm(): Promise<void>;
 };
@@ -38,7 +40,9 @@ async function store() {
     }));
     sql.exec("INSERT INTO authorize_net_attempts (attempt_id,value) VALUES (?,?)", attemptId, JSON.stringify({
       token: "t", transactionId: "102", transactionIds: ["101", "102"], createdAt: now, expiresAt: now + 1860, tokenAt: now,
-      bindingRef, siteId, amountMinor: "1200", currency: "USD",
+      bindingRef, siteId, amountMinor: "1200", currency: "USD", sessionId,
+      redirectUrl: `https://payments.example.invalid/v1/pay/authorize-net/${siteId}/${sessionId}`,
+      returnUrl: "https://store.example/checkout/success", cancelUrl: "https://store.example/checkout",
     }));
   });
   return { siteId, owner, invoiceNumber, stub };
@@ -151,6 +155,63 @@ test("only the store's own connection, with its current binding, reads a paid ch
     expect(result.reassigned).toEqual({ value: { outcome: "unknown" } });
     expect(result.stripe).toEqual({ error: "binding_provider_mismatch" });
     expect(result.disconnected).toEqual({ value: [] });
+  } finally {
+    provider.restore();
+  }
+});
+
+test("the shopper's pay page that finds the payment also keeps an unanswered try open for the alarm", async () => {
+  const { siteId, owner, invoiceNumber, stub } = await store();
+  const provider = authorizeNet(invoiceNumber);
+  try {
+    const result = await asAuthorizeNet(stub, async object => {
+      const sql = object.ctx.storage.sql;
+      // No lookup from Commerce: the shopper's return to the pay page is the first read. 101 is paid, 102 unreadable.
+      const page = await object.authorizeNetPayPage(siteId, sessionId);
+      const open = sql.exec("SELECT tries FROM authorize_net_open_tries WHERE attempt_id=?", attemptId).toArray();
+      const alarm = await object.ctx.storage.getAlarm();
+      provider.state.down = false;
+      sql.exec("UPDATE authorize_net_open_tries SET next_at=0");
+      await object.alarm();
+      return { page, open, alarm, alerts: await object.paidTwice(owner) };
+    });
+    expect(result.page).toEqual({ action: "redirect", url: "https://store.example/checkout/success" });
+    expect(result.open).toEqual([{ tries: 0 }]);
+    expect(typeof result.alarm).toBe("number");
+    expect(result.alerts).toEqual([{ transactionIds: ["101", "102"], total: { currency: "USD", minor: "1200" }, at: expect.any(Number) }]);
+  } finally {
+    provider.restore();
+  }
+});
+
+test("queued reads and the paid-twice line stay with the account that owned the connection", async () => {
+  const { siteId, owner, invoiceNumber, stub } = await store();
+  const provider = authorizeNet(invoiceNumber);
+  try {
+    const result = await asAuthorizeNet(stub, async object => {
+      const sql = object.ctx.storage.sql;
+      await object.lookup(owner, request);
+      const connection = JSON.parse(String(sql.exec("SELECT value FROM connection_state WHERE id=1").toArray()[0].value));
+      // The store's connection passes to another account before the alarm runs.
+      const next = { accountId: "next-owner", siteId };
+      sql.exec("UPDATE connection_state SET value=? WHERE id=1", JSON.stringify({ ...connection, owner: next, bindingRef: "binding_next" }));
+      provider.state.down = false;
+      const reads = provider.state.reads.length;
+      sql.exec("UPDATE authorize_net_open_tries SET next_at=0");
+      await object.alarm();
+      const dropped = { readsByAlarm: provider.state.reads.length - reads, left: sql.exec("SELECT attempt_id FROM authorize_net_open_tries").toArray().length };
+      // A notice found for the first owner is never shown to the next one, even after it is recorded.
+      sql.exec("INSERT INTO authorize_net_paid_twice (attempt_id,transaction_ids,amount_minor,noticed_at,owner_account) VALUES (?,?,?,?,?)",
+        "attempt-old", JSON.stringify(["201", "202"]), "500", Date.now(), owner.accountId);
+      const nextSees = await object.paidTwice(next);
+      // The same owner reconnecting with a new binding still sees it: the refund is still theirs to make.
+      sql.exec("UPDATE connection_state SET value=? WHERE id=1", JSON.stringify({ ...connection, bindingRef: "binding_again" }));
+      const ownerSees = await object.paidTwice(owner);
+      return { dropped, nextSees, ownerSees };
+    });
+    expect(result.dropped).toEqual({ readsByAlarm: 0, left: 0 });
+    expect(result.nextSees).toEqual([]);
+    expect(result.ownerSees).toEqual([{ transactionIds: ["201", "202"], total: { currency: "USD", minor: "500" }, at: expect.any(Number) }]);
   } finally {
     provider.restore();
   }

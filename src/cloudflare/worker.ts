@@ -7,6 +7,7 @@ import { ConnectionError, createConnectionService, type CheckoutBinding, type Co
 import { createAccountAuthenticator } from "../hosted/auth.js";
 import { createHostedHandler } from "../hosted/http.js";
 import { authorizeNetPayPagePath } from "../hosted/manifest.js";
+import { payPageAttemptId } from "../authorize-net/checkout.js";
 import { createStripeCheckout } from "../stripe/checkout.js";
 import {
   assertPlaygroundStripeKey,
@@ -66,10 +67,11 @@ export class PaymentConnection extends DurableObject<Env> {
       sql.exec("ALTER TABLE checkout_wake_events ADD COLUMN delivery_generation INTEGER NOT NULL DEFAULT 1");
     }
     // Authorize.net checkouts paid more than once, for the owner to refund by hand (payments-authorize-net-paid-twice-044).
-    sql.exec("CREATE TABLE IF NOT EXISTS authorize_net_paid_twice (attempt_id TEXT PRIMARY KEY, transaction_ids TEXT NOT NULL, amount_minor TEXT NOT NULL, noticed_at INTEGER NOT NULL)");
+    // Each row names the account that owned the store's connection when it was found; only that account sees it.
+    sql.exec("CREATE TABLE IF NOT EXISTS authorize_net_paid_twice (attempt_id TEXT PRIMARY KEY, transaction_ids TEXT NOT NULL, amount_minor TEXT NOT NULL, noticed_at INTEGER NOT NULL, owner_account TEXT NOT NULL)");
     // Paid Authorize.net checkouts with a try Authorize.net could not answer for yet: read again from the alarm,
     // so a second payment still reaches the owner after a notice was already answered.
-    sql.exec("CREATE TABLE IF NOT EXISTS authorize_net_open_tries (attempt_id TEXT PRIMARY KEY, site_id TEXT NOT NULL, next_at INTEGER NOT NULL, tries INTEGER NOT NULL)");
+    sql.exec("CREATE TABLE IF NOT EXISTS authorize_net_open_tries (attempt_id TEXT PRIMARY KEY, site_id TEXT NOT NULL, next_at INTEGER NOT NULL, tries INTEGER NOT NULL, owner_account TEXT NOT NULL)");
     // Setup's "Place a test order" check: the first time the provider confirmed each TEST checkout as paid.
     sql.exec("CREATE TABLE IF NOT EXISTS paid_test_checkouts (attempt_id TEXT PRIMARY KEY, binding_ref TEXT NOT NULL, provider TEXT NOT NULL, account_ref TEXT NOT NULL, amount_minor TEXT NOT NULL, currency TEXT NOT NULL, paid_at INTEGER NOT NULL)");
     // Playground only: which attempts to purge, and opaque rate-limit hits.
@@ -211,21 +213,26 @@ export class PaymentConnection extends DurableObject<Env> {
   }
   /** Keeps a paid checkout with an open try on the alarm's list, or takes it off once none is left. */
   private async noteOpenTries(siteId: string, attemptId: string, port: { openTries(attemptId: string): string[] }) {
-    const sql = this.ctx.storage.sql;
-    if (!port.openTries(attemptId).length) {
+    const sql = this.ctx.storage.sql, owner = this.authorizeNetOwner();
+    if (!owner || !port.openTries(attemptId).length) {
       sql.exec("DELETE FROM authorize_net_open_tries WHERE attempt_id=?", attemptId);
       return;
     }
-    sql.exec("INSERT OR IGNORE INTO authorize_net_open_tries (attempt_id,site_id,next_at,tries) VALUES (?,?,?,0)", attemptId, siteId, Date.now() + OPEN_TRY_FIRST_DELAY_MS);
+    sql.exec("INSERT OR IGNORE INTO authorize_net_open_tries (attempt_id,site_id,next_at,tries,owner_account) VALUES (?,?,?,0,?)", attemptId, siteId, Date.now() + OPEN_TRY_FIRST_DELAY_MS, owner);
     await this.scheduleAlarm();
   }
   /** Reads each due open try again, backing off up to a day between reads, and gives up after OPEN_TRY_READS. */
   private async recheckOpenTries(now: number) {
     const sql = this.ctx.storage.sql;
-    const due = sql.exec<{ attemptId: string; siteId: string; tries: number }>(
-      "SELECT attempt_id AS attemptId, site_id AS siteId, tries FROM authorize_net_open_tries WHERE next_at<=? ORDER BY next_at LIMIT ?", now, OPEN_TRY_BATCH,
+    const due = sql.exec<{ attemptId: string; siteId: string; tries: number; owner: string }>(
+      "SELECT attempt_id AS attemptId, site_id AS siteId, tries, owner_account AS owner FROM authorize_net_open_tries WHERE next_at<=? ORDER BY next_at LIMIT ?", now, OPEN_TRY_BATCH,
     ).toArray();
     for (const row of due) {
+      // Work for a connection that is gone, or now owned by another account, is dropped before Authorize.net is asked.
+      if (this.authorizeNetOwner() !== row.owner) {
+        sql.exec("DELETE FROM authorize_net_open_tries WHERE attempt_id=?", row.attemptId);
+        continue;
+      }
       const port = this.authorizeNetCheckout(row.siteId);
       const done = await port.recheck(row.attemptId).catch(() => false);
       if (done || row.tries + 1 >= OPEN_TRY_READS) {
@@ -264,12 +271,22 @@ export class PaymentConnection extends DurableObject<Env> {
         })),
       },
       paidTwice: (attemptId, record) => {
+        // Kept only while an account owns this store's Authorize.net connection, and only for that account.
+        const owner = this.authorizeNetOwner();
+        if (!owner) return;
         sql.exec(
-          "INSERT INTO authorize_net_paid_twice (attempt_id,transaction_ids,amount_minor,noticed_at) VALUES (?,?,?,?) ON CONFLICT(attempt_id) DO UPDATE SET transaction_ids=excluded.transaction_ids",
-          attemptId, JSON.stringify([record.paidId, ...(record.alsoPaid ?? [])]), record.amountMinor ?? "", Date.now(),
+          "INSERT INTO authorize_net_paid_twice (attempt_id,transaction_ids,amount_minor,noticed_at,owner_account) VALUES (?,?,?,?,?) ON CONFLICT(attempt_id) DO UPDATE SET transaction_ids=excluded.transaction_ids",
+          attemptId, JSON.stringify([record.paidId, ...(record.alsoPaid ?? [])]), record.amountMinor ?? "", Date.now(), owner,
         );
       },
     });
+  }
+  /** The account that owns this store's Authorize.net connection now, or null when none does. */
+  private authorizeNetOwner(): string | null {
+    const row = this.ctx.storage.sql.exec<{ value: string }>("SELECT value FROM connection_state WHERE id=1").toArray()[0];
+    let record: { owner?: { accountId?: unknown }; providerId?: unknown; mode?: unknown } | null = null;
+    try { record = row ? JSON.parse(row.value) : null; } catch { record = null; }
+    return record?.providerId === "authorize_net" && record.mode === "test" && typeof record.owner?.accountId === "string" ? record.owner.accountId : null;
   }
   /**
    * Checkouts Authorize.net took payment for more than once, newest first, for the Payments page. Only a plugin
@@ -281,8 +298,8 @@ export class PaymentConnection extends DurableObject<Env> {
     // Refuses a caller that does not own this store's connection, and shows nothing once it is gone.
     if (this.connection().diagnostics(principal).state === "disconnected") return [];
     return this.ctx.storage.sql.exec<{ ids: string; minor: string; at: number }>(
-      "SELECT transaction_ids AS ids, amount_minor AS minor, noticed_at AS at FROM authorize_net_paid_twice WHERE noticed_at>? ORDER BY noticed_at DESC, attempt_id DESC LIMIT ?",
-      Date.now() - PAID_TWICE_SHOWN_MS, PAID_TWICE_SHOWN,
+      "SELECT transaction_ids AS ids, amount_minor AS minor, noticed_at AS at FROM authorize_net_paid_twice WHERE noticed_at>? AND owner_account=? ORDER BY noticed_at DESC, attempt_id DESC LIMIT ?",
+      Date.now() - PAID_TWICE_SHOWN_MS, principal.accountId, PAID_TWICE_SHOWN,
     ).toArray().map(row => ({ transactionIds: JSON.parse(row.ids) as string[], total: { currency: "USD" as const, minor: row.minor }, at: row.at }));
   }
   async connectionDiagnostics(principal: Principal) { return this.connection().diagnostics(principal); }
@@ -547,7 +564,9 @@ export class PaymentConnection extends DurableObject<Env> {
   }
   /** The shopper's visit to the Authorize.net pay page; the session segment is the only credential. */
   async authorizeNetPayPage(siteId: string, sessionId: string) {
-    return this.authorizeNetCheckout(siteId).payPage(sessionId);
+    const port = this.authorizeNetCheckout(siteId), attemptId = payPageAttemptId(sessionId);
+    try { return await port.payPage(sessionId); }
+    finally { if (attemptId) await this.noteOpenTries(siteId, attemptId, port); }
   }
   async receiveAuthorizeNetWebhook(payload: Uint8Array, signature: string, eventId: string, siteId: string) {
     const sql = this.ctx.storage.sql;

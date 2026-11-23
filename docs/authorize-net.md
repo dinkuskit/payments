@@ -47,8 +47,13 @@ receipts, and the final payment decision.
   payment as the checkout's; it is the one Commerce gets.
   The Payments page shows "This checkout was paid twice" with every transaction
   number, for 90 days, and the owner refunds the extra by hand. Payments never
-  refunds on its own. Only the store's own connection sees it, and nobody once
-  the store is disconnected. Only a plugin that sends `X-Dinkus-Payments-Alerts:
+  refunds on its own. Each line and each queued read keeps the account that
+  owned the store's Authorize.net connection when it was made: only that
+  account sees the line (a reconnect by the same owner keeps it), a store
+  that is disconnected shows none, and a queued read for a connection that is
+  gone or now owned by another account is dropped before Authorize.net is
+  asked. The shopper's pay page, Commerce's lookups and the webhook all queue
+  an unanswered try. Only a plugin that sends `X-Dinkus-Payments-Alerts:
   paid-twice` gets `paidTwice` in `/v1/status`, so older plugins are unaffected.
 - `ensureSession` and `lookup` both refuse a request that does not name the
   checkout as it was opened: a different binding or total is `attempt_mismatch`,
