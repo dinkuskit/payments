@@ -263,14 +263,28 @@ test("a second payment notified after the checkout was paid reaches the Payments
     return Response.json({ messages: { resultCode: "Ok" }, transaction: { transId, responseCode: 1, transactionStatus: "capturedPendingSettlement",
       authAmount: "12.00", order: { invoiceNumber } } });
   }) as typeof fetch;
+  const owner = { accountId: "synthetic-owner", siteId };
+  // The store's own Authorize.net connection; only its owner sees the line.
+  await runInDurableObject(stub, instance => {
+    (instance as { ctx: { storage: { sql: { exec: (query: string, ...binds: unknown[]) => void } } } }).ctx.storage.sql.exec(
+      "INSERT INTO connection_state (id,value) VALUES (1,?)", JSON.stringify({ bindingRef, owner, mode: "test", providerId: "authorize_net",
+        startedAt: Date.now(), stripeAccountId: null, authorizeNetMerchantId: "synthetic-merchant" }),
+    );
+  });
+  const alerts = () => runInDurableObject(stub, async instance => {
+    const object = instance as unknown as { env: Record<string, unknown>; paidTwice(principal: unknown): Promise<{ transactionIds: string[]; total: unknown }[] | undefined> };
+    const saved = object.env.PAYMENT_PROVIDER;
+    object.env.PAYMENT_PROVIDER = "authorize_net";
+    try { return await object.paidTwice(owner); }
+    finally { object.env.PAYMENT_PROVIDER = saved; }
+  });
   try {
-    const owner = { accountId: "synthetic-owner", siteId };
     // Authorize.net can't show the new try yet: the notice fails, and Authorize.net delivers it again.
     expect((await postWebhook(siteId, "second-1", invoiceNumber, "second-1", "60020981677")).status).toBe(500);
-    expect(await stub.paidTwice(owner)).toEqual([]);
+    expect(await alerts()).toEqual([]);
     down = false;
     expect((await postWebhook(siteId, "second-1", invoiceNumber, "second-1", "60020981677")).status).toBe(200);
-    const [notice, ...others] = await stub.paidTwice(owner) ?? [];
+    const [notice, ...others] = await alerts() ?? [];
     expect(others).toEqual([]);
     expect(notice.transactionIds).toEqual(["60020981676", "60020981677"]);
     expect(notice.total).toEqual({ currency: "USD", minor: "1200" });

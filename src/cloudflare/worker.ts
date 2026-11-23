@@ -67,6 +67,9 @@ export class PaymentConnection extends DurableObject<Env> {
     }
     // Authorize.net checkouts paid more than once, for the owner to refund by hand (payments-authorize-net-paid-twice-044).
     sql.exec("CREATE TABLE IF NOT EXISTS authorize_net_paid_twice (attempt_id TEXT PRIMARY KEY, transaction_ids TEXT NOT NULL, amount_minor TEXT NOT NULL, noticed_at INTEGER NOT NULL)");
+    // Paid Authorize.net checkouts with a try Authorize.net could not answer for yet: read again from the alarm,
+    // so a second payment still reaches the owner after a notice was already answered.
+    sql.exec("CREATE TABLE IF NOT EXISTS authorize_net_open_tries (attempt_id TEXT PRIMARY KEY, site_id TEXT NOT NULL, next_at INTEGER NOT NULL, tries INTEGER NOT NULL)");
     // Setup's "Place a test order" check: the first time the provider confirmed each TEST checkout as paid.
     sql.exec("CREATE TABLE IF NOT EXISTS paid_test_checkouts (attempt_id TEXT PRIMARY KEY, binding_ref TEXT NOT NULL, provider TEXT NOT NULL, account_ref TEXT NOT NULL, amount_minor TEXT NOT NULL, currency TEXT NOT NULL, paid_at INTEGER NOT NULL)");
     // Playground only: which attempts to purge, and opaque rate-limit hits.
@@ -192,8 +195,47 @@ export class PaymentConnection extends DurableObject<Env> {
   async alarm() {
     const now = Date.now();
     this.purgePlayground(now);
-    const next = this.ctx.storage.sql.exec<{ oldest: number | null }>("SELECT MIN(created_at) AS oldest FROM playground_attempts").toArray()[0]?.oldest;
-    if (typeof next === "number") await this.ctx.storage.setAlarm(Math.max(now + 1000, next + PLAYGROUND_RETENTION_MS));
+    await this.recheckOpenTries(now);
+    await this.scheduleAlarm(now);
+  }
+  /** One alarm serves the playground's purge and Authorize.net's open tries, whichever is due first. */
+  private async scheduleAlarm(now = Date.now()) {
+    const sql = this.ctx.storage.sql;
+    const oldest = sql.exec<{ oldest: number | null }>("SELECT MIN(created_at) AS oldest FROM playground_attempts").toArray()[0]?.oldest;
+    const open = sql.exec<{ next: number | null }>("SELECT MIN(next_at) AS next FROM authorize_net_open_tries").toArray()[0]?.next;
+    const due = [typeof oldest === "number" ? oldest + PLAYGROUND_RETENTION_MS : null, open ?? null].filter((at): at is number => typeof at === "number");
+    if (!due.length) return;
+    const at = Math.max(now + 1000, Math.min(...due));
+    const current = await this.ctx.storage.getAlarm();
+    if (current === null || current > at || current <= now) await this.ctx.storage.setAlarm(at);
+  }
+  /** Keeps a paid checkout with an open try on the alarm's list, or takes it off once none is left. */
+  private async noteOpenTries(siteId: string, attemptId: string, port: { openTries(attemptId: string): string[] }) {
+    const sql = this.ctx.storage.sql;
+    if (!port.openTries(attemptId).length) {
+      sql.exec("DELETE FROM authorize_net_open_tries WHERE attempt_id=?", attemptId);
+      return;
+    }
+    sql.exec("INSERT OR IGNORE INTO authorize_net_open_tries (attempt_id,site_id,next_at,tries) VALUES (?,?,?,0)", attemptId, siteId, Date.now() + OPEN_TRY_FIRST_DELAY_MS);
+    await this.scheduleAlarm();
+  }
+  /** Reads each due open try again, backing off up to a day between reads, and gives up after OPEN_TRY_READS. */
+  private async recheckOpenTries(now: number) {
+    const sql = this.ctx.storage.sql;
+    const due = sql.exec<{ attemptId: string; siteId: string; tries: number }>(
+      "SELECT attempt_id AS attemptId, site_id AS siteId, tries FROM authorize_net_open_tries WHERE next_at<=? ORDER BY next_at LIMIT ?", now, OPEN_TRY_BATCH,
+    ).toArray();
+    for (const row of due) {
+      const port = this.authorizeNetCheckout(row.siteId);
+      const done = await port.recheck(row.attemptId).catch(() => false);
+      if (done || row.tries + 1 >= OPEN_TRY_READS) {
+        sql.exec("DELETE FROM authorize_net_open_tries WHERE attempt_id=?", row.attemptId);
+        if (!done) console.warn("[payments] an Authorize.net try stayed unreadable; check the checkout in Authorize.net by hand", { attemptId: row.attemptId });
+      } else {
+        sql.exec("UPDATE authorize_net_open_tries SET tries=?, next_at=? WHERE attempt_id=?", row.tries + 1,
+          now + Math.min(OPEN_TRY_FIRST_DELAY_MS * 2 ** (row.tries + 1), OPEN_TRY_MAX_DELAY_MS), row.attemptId);
+      }
+    }
   }
   private authorizeNetCheckout(siteId: string, returnPages?: ReturnPages, origin?: string) {
     const sql = this.ctx.storage.sql;
@@ -236,8 +278,8 @@ export class PaymentConnection extends DurableObject<Env> {
   async paidTwice(principal: Principal): Promise<PaidTwiceNotice[] | undefined> {
     // Only Authorize.net checkouts are ever written here; a Stripe store's list is always empty.
     if (isPlayground(principal)) return undefined;
-    // Refuses a caller that does not own this store's connection.
-    this.connection().diagnostics(principal);
+    // Refuses a caller that does not own this store's connection, and shows nothing once it is gone.
+    if (this.connection().diagnostics(principal).state === "disconnected") return [];
     return this.ctx.storage.sql.exec<{ ids: string; minor: string; at: number }>(
       "SELECT transaction_ids AS ids, amount_minor AS minor, noticed_at AS at FROM authorize_net_paid_twice WHERE noticed_at>? ORDER BY noticed_at DESC, attempt_id DESC LIMIT ?",
       Date.now() - PAID_TWICE_SHOWN_MS, PAID_TWICE_SHOWN,
@@ -332,7 +374,9 @@ export class PaymentConnection extends DurableObject<Env> {
     if ((this.env.PAYMENT_PROVIDER as string) === "authorize_net") {
       const binding = await this.connection().checkoutBinding(principal, request.bindingRef);
       if (!binding || binding.providerId !== "authorize_net") return { outcome: "unknown" as const };
-      return this.notePaid(principal, request, await this.authorizeNetCheckout(principal.siteId, storeReturnPages(principal, "authorize_net"), origin).ensureSession(request));
+      const port = this.authorizeNetCheckout(principal.siteId, storeReturnPages(principal, "authorize_net"), origin);
+      try { return this.notePaid(principal, request, await port.ensureSession(request)); }
+      finally { await this.noteOpenTries(principal.siteId, request.attemptId, port); }
     }
     return this.notePaid(principal, request, await this.checkout(storeReturnPages(principal, "stripe")).ensureSessionFor(principal, request));
   }
@@ -341,7 +385,9 @@ export class PaymentConnection extends DurableObject<Env> {
     if ((this.env.PAYMENT_PROVIDER as string) === "authorize_net") {
       const binding = await this.connection().existingBinding(principal, request.bindingRef);
       if (!binding || binding.providerId !== "authorize_net") return { outcome: "unknown" as const };
-      return this.notePaid(principal, request, await this.authorizeNetCheckout(principal.siteId).lookup(request));
+      const port = this.authorizeNetCheckout(principal.siteId);
+      try { return this.notePaid(principal, request, await port.lookup(request)); }
+      finally { await this.noteOpenTries(principal.siteId, request.attemptId, port); }
     }
     return this.notePaid(principal, request, await this.checkout().lookupFor(principal, request));
   }
@@ -544,7 +590,10 @@ export class PaymentConnection extends DurableObject<Env> {
           wakeEventId, parsed.attemptId, stored.siteId, stored.bindingRef, "", merchantId, "test", receivedAt,
         );
         // A try notified after the checkout was paid is read now, so a second payment reaches the owner.
-        if (event.transactionId) await port.checkLateTry(parsed.attemptId, event.transactionId);
+        if (event.transactionId) {
+          try { await port.checkLateTry(parsed.attemptId, event.transactionId); }
+          finally { await this.noteOpenTries(siteId, parsed.attemptId, port); }
+        }
       },
     })(payload, signature, eventId);
     sql.exec("INSERT OR IGNORE INTO authorize_net_webhook_events (event_id) VALUES (?)", eventId);
@@ -604,6 +653,11 @@ async function checkoutRefusal(call: PromiseLike<unknown>): Promise<PaymentOutco
 /** Paid-twice checkouts stay on the Payments page this long: inside Authorize.net's 120-day refund limit. */
 const PAID_TWICE_SHOWN_MS = 90 * 24 * 60 * 60 * 1000;
 const PAID_TWICE_SHOWN = 10;
+/** An open try is read again after 5 minutes, then twice as long each time up to a day, for 12 reads (about 5 days). */
+const OPEN_TRY_FIRST_DELAY_MS = 5 * 60 * 1000;
+const OPEN_TRY_MAX_DELAY_MS = 24 * 60 * 60 * 1000;
+const OPEN_TRY_READS = 12;
+const OPEN_TRY_BATCH = 20;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {

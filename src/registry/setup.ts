@@ -377,7 +377,7 @@ function paidTwiceBanners(statusValue: unknown) {
       title: "This checkout was paid twice",
       variant: "alert",
       description: `Authorize.net took ${dollars(notice.total.minor)} more than once for one checkout: transactions ${list(notice.transactionIds)}, found ${utcTime(notice.at)}. ` +
-        `The order was made from ${first}. Refund ${list(others)} in Authorize.net by hand; Payments never refunds on its own.`,
+        `Payments counts ${first} as this checkout's payment. Refund ${list(others)} in Authorize.net by hand; Payments never refunds on its own.`,
     };
   });
 }

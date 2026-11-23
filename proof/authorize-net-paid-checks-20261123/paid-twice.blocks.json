@@ -13,7 +13,7 @@
     "type": "banner",
     "title": "This checkout was paid twice",
     "variant": "alert",
-    "description": "Authorize.net took $45.00 more than once for one checkout: transactions 60020981676 and 60020981677, found Nov 23, 2026 at 3:04 PM UTC. The order was made from 60020981676. Refund 60020981677 in Authorize.net by hand; Payments never refunds on its own."
+    "description": "Authorize.net took $45.00 more than once for one checkout: transactions 60020981676 and 60020981677, found Nov 23, 2026 at 3:04 PM UTC. Payments counts 60020981676 as this checkout's payment. Refund 60020981677 in Authorize.net by hand; Payments never refunds on its own."
   },
   {
     "type": "section",

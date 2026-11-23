@@ -268,9 +268,35 @@ test("the plugin reads a paid-twice list strictly and shows the owner each check
   assert.deepEqual(banner, {
     type: "banner", title: "This checkout was paid twice", variant: "alert",
     description: "Authorize.net took $45.00 more than once for one checkout: transactions 60020981676 and 60020981677, found Nov 23, 2026 at 3:04 PM UTC. " +
-      "The order was made from 60020981676. Refund 60020981677 in Authorize.net by hand; Payments never refunds on its own.",
+      "Payments counts 60020981676 as this checkout's payment. Refund 60020981677 in Authorize.net by hand; Payments never refunds on its own.",
   });
   assert.equal(rendered.blocks.indexOf(banner), 2);
   const without = renderSetupScreen({ state: "ready", status: { availability: "available", status: decodeStatus(status), message: "Payments status checked." } });
   assert.equal(JSON.stringify(without).includes("paid twice"), false);
+});
+
+test("paid twice: a try Authorize.net could not answer for stays open after the checkout is paid, and is read again", async () => {
+  const { records, state, transactions, port } = harness();
+  await port.ensureSession(payment);
+  // Both notices came before the first lookup; 102 can't be read yet.
+  transactions[101] = paidTry;
+  for (const id of ["101", "102"]) port.recordTransaction(payment.attemptId, id);
+  const outcome = await port.lookup(payment);
+  assert.equal(outcome.paymentId, "101");
+  assert.deepEqual(port.openTries(payment.attemptId), ["102"], "102 is not counted as read");
+  assert.deepEqual(state.paidTwice, []);
+  // Still down: it stays open.
+  assert.equal(await port.recheck(payment.attemptId), false);
+  transactions[102] = paidTry;
+  assert.equal(await port.recheck(payment.attemptId), true);
+  assert.deepEqual(state.paidTwice, [[payment.attemptId, "101", ["102"]]]);
+  assert.equal(records.get(payment.attemptId).paidId, "101", "the checkout's payment stays the first");
+  // A try read and found not to be a payment is not read again.
+  transactions[103] = declinedTry;
+  port.recordTransaction(payment.attemptId, "103");
+  assert.equal(await port.recheck(payment.attemptId), true);
+  const reads = state.reads.length;
+  assert.equal(await port.recheck(payment.attemptId), true);
+  assert.equal(state.reads.length, reads);
+  assert.deepEqual(port.openTries(payment.attemptId), []);
 });

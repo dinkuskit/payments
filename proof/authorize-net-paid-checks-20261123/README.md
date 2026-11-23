@@ -13,7 +13,7 @@ service or Authorize.net account was contacted.
 
 - `paid-twice-1440.png` and `paid-twice-390.png`: an Authorize.net TEST store's Payment setup page after one
   checkout was paid twice. Below the usual status banner it says **This checkout was paid twice**, with the amount,
-  both transaction numbers, which one the order was made from, and that the owner refunds the other by hand.
+  both transaction numbers, which one Payments counts as the checkout's payment, and that the owner refunds the other by hand.
 
 ## Two-tab sandbox test
 

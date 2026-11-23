@@ -38,10 +38,17 @@ receipts, and the final payment decision.
 - Paid twice (`payments-authorize-net-paid-twice-044`). Any further paid try is
   kept in `alsoPaid`, including one notified after the checkout was paid: the
   webhook reads it then, and a read that fails leaves the notice for
-  Authorize.net to deliver again. Commerce's order stays with the first payment.
+  Authorize.net to deliver again. A try Authorize.net can't answer for while a
+  lookup reads the checkout stays open: it is kept out of `settled` and read
+  again from the Durable Object's alarm, after 5 minutes and then twice as long
+  each time up to a day, for 12 reads (about 5 days); a try still unreadable
+  then is logged for a check by hand. A try read and found not to be a further
+  payment goes in `settled` and is not read again. Payments counts the first
+  payment as the checkout's; it is the one Commerce gets.
   The Payments page shows "This checkout was paid twice" with every transaction
   number, for 90 days, and the owner refunds the extra by hand. Payments never
-  refunds on its own. Only a plugin that sends `X-Dinkus-Payments-Alerts:
+  refunds on its own. Only the store's own connection sees it, and nobody once
+  the store is disconnected. Only a plugin that sends `X-Dinkus-Payments-Alerts:
   paid-twice` gets `paidTwice` in `/v1/status`, so older plugins are unaffected.
 - `ensureSession` and `lookup` both refuse a request that does not name the
   checkout as it was opened: a different binding or total is `attempt_mismatch`,

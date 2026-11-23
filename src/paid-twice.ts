@@ -3,7 +3,7 @@
  * made from the first transaction, and the owner refunds the others by hand. Payments never refunds on its own.
  */
 export type PaidTwiceNotice = {
-  /** The paid transactions, first one first: the order was made from that one. */
+  /** The paid transactions, first one first: Payments counts that one as the checkout's payment. */
   transactionIds: string[];
   total: { currency: "USD"; minor: string };
   /** When Payments found the extra payment, in milliseconds. */

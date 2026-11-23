@@ -130,7 +130,7 @@ const resultB = await settle("B", b);
 const paidB = resultB.tries.length;
 console.log(`B: Authorize.net took ${resultB.paid.length} payment(s) for one checkout from ${paidB} tr${paidB === 1 ? "y" : "ies"}`);
 if (resultB.paid.length > 1) {
-  report("B: Payments reports the checkout as paid twice, order from the first", resultB.outcome.paymentId === resultB.paid[0] &&
+  report("B: Payments reports the checkout as paid twice, counting the first", resultB.outcome.paymentId === resultB.paid[0] &&
     paidTwice.some(notice => notice.attemptId === b.request.attemptId && notice.ids.join() === resultB.paid.join()), `paid: ${resultB.paid.join(", ")}`);
 } else {
   report("B: the checkout is paid once", resultB.outcome.outcome === "paid" && resultB.paid.length === 1, `paid: ${resultB.paid.join(", ") || "none"}`);

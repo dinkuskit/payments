@@ -337,6 +337,8 @@ export interface AuthorizeNetAttemptRecord {
   paidId?: string;
   /** Further tries Authorize.net proved paid for this same checkout: the checkout was paid more than once. */
   alsoPaid?: string[];
+  /** Tries read since the checkout was paid and found not to be a further payment, so they are not read again. */
+  settled?: string[];
   transactionId: string | null;
   transactionIds?: string[];
   createdAt: number;
@@ -428,6 +430,10 @@ export function createAuthorizeNetPaymentPort(options: {
   recordTransaction(attemptId: string, transactionId: string): void;
   /** Reads a try notified after the checkout was already paid, so a second payment is never missed. */
   checkLateTry(attemptId: string, transactionId: string): Promise<void>;
+  /** Tries of a paid checkout not yet read for a second payment: one Authorize.net could not answer for yet. */
+  openTries(attemptId: string): string[];
+  /** Reads a paid checkout's open tries again; true once none is left. */
+  recheck(attemptId: string): Promise<boolean>;
   payPage(sessionId: string): Promise<AuthorizeNetPayPage>;
 } {
   if (!options.siteId) throw new AuthorizeNetError("missing_site_id");
@@ -467,12 +473,12 @@ export function createAuthorizeNetPaymentPort(options: {
     const identity = await identityFor(options.siteId, attemptId);
     // A shopper can be declined and pay on a second try, and Authorize.net's notices can arrive in any order.
     let pending = false, refused: string | undefined;
-    const paid: string[] = [];
+    const paid: string[] = [], undecided: string[] = [];
     for (const id of ids) {
       let transaction;
       // A try that can't be read now is pending; another try may still prove the payment.
       try { transaction = await options.gateway.getTransaction(id); }
-      catch { pending = true; continue; }
+      catch { pending = true; undecided.push(id); continue; }
       if (transaction.invoiceNumber !== identity && transaction.refId !== identity) {
         refused ??= "identity_mismatch";
         continue;
@@ -484,9 +490,10 @@ export function createAuthorizeNetPaymentPort(options: {
         continue;
       }
       if (outcome === "paid") paid.push(transaction.id);
-      if (outcome === "unknown") pending = true;
+      if (outcome === "unknown") { pending = true; undecided.push(id); }
     }
-    if (paid.length) return { paid, read: ids };
+    // A try not yet decided stays open, to be read again even once another try made the checkout paid.
+    if (paid.length) return { paid, read: ids.filter(id => !undecided.includes(id)) };
     if (pending) return { pending: true };
     if (refused) throw new AuthorizeNetError(refused);
     return { unpaid: ids.length };
@@ -500,15 +507,20 @@ export function createAuthorizeNetPaymentPort(options: {
     return options.store.transaction(tx => {
       const current = tx.read(attemptId);
       if (!current) return { paidId: paid[0], unread: [] };
+      // Only a paid checkout keeps track of the tries read since.
+      if (!current.paidId && !paid.length) return { paidId: paid[0], unread: [] };
       const paidId = current.paidId ?? paid[0];
       const before = current.alsoPaid ?? [];
       const alsoPaid = [...new Set([...before, ...paid])].filter(id => id !== paidId).slice(0, AUTHORIZE_NET_ALSO_PAID_PER_ATTEMPT);
-      if (current.paidId !== paidId || alsoPaid.length !== before.length) {
-        const next = { ...current, paidId, ...(alsoPaid.length ? { alsoPaid } : {}) };
+      const tried = transactionsOf(current), wasSettled = current.settled ?? [];
+      // Only tries still on the list are kept, so the list stays as short as the try list.
+      const settled = tried.filter(id => wasSettled.includes(id) || read.includes(id) && id !== paidId && !alsoPaid.includes(id));
+      if (current.paidId !== paidId || alsoPaid.length !== before.length || settled.length !== wasSettled.length) {
+        const next = { ...current, paidId, ...(alsoPaid.length ? { alsoPaid } : {}), ...(settled.length ? { settled } : {}) };
         tx.write(attemptId, next);
         if (alsoPaid.length !== before.length) options.paidTwice?.(attemptId, next);
       }
-      return { paidId, unread: transactionsOf(current).filter(id => !read.includes(id) && id !== paidId && !alsoPaid.includes(id)) };
+      return { paidId, unread: openOf({ ...current, paidId, alsoPaid, settled }) };
     });
   }
 
@@ -518,13 +530,25 @@ export function createAuthorizeNetPaymentPort(options: {
     // A provider error is left to throw, so Authorize.net delivers the notice again later.
     const transaction = await options.gateway.getTransaction(transactionId);
     const identity = await identityFor(options.siteId, attemptId);
-    // Not this checkout's payment.
-    if (transaction.invoiceNumber !== identity && transaction.refId !== identity) return;
+    // Not this checkout's payment, or not a payment: read, so it is not read again.
+    if (transaction.invoiceNumber !== identity && transaction.refId !== identity) return void remember(attemptId, [], [transactionId]);
     let outcome;
     try { outcome = transactionOutcome(transaction, savedTotal(record)); }
-    catch { return; }
+    catch { return void remember(attemptId, [], [transactionId]); }
     if (outcome === "paid") remember(attemptId, [transaction.id], []);
+    // Still undecided at Authorize.net (held for review, say): left open, to be read again.
+    else if (outcome !== "unknown") remember(attemptId, [], [transactionId]);
   }
+
+  function openTries(attemptId: string): string[] {
+    const record = read(attemptId);
+    return record ? openOf(record) : [];
+  }
+
+  /** A paid checkout's tries not yet read for a second payment. */
+  const openOf = (record: AuthorizeNetAttemptRecord) => record.paidId
+    ? transactionsOf(record).filter(id => id !== record.paidId && !record.alsoPaid?.includes(id) && !record.settled?.includes(id))
+    : [];
 
   /** Records the paid result, then reads any try notified meanwhile, so a second payment is never missed. */
   async function settle(attemptId: string, paid: readonly string[], ids: readonly string[]): Promise<string> {
@@ -687,6 +711,11 @@ export function createAuthorizeNetPaymentPort(options: {
       if (shown === null) return ended;
       if (typeof shown !== "string") return shown;
       return { action: "post", hostedUrl: options.hostedUrl, token: shown };
+    },
+    openTries,
+    async recheck(attemptId) {
+      for (const id of openTries(attemptId)) await checkLateTry(attemptId, id).catch(() => {});
+      return openTries(attemptId).length === 0;
     },
     recordTransaction(attemptId, transactionId) {
       if (!/^[0-9]+$/.test(transactionId)) throw new AuthorizeNetError("invalid_transaction_id");
