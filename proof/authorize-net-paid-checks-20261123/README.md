@@ -18,6 +18,7 @@ service or Authorize.net account was contacted.
 ## Two-tab sandbox test
 
 The locked decision makes a real Authorize.net sandbox run the proof that two tabs cannot both pay one checkout
-once each tab gets the same card form, and that the line appears if they ever do. That run needs a deployed
-Worker and the sandbox merchant login, so it is done after merge on the owner's go; its result is added to the
-pull request.
+once each tab gets the same card form, and that the line appears if they ever do. It needs no deploy:
+`node --import tsx scripts/authorize-net-two-tab-proof.mjs --run`, run from a clone of this branch with the sandbox
+merchant login typed in, talks to apitest.authorize.net directly while a person pays with Authorize.net's published
+test card. Its result is added to the pull request before merge.
