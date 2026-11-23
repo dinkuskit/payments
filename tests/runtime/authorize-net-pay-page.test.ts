@@ -51,11 +51,11 @@ test("the Worker serves a stored checkout's pay page by its session and nothing 
 test("through the Worker, only the checkout's own live session reaches Authorize.net", async () => {
   const siteId = crypto.randomUUID();
   const now = Math.floor(Date.now() / 1000);
-  // The stored token is 11 minutes old, so an allowed visit mints a new one.
+  // The stored token is 16 minutes old, past its 15-minute life, so an allowed visit mints a new one.
   await seed(siteId, {
-    token: "stored-token", transactionId: null, createdAt: now - 660, expiresAt: now + 1200, bindingRef: "binding_runtime", siteId,
+    token: "stored-token", transactionId: null, createdAt: now - 960, expiresAt: now + 900, bindingRef: "binding_runtime", siteId,
     amountMinor: "1200", currency: "USD", sessionId, redirectUrl: `https://payments.example.invalid/v1/pay/authorize-net/${siteId}/${sessionId}`,
-    tokenAt: now - 660, returnUrl: "https://store.example/checkout/success", cancelUrl: "https://store.example/checkout",
+    tokenAt: now - 960, returnUrl: "https://store.example/checkout/success", cancelUrl: "https://store.example/checkout",
   });
   const providerCalls: unknown[] = [];
   const originalFetch = globalThis.fetch;

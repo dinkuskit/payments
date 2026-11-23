@@ -1,0 +1,46 @@
+[
+  {
+    "type": "header",
+    "text": "Payment setup"
+  },
+  {
+    "type": "banner",
+    "title": "Not ready to sell",
+    "description": "Complete both steps before accepting regular customer payments.",
+    "variant": "alert"
+  },
+  {
+    "type": "banner",
+    "title": "This checkout was paid twice",
+    "variant": "alert",
+    "description": "Authorize.net took $45.00 more than once for one checkout: transactions 60020981676 and 60020981677, found Nov 23, 2026 at 3:04 PM UTC. Payments counts 60020981676 as this checkout's payment. Refund 60020981677 in Authorize.net by hand; Payments never refunds on its own."
+  },
+  {
+    "type": "section",
+    "text": "Connect payments: Not complete. Authorize.net connection checks are not supported in this build, so its connection cannot be verified here."
+  },
+  {
+    "type": "section",
+    "text": "Place a test order: Not complete. Place an order on your store and pay with an Authorize.net test card. This step completes when Authorize.net confirms the payment and Commerce saves the order."
+  },
+  {
+    "type": "actions",
+    "elements": [
+      {
+        "type": "button",
+        "label": "Check connection",
+        "action_id": "check"
+      },
+      {
+        "type": "button",
+        "label": "Reconnect",
+        "action_id": "connect"
+      },
+      {
+        "type": "button",
+        "label": "Check provider identity",
+        "action_id": "check_provider_identity"
+      }
+    ]
+  }
+]

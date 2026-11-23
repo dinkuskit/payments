@@ -1,5 +1,6 @@
 import { decodeDiagnostics, type ConnectionDiagnostics } from "../connection-diagnostics.js";
 import { BUSINESS_COUNTRIES } from "../business-country.js";
+import type { PaidTwiceNotice } from "../paid-twice.js";
 import { describeStatusCheckFailure } from "./check-failure.js";
 import type { PassRefusal, SetupRefusal } from "./connection.js";
 import {
@@ -364,6 +365,23 @@ export function describeConnectedTo(value: unknown): string | undefined {
   return `Connected to ${business.trim()} on DinkusKit. DinkusKit plugins on this store: ${list}. To disconnect one, open Your stores at DinkusKit.com.`;
 }
 
+/** The ledger's paid-twice line (payments-authorize-net-paid-twice-044): the owner refunds the extra by hand. */
+function paidTwiceBanners(statusValue: unknown) {
+  const notices = statusValue && typeof statusValue === "object" ? (statusValue as { paidTwice?: unknown }).paidTwice : undefined;
+  if (!Array.isArray(notices)) return [];
+  return (notices as PaidTwiceNotice[]).map(notice => {
+    const [first, ...others] = notice.transactionIds;
+    const list = (ids: string[]) => ids.length === 1 ? ids[0] : `${ids.slice(0, -1).join(", ")} and ${ids[ids.length - 1]}`;
+    return {
+      type: "banner",
+      title: "This checkout was paid twice",
+      variant: "alert",
+      description: `Authorize.net took ${dollars(notice.total.minor)} more than once for one checkout: transactions ${list(notice.transactionIds)}, found ${utcTime(notice.at)}. ` +
+        `Payments counts ${first} as this checkout's payment. Refund ${list(others)} in Authorize.net by hand; Payments never refunds on its own.`,
+    };
+  });
+}
+
 export function renderSetupScreen(input: unknown) {
   const nested = input && typeof input === "object" && "state" in input && "status" in input ? input.status : input;
   const lastChecked = lastCheckedProjection(input);
@@ -415,6 +433,7 @@ export function renderSetupScreen(input: unknown) {
     blocks: [
       { type: "header", text: projection.title },
       { type: "banner", title: projection.overall, ...banner },
+      ...paidTwiceBanners(statusValue),
       ...projection.steps.map((step) => ({
         type: "section",
         text: `${step.title}: ${STEP_LABELS[step.status]}. ${step.description}`,

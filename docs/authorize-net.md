@@ -21,10 +21,46 @@ receipts, and the final payment decision.
   `/v1/pay/authorize-net/{siteId}/{sessionId}` on the hosted service. Each visit
   checks the checkout. A paid try, or one still being decided, sends the shopper
   to the store's success page, and an ended checkout sends them to the store's
-  checkout. Otherwise the page posts a token to Authorize.net, minting a new one
-  for the same attempt, amount and invoice reference once the stored one is 10
-  minutes old. The token never appears in a URL. Checkouts started before the pay
-  page keep their token session until they expire.
+  checkout. Otherwise the page posts a token to Authorize.net. A checkout has one
+  live card form at a time: every visit, in any tab, gets the stored token until
+  its 15 minutes end, and only then is a new one minted for the same attempt,
+  amount and invoice reference. Two visits that mint at once both get whichever
+  token was stored first; the other is never shown. The token never appears in a
+  URL. Checkouts started before the pay page keep their token session until they
+  expire.
+- Every try counts. A lookup reads every notified try. The first try
+  Authorize.net proves paid is kept in `paidId`, apart from the try list, so
+  later tries never push it out, and from then on the checkout reads `paid`
+  without asking Authorize.net again. A try that names another checkout or
+  another amount, such as a refund made by hand, is not this checkout's payment:
+  it never hides a paid try, and refuses the lookup only when no other try
+  decides it.
+- Paid twice (`payments-authorize-net-paid-twice-044`). Any further paid try is
+  kept in `alsoPaid`, including one notified after the checkout was paid: the
+  webhook reads it then, and a read that fails leaves the notice for
+  Authorize.net to deliver again. A try Authorize.net can't answer for while a
+  lookup reads the checkout stays open: it is kept out of `settled` and read
+  again from the Durable Object's alarm, after 5 minutes and then twice as long
+  each time up to a day, for 12 reads (about 5 days); a try still unreadable
+  then is logged for a check by hand. A try read and found not to be a further
+  payment goes in `settled` and is not read again. Payments counts the first
+  payment as the checkout's; it is the one Commerce gets.
+  The Payments page shows "This checkout was paid twice" with every transaction
+  number, for 90 days, and the owner refunds the extra by hand. Payments never
+  refunds on its own. A checkout belongs to the connection it was opened
+  under: each connection gets a new binding, so after a reconnect or a new
+  owner its lookups answer nothing, a late payment notice for it is not read,
+  and a queued read for it is dropped, all before Authorize.net is asked. Each
+  line keeps the account of that connection: only that account sees it (a
+  reconnect by the same owner keeps it), and a store that is disconnected
+  shows none. The shopper's pay page (only for a link whose session it
+  accepted), Commerce's lookups and the webhook all queue an unanswered try. Only a plugin that sends `X-Dinkus-Payments-Alerts:
+  paid-twice` gets `paidTwice` in `/v1/status`, so older plugins are unaffected.
+- `ensureSession` and `lookup` both refuse a request that does not name the
+  checkout as it was opened: a different binding or total is `attempt_mismatch`,
+  and a different cart with the same total is `request_mutation`, the Stripe
+  path's own fingerprint check. The amount checked and answered is always the
+  saved one. These refusals answer `409`.
 - A checkout whose tries are all unpaid reads `open` until `expiresAt`, so the
   shopper can try again. It reads `expired-unpaid` only after `expiresAt`, and
   after the last token's 15 minutes plus a 5-minute margin have passed. Until
@@ -39,7 +75,11 @@ receipts, and the final payment decision.
   configuration, currently restricted to USD, and fails closed for any other
   configured currency. Currency is never inferred from a shopper response.
 - `X-ANET-Signature` is verified as HMAC-SHA512 over the original request bytes.
-  After signature verification the Worker parses the store-bound invoice
+  A payment notice names its transaction as `payload.id`, read only when
+  `payload.entityName` is `transaction`, and returns the request's `refId` as
+  `payload.merchantReferenceId`, which is the store-bound invoice reference
+  ([Webhooks](https://developer.authorize.net/api/reference/features/webhooks.html)).
+  After signature verification the Worker parses that invoice
   reference and rejects cross-store or malformed references before any
   transactionId storage, wake insertion, or paid lookup. Replay and wake
   identity are the signed `notificationId`; a caller event ID that does not
@@ -111,7 +151,7 @@ node --import tsx scripts/authorize-net-sandbox-proof.mjs --run
 The pay page has its own opt-in proof with the same two credentials. It makes a
 real sandbox checkout, sends wrong-secret, other-store and ended-checkout visits
 through the hosted handler, and counts every provider call (none for those
-visits, one for a refresh after 11 minutes). It saves `pay-page-proof.html`,
+visits, one for a refresh after the 15-minute card form ends). It saves `pay-page-proof.html`,
 which opens the sandbox card form when loaded in a browser:
 
 ```bash
@@ -153,6 +193,11 @@ identity fields fail closed.
 - The live endpoint and live credentials remain explicitly disabled. The
   credentialed sandbox proof is left for stack-pilot to run on its box against
   the wiring branch.
+- Before Authorize.net goes live, in the sandbox: pay a second time in a tab
+  that still shows a checkout's card form after the first payment, and record
+  what Authorize.net answers (the 23 Nov 2026 run showed two tabs get the same
+  form and one payment is taken; Payments handles either answer). A real
+  payment notice is checked the same way.
 
 ## Documentation checked
 

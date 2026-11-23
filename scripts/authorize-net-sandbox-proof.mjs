@@ -152,9 +152,11 @@ await check("sandbox transaction and authoritative lookup", async () => {
 
 await check("webhook HMAC-SHA512", async () => {
   const notificationId = `proof-${Date.now()}`;
+  // Authorize.net's documented payment notice shape, naming this run's real sandbox transaction.
   const body = new TextEncoder().encode(JSON.stringify({
     notificationId,
     eventType: "net.authorize.payment.authcapture.created",
+    payload: { responseCode: 1, merchantReferenceId: invoiceNumber, authAmount: 1.00, entityName: "transaction", id: transactionId ?? "0" },
   }));
   const key = await crypto.subtle.importKey(
     "raw",
@@ -168,7 +170,9 @@ await check("webhook HMAC-SHA512", async () => {
   const handler = createAuthorizeNetWebhookHandler({
     signatureKey: credentials.signatureKey,
     seenEventIds: new Set(),
-    wake: async () => {},
+    wake: async event => {
+      if (event.invoiceReference !== invoiceNumber || event.transactionId !== (transactionId ?? "0")) throw new Error("notice_fields_not_read");
+    },
   });
   await handler(body, `sha512=${digest}`, notificationId);
   await assertRejects(() => handler(body, `sha512=${digest}`, "sandbox-proof-mismatch"));

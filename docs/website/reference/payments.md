@@ -37,6 +37,10 @@ If DinkusKit.com no longer knows the plugin's key, for example after Disconnect 
 
 One provider is active per store. Authorize.net connection checks are not supported in this release, so an Authorize.net connection cannot be verified on this page. Use the Stripe TEST path for the first test order.
 
+## When an Authorize.net checkout is paid twice
+
+If Authorize.net takes payment more than once for one checkout, for example from two browser tabs, Payments keeps every payment on record and counts the first as the checkout's payment, so Commerce makes one order. The Payments page then shows **This checkout was paid twice** with the amount, every transaction number and which one Payments counts. If Authorize.net is briefly unavailable, Payments checks again over the next few days, so a second payment still shows up. Refund the extra payment yourself in the Authorize.net merchant interface; Payments never refunds on its own. The notice stays on the page for 90 days, inside Authorize.net's 120-day refund limit. Stripe checkouts can't be paid twice.
+
 ## When a test order counts
 
 The Payments setup step uses both conditions for the current payment connection:
