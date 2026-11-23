@@ -15,10 +15,20 @@ service or Authorize.net account was contacted.
   checkout was paid twice. Below the usual status banner it says **This checkout was paid twice**, with the amount,
   both transaction numbers, which one Payments counts as the checkout's payment, and that the owner refunds the other by hand.
 
-## Two-tab sandbox test
+## Two-tab sandbox test (23 Nov 2026)
 
-The locked decision makes a real Authorize.net sandbox run the proof that two tabs cannot both pay one checkout
-once each tab gets the same card form, and that the line appears if they ever do. It needs no deploy:
-`node --import tsx scripts/authorize-net-two-tab-proof.mjs --run`, run from a clone of this branch with the sandbox
-merchant login typed in, talks to apitest.authorize.net directly while a person pays with Authorize.net's published
-test card. Its result is added to the pull request before merge.
+Run by the owner with `node --import tsx scripts/authorize-net-two-tab-proof.mjs --run` from a clone of this branch,
+against apitest.authorize.net with the sandbox merchant login and Authorize.net's published test card. No deploy and
+no live account.
+
+Shown:
+
+- Two tabs that opened one checkout's pay page at once got the same hosted card form (the same form token), each
+  showing the same sandbox invoice and Pay button.
+- Authorize.net took one payment for that checkout: sandbox transaction `120094443552`.
+- A later visit to the paid checkout's pay page answered HTTP 303 to the store's success page, with no new card form.
+
+Not run: paying in the second tab on that same form after the first payment, and the two-form round (B). Payments
+handles either answer, as the tests show: a refused second payment changes nothing, and a second payment is kept in
+`alsoPaid` and shown on the "paid twice" line. The owner approved on 2026-11-23 that this second-tab check is made in
+the sandbox before Authorize.net goes live, with the other go-live proofs.

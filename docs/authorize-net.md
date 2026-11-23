@@ -193,6 +193,11 @@ identity fields fail closed.
 - The live endpoint and live credentials remain explicitly disabled. The
   credentialed sandbox proof is left for stack-pilot to run on its box against
   the wiring branch.
+- Before Authorize.net goes live, in the sandbox: pay a second time in a tab
+  that still shows a checkout's card form after the first payment, and record
+  what Authorize.net answers (the 23 Nov 2026 run showed two tabs get the same
+  form and one payment is taken; Payments handles either answer). A real
+  payment notice is checked the same way.
 
 ## Documentation checked
 

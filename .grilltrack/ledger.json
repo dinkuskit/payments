@@ -3,12 +3,11 @@
   "created_at": "2026-10-10T04:09:17+00:00",
   "current_focus": {
     "cadence": "sequential",
-    "confirmed": true,
-    "confirmed_at": "2026-11-23T15:48:45+00:00",
+    "confirmed": false,
     "domain": "Authorize.net checkout reconciliation",
-    "started_at": "2026-11-23T15:48:18+00:00",
-    "status": "confirmed",
-    "summary": "Reopened 044's build-order gate after deepsec finding G1-04. The owner approved on 2026-11-23: keep both payments recorded, one order from the first, the owner line built now, Payments never refunds, and the two-tab sandbox test is the PR's proof."
+    "started_at": "2026-11-23T17:45:26+00:00",
+    "status": "grilling",
+    "summary": "Reopen payments-authorize-net-paid-twice-044: The sandbox run's second-tab payment needs a person to submit it; the owner chose on 2026-11-23 to merge on the proven parts and check the second tab before Authorize.net goes live."
   },
   "decisions": [
     {
@@ -3268,7 +3267,7 @@
     {
       "baseline_ref": "git:e38dcc7",
       "candidate_refs": [],
-      "choice": "Keep both paid transactions recorded on the checkout. Commerce makes one order from the first paid transaction, which Payments keeps for good in paidId; further paid transactions are kept in alsoPaid, including one notified after the checkout was paid (the webhook reads it then, and a failed read leaves the notice for Authorize.net to deliver again). The store owner sees a plain line on the Payments page saying the checkout was paid twice, with the amount and every transaction id, telling them to refund the extra by hand in Authorize.net; it stays 90 days. Payments never refunds on its own. Build order: the line is built now, and the two-tab Authorize.net sandbox test is the pull request's proof rather than a precondition. Status carries paidTwice only when the plugin asks with the X-Dinkus-Payments-Alerts header, so the plugin and Worker can ship in either order.",
+      "choice": "Keep both paid transactions recorded on the checkout. Commerce makes one order from the first paid transaction, which Payments keeps for good in paidId; further paid transactions are kept in alsoPaid, including one notified after the checkout was paid (the webhook reads it then, and a failed read leaves the notice for Authorize.net to deliver again). The store owner sees a plain line on the Payments page saying the checkout was paid twice, with the amount and every transaction id, telling them to refund the extra by hand in Authorize.net; it stays 90 days. Payments never refunds on its own. Build order: the line is built now. The pull request's sandbox proof is what the 2026-11-23 run showed: two tabs get the same card form, Authorize.net took one payment for the checkout, and a later visit to the paid checkout goes back to the store. What Authorize.net answers when the second tab pays on that same form is checked in the sandbox before Authorize.net goes live. Status carries paidTwice only when the plugin asks with the X-Dinkus-Payments-Alerts header, so the plugin and Worker can ship in either order.",
       "context_ref": "https://github.com/dinkuskit/payments/pull/95",
       "created_at": "2026-10-27T19:25:36+00:00",
       "deferred_reason": null,
@@ -3317,12 +3316,40 @@
           "review_source_identity": null,
           "to": "locked",
           "verification_ref": null
+        },
+        {
+          "at": "2026-11-23T17:45:26+00:00",
+          "choice": "Keep both paid transactions recorded on the checkout. Commerce makes one order from the first paid transaction, which Payments keeps for good in paidId; further paid transactions are kept in alsoPaid, including one notified after the checkout was paid (the webhook reads it then, and a failed read leaves the notice for Authorize.net to deliver again). The store owner sees a plain line on the Payments page saying the checkout was paid twice, with the amount and every transaction id, telling them to refund the extra by hand in Authorize.net; it stays 90 days. Payments never refunds on its own. Build order: the line is built now, and the two-tab Authorize.net sandbox test is the pull request's proof rather than a precondition. Status carries paidTwice only when the plugin asks with the X-Dinkus-Payments-Alerts header, so the plugin and Worker can ship in either order.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "The sandbox run's second-tab payment needs a person to submit it; the owner chose on 2026-11-23 to merge on the proven parts and check the second tab before Authorize.net goes live.",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "reopened",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-11-23T17:45:26+00:00",
+          "choice": "Keep both paid transactions recorded on the checkout. Commerce makes one order from the first paid transaction, which Payments keeps for good in paidId; further paid transactions are kept in alsoPaid, including one notified after the checkout was paid (the webhook reads it then, and a failed read leaves the notice for Authorize.net to deliver again). The store owner sees a plain line on the Payments page saying the checkout was paid twice, with the amount and every transaction id, telling them to refund the extra by hand in Authorize.net; it stays 90 days. Payments never refunds on its own. Build order: the line is built now, and the two-tab Authorize.net sandbox test is the pull request's proof rather than a precondition. Status carries paidTwice only when the plugin asks with the X-Dinkus-Payments-Alerts header, so the plugin and Worker can ship in either order.",
+          "from": "reopened",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
         }
       ],
       "id": "payments-authorize-net-paid-twice-044",
       "implementation_ref": null,
       "question": "If one Authorize.net checkout ends up with two paid transactions, what does Payments do?",
-      "rationale": "v1 scope is refunds by hand; automatic refunds risk refunding the wrong payment. Stripe cannot reach a second payment, so only Authorize.net needs this. The earlier gate assumed a second payment might be unreachable, but the pay page mints card forms on demand and duplicateWindow is 0, so a second charge is plausible by design and must not stay hidden. The owner approved this on 2026-11-23.",
+      "rationale": "v1 scope is refunds by hand; automatic refunds risk refunding the wrong payment. Stripe cannot reach a second payment, so only Authorize.net needs this. Payments handles either answer from the second tab (refused, or a second payment shown on the line), so that answer changes no code; Authorize.net is not live yet, so it is checked with the other go-live proofs. The owner approved this on 2026-11-23.",
       "repair_required": false,
       "review_classifications": [],
       "review_history": [],
@@ -3331,7 +3358,7 @@
       "review_source_identity": null,
       "status": "locked",
       "superseded_by": null,
-      "updated_at": "2026-11-23T15:48:28+00:00",
+      "updated_at": "2026-11-23T17:45:26+00:00",
       "verification_ref": null
     },
     {
@@ -3845,7 +3872,7 @@
     }
   ],
   "last_activation": {
-    "at": "2026-11-23T15:48:18+00:00",
+    "at": "2026-11-23T17:45:26+00:00",
     "mechanism": "implicit"
   },
   "last_pause": null,
@@ -3864,5 +3891,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-11-23T15:48:45+00:00"
+  "updated_at": "2026-11-23T17:45:26+00:00"
 }
