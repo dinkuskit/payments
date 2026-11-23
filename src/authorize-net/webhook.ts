@@ -17,8 +17,9 @@ export interface AuthorizeNetWebhookEvent {
   readonly id: string;
   readonly payload: unknown;
   readonly transaction: AuthorizeNetTransaction | null;
-  /** Raw invoiceNumber/attemptId from the signed body (store-bound reference). */
+  /** `payload.merchantReferenceId` from the signed body: the checkout's store-bound reference. */
   readonly invoiceReference?: string;
+  /** `payload.id` of a transaction notice. */
   readonly transactionId?: string;
 }
 
@@ -33,17 +34,23 @@ function signedNotificationId(parsed: unknown): string {
   return notificationId;
 }
 
-function nestedString(value: unknown, keys: readonly string[], pattern: RegExp): string | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const object = value as Record<string, unknown>;
-  for (const key of keys) {
-    if (typeof object[key] === "string" && pattern.test(object[key] as string)) return object[key] as string;
-  }
-  for (const child of Object.values(object)) {
-    const found = nestedString(child, keys, pattern);
-    if (found) return found;
-  }
-  return undefined;
+/**
+ * Authorize.net's payment notices carry the transaction as `payload.id` when `payload.entityName` is
+ * "transaction", and the request's refId, which Payments sets to the checkout's store-bound reference, as
+ * `payload.merchantReferenceId` (https://developer.authorize.net/api/reference/features/webhooks.html).
+ * Anything else names no checkout.
+ */
+function noticeFields(body: Record<string, unknown>): { transactionId?: string; invoiceReference?: string } {
+  const payload = body.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return {};
+  const fields = payload as Record<string, unknown>;
+  if (fields.entityName !== "transaction") return {};
+  const id = typeof fields.id === "number" && Number.isSafeInteger(fields.id) ? String(fields.id) : fields.id;
+  const reference = fields.merchantReferenceId;
+  return {
+    ...(typeof id === "string" && /^[0-9]{1,20}$/.test(id) ? { transactionId: id } : {}),
+    ...(typeof reference === "string" && /^[A-Za-z0-9._-]{1,20}$/.test(reference) ? { invoiceReference: reference } : {}),
+  };
 }
 
 /**
@@ -73,9 +80,7 @@ export async function verifyAuthorizeNetWebhook(
   const notificationId = signedNotificationId(parsed);
   if (notificationId !== eventId) throw new AuthorizeNetWebhookError("notification_id_mismatch");
   if (seenEventIds.has(notificationId)) throw new AuthorizeNetWebhookError("replayed_event");
-  const body = parsed as Record<string, unknown>;
-  const transactionId = nestedString(body, ["transactionId", "transId"], /^[0-9]+$/);
-  const invoiceReference = nestedString(body, ["attemptId", "invoiceNumber"], /^[A-Za-z0-9._-]{1,20}$/);
+  const { transactionId, invoiceReference } = noticeFields(parsed as Record<string, unknown>);
   return { id: notificationId, payload: parsed, transaction: null, invoiceReference, transactionId };
 }
 

@@ -24,7 +24,11 @@ async function signedWebhook(notificationId: string, invoiceNumber: string, tran
   const payload = new TextEncoder().encode(JSON.stringify({
     notificationId,
     eventType: "net.authorize.payment.authcapture.created",
-    payload: { transaction: { transId: transactionId, order: { invoiceNumber } } },
+    eventDate: "2026-11-23T15:04:02.0080095Z",
+    webhookId: "63d6fea2-aa13-4b1d-a204-f5fbc15942b7",
+    // Authorize.net's documented payment notice: payload.id is the transaction and payload.merchantReferenceId
+    // is the request's refId, which Payments sets to the checkout's store-bound reference.
+    payload: { responseCode: 1, merchantReferenceId: invoiceNumber, authCode: "LZ6I19", avsResponse: "Y", authAmount: 12.00, entityName: "transaction", id: transactionId },
   }));
   const key = await crypto.subtle.importKey(
     "raw",
@@ -233,4 +237,47 @@ test("a checkout stored before transaction history keeps its transaction when a 
   expect(stored.transactionId).toBe("888");
   expect(stored.siteId).toBe(siteId);
   expect(stored.bindingRef).toBe(bindingRef);
+});
+
+test("a second payment notified after the checkout was paid reaches the Payments page as paid twice", async () => {
+  const siteId = crypto.randomUUID();
+  const invoiceNumber = await buildAuthorizeNetInvoiceReference(siteId, attemptId);
+  const stub = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", siteId]));
+  await runInDurableObject(stub, instance => {
+    (instance as { ctx: { storage: { sql: { exec: (query: string, ...binds: unknown[]) => void } } } }).ctx.storage.sql.exec(
+      "INSERT INTO authorize_net_attempts (attempt_id,value) VALUES (?,?)",
+      attemptId,
+      JSON.stringify({ attemptId, bindingRef, siteId, transactionId: "60020981676", transactionIds: ["60020981676"], paidId: "60020981676",
+        amountMinor: "1200", currency: "USD", createdAt: 1, expiresAt: 2, token: "t" }),
+    );
+  });
+  const reads: string[] = [];
+  let down = true;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url !== "https://apitest.authorize.net/xml/v1/request.api") return originalFetch(input, init);
+    const transId = JSON.parse(String(init?.body)).getTransactionDetailsRequest.transId as string;
+    reads.push(transId);
+    if (down) return new Response("unavailable", { status: 503 });
+    return Response.json({ messages: { resultCode: "Ok" }, transaction: { transId, responseCode: 1, transactionStatus: "capturedPendingSettlement",
+      authAmount: "12.00", order: { invoiceNumber } } });
+  }) as typeof fetch;
+  try {
+    const owner = { accountId: "synthetic-owner", siteId };
+    // Authorize.net can't show the new try yet: the notice fails, and Authorize.net delivers it again.
+    expect((await postWebhook(siteId, "second-1", invoiceNumber, "second-1", "60020981677")).status).toBe(500);
+    expect(await stub.paidTwice(owner)).toEqual([]);
+    down = false;
+    expect((await postWebhook(siteId, "second-1", invoiceNumber, "second-1", "60020981677")).status).toBe(200);
+    const [notice, ...others] = await stub.paidTwice(owner) ?? [];
+    expect(others).toEqual([]);
+    expect(notice.transactionIds).toEqual(["60020981676", "60020981677"]);
+    expect(notice.total).toEqual({ currency: "USD", minor: "1200" });
+    expect(reads).toEqual(["60020981677", "60020981677"]);
+    // The order stays with the first payment.
+    expect((await attemptRecord(stub) as { paidId?: string }).paidId).toBe("60020981676");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

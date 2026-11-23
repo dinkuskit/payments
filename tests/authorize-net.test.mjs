@@ -196,9 +196,14 @@ test("webhooks verify raw bytes, reject tampering and replay, and wake only once
 
 test("signed Authorize.net transaction hints can wake a durable attempt without deciding payment", async () => {
   const invoiceReference = await buildAuthorizeNetInvoiceReference(siteId, "attempt-one");
+  // Authorize.net's documented payment notice: the transaction is payload.id and the request's refId comes back
+  // as payload.merchantReferenceId (https://developer.authorize.net/api/reference/features/webhooks.html).
   const { payload, signature, key } = await signedAuthorizeNetWebhook({
     notificationId: "n-transaction",
-    payload: { transaction: { transId: "123", order: { invoiceNumber: invoiceReference } } },
+    eventType: "net.authorize.payment.authcapture.created",
+    eventDate: "2026-11-23T15:04:02.0080095Z",
+    webhookId: "63d6fea2-aa13-4b1d-a204-f5fbc15942b7",
+    payload: { responseCode: 1, merchantReferenceId: invoiceReference, authCode: "LZ6I19", avsResponse: "Y", authAmount: 12.00, entityName: "transaction", id: "123" },
   });
   let event;
   await createAuthorizeNetWebhookHandler({
@@ -209,6 +214,27 @@ test("signed Authorize.net transaction hints can wake a durable attempt without 
   assert.equal(event.invoiceReference, invoiceReference);
   assert.equal(event.transactionId, "123");
   assert.equal(event.transaction, null);
+});
+
+test("only a transaction notice's own fields name a checkout and a try", async () => {
+  const invoiceReference = await buildAuthorizeNetInvoiceReference(siteId, "attempt-one");
+  const read = async (body, id) => {
+    const { payload, signature, key } = await signedAuthorizeNetWebhook({ notificationId: id, ...body });
+    let event;
+    await createAuthorizeNetWebhookHandler({ signatureKey: key, seenEventIds: new Set(), wake: async value => { event = value; } })(payload, signature, id);
+    return { invoiceReference: event.invoiceReference, transactionId: event.transactionId };
+  };
+  // A numeric id is read as the same digits.
+  assert.deepEqual(await read({ payload: { entityName: "transaction", id: 60020981676, merchantReferenceId: invoiceReference } }, "n-number"),
+    { invoiceReference, transactionId: "60020981676" });
+  // The old getTransactionDetails-shaped fields are not a notice's fields.
+  assert.deepEqual(await read({ payload: { transaction: { transId: "123", order: { invoiceNumber: invoiceReference } } } }, "n-old"),
+    { invoiceReference: undefined, transactionId: undefined });
+  // A customer profile notice names no checkout or try, even with the same id field.
+  assert.deepEqual(await read({ payload: { entityName: "customerProfile", id: "987", merchantReferenceId: invoiceReference } }, "n-profile"),
+    { invoiceReference: undefined, transactionId: undefined });
+  assert.deepEqual(await read({ payload: { entityName: "transaction", id: "12a", merchantReferenceId: "not a reference!" } }, "n-bad"),
+    { invoiceReference: undefined, transactionId: undefined });
 });
 
 test("a failed wake stays retryable and a later success is replay-fenced", async () => {
@@ -309,7 +335,12 @@ test("wired payment port persists hosted session and reports authoritative paid,
   assert.deepEqual(await port.lookup(payment), { outcome: "unknown" });
   port.recordTransaction(payment.attemptId, "123");
   assert.equal((await port.lookup(payment)).outcome, "paid");
+  assert.equal(records.get(payment.attemptId).paidId, "123");
+  // Paid is absorbing: once Authorize.net proved it, the checkout stays paid without asking again.
   response = { ...response, transId: "123", responseCode: 2, transactionStatus: "declined" };
+  assert.equal((await port.lookup(payment)).paymentId, "123");
+  // The rest of this test reads one try in each state, as a checkout not yet proven paid.
+  delete records.get(payment.attemptId).paidId;
   records.get(payment.attemptId).transactionId = "123";
   // A declined shopper can still try again until the checkout ends.
   assert.equal((await port.lookup(payment)).outcome, "open");
@@ -534,8 +565,15 @@ test("a try that can't be read now doesn't hide a later paid one, and the kept t
   assert.equal(kept.transactionIds.length, AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT);
   assert.equal(kept.transactionIds.at(-1), "529");
   assert.equal(kept.transactionId, "529");
+  // The paid try fell out of the try list long ago, but it is kept apart and the checkout stays paid, with no read.
+  assert.equal(kept.transactionIds.includes("402"), false);
+  reads = 0;
+  assert.equal((await port.lookup(payment)).paymentId, "402");
+  assert.equal(reads, 0);
   // A record whose latest try sits outside a full list still reads at most the limit.
-  records.set(payment.attemptId, { ...kept, transactionId: "999" });
+  const { paidId, ...unproven } = kept;
+  assert.equal(paidId, "402");
+  records.set(payment.attemptId, { ...unproven, transactionId: "999" });
   reads = 0;
   down = true;
   assert.deepEqual(await port.lookup(payment), { outcome: "unknown" });
@@ -583,15 +621,16 @@ test("the pay page hands out a fresh card-form token while the Commerce session 
   assert.equal(payPageAttemptId(sessionId), payment.attemptId);
   assert.deepEqual(await port.payPage(sessionId), post("token-1"));
   assert.equal(state.mints, 1);
-  // A reload within 10 minutes reuses the token, which still has at least 5 minutes left.
-  state.clock += 599_000;
+  // One live card form per checkout: every visit, in any tab, gets the same token until Authorize.net stops
+  // showing it 15 minutes after it was minted.
+  state.clock += 899_000;
   assert.deepEqual(await port.payPage(sessionId), post("token-1"));
   assert.equal(state.mints, 1);
   // Past that, the shopper gets a token minted now, for the same checkout.
   state.clock += 1_000;
   assert.deepEqual(await port.payPage(sessionId), post("token-2"));
   assert.equal(records.get(payment.attemptId).token, "token-2");
-  assert.equal(records.get(payment.attemptId).tokenAt, 1_800_000_600);
+  assert.equal(records.get(payment.attemptId).tokenAt, 1_800_000_900);
   assert.deepEqual(await port.ensureSession(payment), open);
 });
 
@@ -633,16 +672,20 @@ test("the pay page sends a paid, undecided or ended checkout back to the store a
   assert.deepEqual(await port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout/success" });
   transactions[601] = { responseCode: 1, transactionStatus: "capturedPendingSettlement" };
   assert.deepEqual(await port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout/success" });
+  // Once proven paid it stays paid: a later visit, even after the checkout ended, goes to the store's result page
+  // without asking Authorize.net again.
   transactions[601] = { responseCode: 2, transactionStatus: "declined" };
   state.clock += 1860_000;
-  assert.deepEqual(await port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout" });
+  state.calls = 0;
+  assert.deepEqual(await port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout/success" });
+  assert.equal(state.calls, 0);
   assert.equal(state.mints, 1);
 });
 
 test("a pay page that can't get a new token sends the shopper back to the store checkout", async () => {
   const { state, port } = payPageHarness({ mintFails: true });
   const { session } = await port.ensureSession(payment);
-  state.clock += 600_000;
+  state.clock += 900_000;
   assert.deepEqual(await port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout" });
 });
 
@@ -760,9 +803,11 @@ test("a checkout stored before the pay page keeps its session and still reconcil
   status = { responseCode: 1, transactionStatus: "capturedPendingSettlement" };
   assert.deepEqual(await port.lookup(payment), { outcome: "paid", attemptId: payment.attemptId, total: payment.total, session: legacySession, paymentId: "123" });
   assert.deepEqual(await port.payPage(`${"0".repeat(32)}.${payment.attemptId}`), { action: "not_found" });
-  assert.deepEqual(records.get(payment.attemptId), { ...preChangeRecord, transactionId: "124", transactionIds: ["123", "124"] });
-  // ensureSession resolves the stored transaction authoritatively (1), plus the two lookup calls (2).
-  assert.equal(calls, 3);
+  // Both tries read as paid here, so the record keeps the first and notes the second as paid twice.
+  assert.deepEqual(records.get(payment.attemptId), { ...preChangeRecord, transactionId: "124", transactionIds: ["123", "124"], paidId: "123", alsoPaid: ["124"] });
+  // ensureSession resolves the stored transaction authoritatively (1), then one lookup reads 123 (1) and the
+  // next reads both tries (2).
+  assert.equal(calls, 4);
 });
 
 test("ensureSession resolves stored Authorize.Net attempts authoritatively across paid, expired, and late-paid states", async () => {

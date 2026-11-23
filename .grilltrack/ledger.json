@@ -4,11 +4,11 @@
   "current_focus": {
     "cadence": "sequential",
     "confirmed": true,
-    "confirmed_at": "2026-11-13T16:34:18+00:00",
-    "domain": "Stripe hosted checkout page",
-    "started_at": "2026-11-13T16:34:09+00:00",
+    "confirmed_at": "2026-11-23T15:48:45+00:00",
+    "domain": "Authorize.net checkout reconciliation",
+    "started_at": "2026-11-23T15:48:18+00:00",
     "status": "confirmed",
-    "summary": "Reopened 048 on ClawSweeper's P2 for payments#119: the product choice Ronald agreed (13 Nov 2026 16:03 UTC) is unchanged; new claims record stripe-whole-line-v2 and attempts claimed as v1 keep their exact v1 Stripe parameters for same-key retry."
+    "summary": "Reopened 044's build-order gate after deepsec finding G1-04. The owner approved on 2026-11-23: keep both payments recorded, one order from the first, the owner line built now, Payments never refunds, and the two-tab sandbox test is the PR's proof."
   },
   "decisions": [
     {
@@ -3268,7 +3268,7 @@
     {
       "baseline_ref": "git:e38dcc7",
       "candidate_refs": [],
-      "choice": "Keep both paid transactions recorded on the checkout (transactionIds, payments#95). Commerce makes one order from the first paid transaction. The store owner sees a plain line saying the checkout was paid twice, with both transaction ids, telling them to refund one by hand in Authorize.net. Payments never refunds on its own. Build order: the line is built only after the Authorize.net sandbox proof shows Accept Hosted can actually take a second successful payment on one checkout; until then the second payment is recorded but not shown. Surfacing it needs a status field the plugin understands before the Worker sends it (decodeStatus rejects unknown keys), so the plugin release goes first and the Worker change second.",
+      "choice": "Keep both paid transactions recorded on the checkout. Commerce makes one order from the first paid transaction, which Payments keeps for good in paidId; further paid transactions are kept in alsoPaid, including one notified after the checkout was paid (the webhook reads it then, and a failed read leaves the notice for Authorize.net to deliver again). The store owner sees a plain line on the Payments page saying the checkout was paid twice, with the amount and every transaction id, telling them to refund the extra by hand in Authorize.net; it stays 90 days. Payments never refunds on its own. Build order: the line is built now, and the two-tab Authorize.net sandbox test is the pull request's proof rather than a precondition. Status carries paidTwice only when the plugin asks with the X-Dinkus-Payments-Alerts header, so the plugin and Worker can ship in either order.",
       "context_ref": "https://github.com/dinkuskit/payments/pull/95",
       "created_at": "2026-10-27T19:25:36+00:00",
       "deferred_reason": null,
@@ -3289,12 +3289,40 @@
           "review_source_identity": null,
           "to": "locked",
           "verification_ref": null
+        },
+        {
+          "at": "2026-11-23T15:48:18+00:00",
+          "choice": "Keep both paid transactions recorded on the checkout (transactionIds, payments#95). Commerce makes one order from the first paid transaction. The store owner sees a plain line saying the checkout was paid twice, with both transaction ids, telling them to refund one by hand in Authorize.net. Payments never refunds on its own. Build order: the line is built only after the Authorize.net sandbox proof shows Accept Hosted can actually take a second successful payment on one checkout; until then the second payment is recorded but not shown. Surfacing it needs a status field the plugin understands before the Worker sends it (decodeStatus rejects unknown keys), so the plugin release goes first and the Worker change second.",
+          "from": "locked",
+          "implementation_ref": null,
+          "note": "A deepsec audit (finding G1-04) showed a second paid try is reachable by design: the pay page (payments-authorize-net-pay-page-045) mints card forms on demand and duplicateWindow is 0. A second payment recorded but shown to nobody leaves the owner unaware of a double charge, so the build-order gate is reopened. The owner approved reopening on 2026-11-23.",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "reopened",
+          "verification_ref": null
+        },
+        {
+          "at": "2026-11-23T15:48:28+00:00",
+          "choice": "Keep both paid transactions recorded on the checkout (transactionIds, payments#95). Commerce makes one order from the first paid transaction. The store owner sees a plain line saying the checkout was paid twice, with both transaction ids, telling them to refund one by hand in Authorize.net. Payments never refunds on its own. Build order: the line is built only after the Authorize.net sandbox proof shows Accept Hosted can actually take a second successful payment on one checkout; until then the second payment is recorded but not shown. Surfacing it needs a status field the plugin understands before the Worker sends it (decodeStatus rejects unknown keys), so the plugin release goes first and the Worker change second.",
+          "from": "reopened",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
         }
       ],
       "id": "payments-authorize-net-paid-twice-044",
       "implementation_ref": null,
       "question": "If one Authorize.net checkout ends up with two paid transactions, what does Payments do?",
-      "rationale": "v1 scope is refunds by hand; automatic refunds risk refunding the wrong payment. Stripe cannot reach a second payment (one session per attempt, idempotency key, session_mismatch), so only Authorize.net needs this. Building a screen for a case the sandbox may show is unreachable would spend Payments bytes for nothing.",
+      "rationale": "v1 scope is refunds by hand; automatic refunds risk refunding the wrong payment. Stripe cannot reach a second payment, so only Authorize.net needs this. The earlier gate assumed a second payment might be unreachable, but the pay page mints card forms on demand and duplicateWindow is 0, so a second charge is plausible by design and must not stay hidden. The owner approved this on 2026-11-23.",
       "repair_required": false,
       "review_classifications": [],
       "review_history": [],
@@ -3303,7 +3331,7 @@
       "review_source_identity": null,
       "status": "locked",
       "superseded_by": null,
-      "updated_at": "2026-10-27T19:25:36+00:00",
+      "updated_at": "2026-11-23T15:48:28+00:00",
       "verification_ref": null
     },
     {
@@ -3360,6 +3388,20 @@
           "review_source_identity": null,
           "to": "verified",
           "verification_ref": null
+        },
+        {
+          "at": "2026-11-23T15:48:18+00:00",
+          "choice": "Payments serves its own page at payments.dinkuskit.com/v1/pay/authorize-net/{siteId}/{sessionId} and returns it as the session's redirectUrl. The session Commerce sees never changes: for new sessions sessionId is a stable unguessable Payments id (attempt id plus 128 random bits), not the Authorize.net token, with the same redirectUrl, createdAt and expiresAt on every call, because Commerce refuses a changed session. Sessions already open keep their old token shape until they expire. When the shopper opens the page, Payments checks the checkout: paid, past expiresAt or unknown sends the shopper back to the store; otherwise it mints a fresh getHostedPaymentPageRequest token for the same attempt, amount and store-bound invoice reference and auto-submits it to Authorize.net by POST. The page takes no input, holds no card data (SAQ-A), never puts the token in a URL, and is not cached. Every try from any token carries the same invoice reference, so lookups, webhooks and the every-try-counts rule (payments#95) are unchanged; a shopper paying in two tabs at once falls under payments-authorize-net-paid-twice-044. Requests send duplicateWindow=0 so a declined shopper who fixes CVV or ZIP can retry at once. A checkout whose tries are all unpaid stays open (lookup returns open) until expiresAt; expired-unpaid is returned only once every try is unpaid and both expiresAt and the last minted token's 15-minute life plus a 5-minute margin have passed. Fraud holds (FDSPendingReview, FDSAuthorizedPendingReview) and any other unrecognized status stay unknown, never unpaid. Commerce does not change. Hosted Worker change only; deploy with --keep-vars on a quiet beta, on Ronald's go.",
+          "from": "verified",
+          "implementation_ref": "git:b72bac489e1978f118a041e1b3cccfd3161683ef",
+          "note": "dependency payments-authorize-net-paid-twice-044 changed: A deepsec audit (finding G1-04) showed a second paid try is reachable by design: the pay page (payments-authorize-net-pay-page-045) mints card forms on demand and duplicateWindow is 0. A second payment recorded but shown to nobody leaves the owner unaware of a double charge, so the build-order gate is reopened. The owner approved reopening on 2026-11-23.",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "needs_reverification",
+          "verification_ref": "proof/authorize-net-pay-page/PROOF.md"
         }
       ],
       "id": "payments-authorize-net-pay-page-045",
@@ -3372,9 +3414,9 @@
       "review_ref": null,
       "review_result": null,
       "review_source_identity": null,
-      "status": "verified",
+      "status": "needs_reverification",
       "superseded_by": null,
-      "updated_at": "2026-10-28T12:15:41+00:00",
+      "updated_at": "2026-11-23T15:48:18+00:00",
       "verification_ref": "proof/authorize-net-pay-page/PROOF.md"
     },
     {
@@ -3803,7 +3845,7 @@
     }
   ],
   "last_activation": {
-    "at": "2026-11-13T16:34:09+00:00",
+    "at": "2026-11-23T15:48:18+00:00",
     "mechanism": "implicit"
   },
   "last_pause": null,
@@ -3822,5 +3864,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-11-13T16:34:26+00:00"
+  "updated_at": "2026-11-23T15:48:45+00:00"
 }

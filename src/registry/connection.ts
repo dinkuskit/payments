@@ -2,6 +2,7 @@ import { validOnboardingUrl } from "../onboarding-url.js";
 import { decodeProviderIdentityDiagnostic, type ProviderIdentityDiagnostic } from "../provider-identity.js";
 import { decodeDiagnostics, type ConnectionDiagnostics } from "../connection-diagnostics.js";
 import { BUSINESS_COUNTRY_HEADER, businessCountry } from "../business-country.js";
+import { PAID_TWICE_HEADER } from "../paid-twice.js";
 import { pluginResponse } from "emdash/plugin";
 import {
   betaRegistryInstallationIdentity,
@@ -420,7 +421,7 @@ export function createRegistryConnection(options: {
   async function readStatus(c: Control, binding: Binding, token: string, url: URL, opts: { diagnostics?: boolean; remember?: boolean; storePass?: boolean; diagnosticsToken?: () => Promise<string | null> } = {}): Promise<RegistryFlowResult> {
     let stage: StatusCheckStage = "fetch_status";
     try {
-      const result = await options.http!.fetch(url.href, noRedirect({ headers: { Authorization: `Bearer ${token}`, "X-Dinkus-Site": binding.siteId, [BUSINESS_COUNTRY_HEADER.name]: BUSINESS_COUNTRY_HEADER.value } }));
+      const result = await options.http!.fetch(url.href, noRedirect({ headers: { Authorization: `Bearer ${token}`, "X-Dinkus-Site": binding.siteId, [BUSINESS_COUNTRY_HEADER.name]: BUSINESS_COUNTRY_HEADER.value, [PAID_TWICE_HEADER.name]: PAID_TWICE_HEADER.value } }));
       if (result.status === 401 || result.status === 403) return { state: "action_required" };
       if (!result.ok) return checkFailure(stage, result.status);
       stage = "decode_status";

@@ -81,12 +81,12 @@ const freshHtml = await fresh.text();
 report("allowed visit posts the stored token, no new call", fresh.status === 200 && freshHtml.includes(`value="${firstToken}"`) &&
   providerCalls.length === before, `status=${fresh.status}`);
 
-offsetMs = 11 * 60_000;
+offsetMs = 16 * 60_000;
 before = providerCalls.length;
 const refreshed = await visit(`${authorizeNetPayPagePath(siteId)}/${sessionId}`);
 const refreshedHtml = await refreshed.text();
 const secondToken = records.get(attemptId).token;
-report("allowed visit after 11 minutes mints a new sandbox token", refreshed.status === 200 && providerCalls.length === before + 1 &&
+report("allowed visit after the 15-minute card form ends mints a new sandbox token", refreshed.status === 200 && providerCalls.length === before + 1 &&
   providerCalls.at(-1) === "getHostedPaymentPageRequest" && secondToken !== firstToken && refreshedHtml.includes(`value="${secondToken}"`),
   `status=${refreshed.status}; calls=${providerCalls.length - before}`);
 report("Commerce's session unchanged after the refresh",

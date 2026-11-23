@@ -7,6 +7,7 @@ import { assertCommercePaymentWake, WakeError, type CommercePaymentWake } from "
 import type { PaymentOutcome, PaymentRequest } from "../commerce/checkout-port.js";
 import type { Principal, createConnectionService } from "./connection.js";
 import { BUSINESS_COUNTRY_HEADER, businessCountry } from "../business-country.js";
+import { PAID_TWICE_HEADER, type PaidTwiceNotice } from "../paid-twice.js";
 import { clientIpRateKey } from "./client-ip.js";
 import { hostedHttpRoutes, hostedPayRoutes, hostedWebhookRoutes, matchAuthorizeNetPaySession, matchAuthorizeNetWebhookSite } from "./manifest.js";
 
@@ -14,6 +15,7 @@ type ConnectionApi = Pick<ReturnType<typeof createConnectionService>, "connect" 
   diagnostics?(principal: Principal): ReturnType<ReturnType<typeof createConnectionService>["diagnostics"]> | Promise<ReturnType<ReturnType<typeof createConnectionService>["diagnostics"]>>;
   providerIdentityDiagnostic?(principal: Principal): Promise<unknown>;
   businessCountry?(principal: Principal): string | null | undefined | Promise<string | null | undefined>;
+  paidTwice?(principal: Principal): readonly PaidTwiceNotice[] | undefined | Promise<readonly PaidTwiceNotice[] | undefined>;
 };
 type CheckoutApi = {
   ensureSession(request: PaymentRequest): Promise<PaymentOutcome>;
@@ -260,12 +262,18 @@ export function createHostedHandler(options: {
       if (pathname === "/v1/status") {
         const service = options.service(principal);
         if (searchParams.size) return respond({ error: "unexpected_input" }, 400);
-        const status = await service.status(principal);
-        // Only a plugin that asks gets the business country; older plugins
-        // decode status strictly and never send this header.
-        if (request.headers.get(BUSINESS_COUNTRY_HEADER.name) !== BUSINESS_COUNTRY_HEADER.value || !service.businessCountry) return respond(status);
-        const businessCountry = await service.businessCountry(principal);
-        return respond(businessCountry === undefined ? status : { ...status, businessCountry });
+        let status: object = await service.status(principal);
+        // Only a plugin that asks gets these fields; older plugins decode
+        // status strictly and never send the headers.
+        if (request.headers.get(BUSINESS_COUNTRY_HEADER.name) === BUSINESS_COUNTRY_HEADER.value && service.businessCountry) {
+          const businessCountry = await service.businessCountry(principal);
+          if (businessCountry !== undefined) status = { ...status, businessCountry };
+        }
+        if (request.headers.get(PAID_TWICE_HEADER.name) === PAID_TWICE_HEADER.value && service.paidTwice) {
+          const paidTwice = await service.paidTwice(principal);
+          if (paidTwice?.length) status = { ...status, paidTwice };
+        }
+        return respond(status);
       }
       if (pathname === "/v1/checkout-binding" || pathname === "/v1/existing-binding") {
         const service = options.service(principal);

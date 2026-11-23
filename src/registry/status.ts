@@ -1,4 +1,5 @@
 import { businessCountry as listedCountry } from "../business-country.js";
+import type { PaidTwiceNotice } from "../paid-twice.js";
 
 export const STATUS_STATES = [
   "disconnected",
@@ -36,6 +37,8 @@ export interface PaymentsStatus {
   testOrder?: TestOrderEvidence;
   /** Stripe's business country: saved, or null while Stripe still needs one. Absent when not asked for or not Stripe. */
   businessCountry?: string | null;
+  /** Authorize.net checkouts paid more than once, newest first. Absent when not asked for or there are none. */
+  paidTwice?: PaidTwiceNotice[];
 }
 
 export interface StatusProjection {
@@ -44,7 +47,7 @@ export interface StatusProjection {
   message: string;
 }
 
-const statusKeys = new Set(["state", "mode", "bindingRef", "connectionEvidence", "testOrder", "businessCountry"]);
+const statusKeys = new Set(["state", "mode", "bindingRef", "connectionEvidence", "testOrder", "businessCountry", "paidTwice"]);
 const evidenceKeys = new Set(["provider", "mode", "result", "accountRef"]);
 // Latest instant a JavaScript Date can show.
 const MAX_DATE_MS = 8_640_000_000_000_000;
@@ -109,6 +112,22 @@ function decodeTestOrder(
   return { provider, total: { currency: "USD", minor: total.minor }, paidAt, state: state as TestOrderEvidence["state"] };
 }
 
+function decodePaidTwice(value: unknown, connectionEvidence?: ConnectionEvidence): PaidTwiceNotice[] {
+  // Only Authorize.net can take a second payment for one checkout.
+  if (!Array.isArray(value) || value.length < 1 || value.length > 10 ||
+      (connectionEvidence !== undefined && connectionEvidence.provider !== "authorize_net")) throw new Error("invalid_status");
+  return value.map(item => {
+    if (!isRecord(item) || Object.keys(item).sort().join() !== "at,total,transactionIds") throw new Error("invalid_status");
+    const { transactionIds, total, at } = item;
+    if (!Array.isArray(transactionIds) || transactionIds.length < 2 || transactionIds.length > 21 ||
+        transactionIds.some(id => typeof id !== "string" || !/^[0-9]{1,20}$/.test(id)) || new Set(transactionIds).size !== transactionIds.length ||
+        !isRecord(total) || Object.keys(total).sort().join() !== "currency,minor" || total.currency !== "USD" ||
+        typeof total.minor !== "string" || !/^[1-9][0-9]{0,15}$/.test(total.minor) ||
+        typeof at !== "number" || !Number.isSafeInteger(at) || at <= 0 || at > MAX_DATE_MS) throw new Error("invalid_status");
+    return { transactionIds: [...transactionIds] as string[], total: { currency: "USD" as const, minor: total.minor }, at };
+  });
+}
+
 export function decodeStatus(value: unknown): PaymentsStatus {
   if (!isRecord(value)) throw new Error("invalid_status");
   for (const key of Object.keys(value)) {
@@ -132,6 +151,7 @@ export function decodeStatus(value: unknown): PaymentsStatus {
   const testOrder = value.testOrder === undefined
     ? undefined
     : decodeTestOrder(value.testOrder, { mode: value.mode, bindingRef: value.bindingRef, connectionEvidence });
+  const paidTwice = value.paidTwice === undefined ? undefined : decodePaidTwice(value.paidTwice, connectionEvidence);
   return {
     state: value.state as StatusState,
     mode: value.mode,
@@ -139,6 +159,7 @@ export function decodeStatus(value: unknown): PaymentsStatus {
     ...(connectionEvidence === undefined ? {} : { connectionEvidence }),
     ...(testOrder === undefined ? {} : { testOrder }),
     ...(value.businessCountry === undefined ? {} : { businessCountry: value.businessCountry as string | null }),
+    ...(paidTwice === undefined ? {} : { paidTwice }),
   };
 }
 
