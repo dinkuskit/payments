@@ -300,3 +300,23 @@ test("paid twice: a try Authorize.net could not answer for stays open after the 
   assert.equal(state.reads.length, reads);
   assert.deepEqual(port.openTries(payment.attemptId), []);
 });
+
+test("paid twice: a try read after the try list is full is kept as read, not read again", async () => {
+  const { state, transactions, port } = harness();
+  await port.ensureSession(payment);
+  transactions[101] = paidTry;
+  port.recordTransaction(payment.attemptId, "101");
+  assert.equal((await port.lookup(payment)).paymentId, "101");
+  // Twenty declined tries fill the list; each is read once and kept as read.
+  for (let id = 201; id <= 220; id++) { transactions[id] = declinedTry; port.recordTransaction(payment.attemptId, String(id)); }
+  assert.equal(await port.recheck(payment.attemptId), true);
+  assert.deepEqual(port.openTries(payment.attemptId), []);
+  // One more pushes the oldest off the list, so the read list keeps its length but changes.
+  transactions[221] = declinedTry;
+  port.recordTransaction(payment.attemptId, "221");
+  assert.equal(await port.recheck(payment.attemptId), true);
+  assert.deepEqual(port.openTries(payment.attemptId), [], "221 is kept as read");
+  const reads = state.reads.length;
+  assert.equal(await port.recheck(payment.attemptId), true);
+  assert.equal(state.reads.length, reads, "and is not read again");
+});

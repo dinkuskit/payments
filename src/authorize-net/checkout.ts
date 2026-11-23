@@ -515,8 +515,11 @@ export function createAuthorizeNetPaymentPort(options: {
       const tried = transactionsOf(current), wasSettled = current.settled ?? [];
       // Only tries still on the list are kept, so the list stays as short as the try list.
       const settled = tried.filter(id => wasSettled.includes(id) || read.includes(id) && id !== paidId && !alsoPaid.includes(id));
-      if (current.paidId !== paidId || alsoPaid.length !== before.length || settled.length !== wasSettled.length) {
-        const next = { ...current, paidId, ...(alsoPaid.length ? { alsoPaid } : {}), ...(settled.length ? { settled } : {}) };
+      // A full try list drops its oldest try, so the read list can change while keeping its length.
+      const resettled = settled.length !== wasSettled.length || settled.some(id => !wasSettled.includes(id));
+      if (current.paidId !== paidId || alsoPaid.length !== before.length || resettled) {
+        const { settled: _wasSettled, ...kept } = current;
+        const next = { ...kept, paidId, ...(alsoPaid.length ? { alsoPaid } : {}), ...(settled.length ? { settled } : {}) };
         tx.write(attemptId, next);
         if (alsoPaid.length !== before.length) options.paidTwice?.(attemptId, next);
       }
