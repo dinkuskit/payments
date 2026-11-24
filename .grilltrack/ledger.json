@@ -3,11 +3,12 @@
   "created_at": "2026-10-10T04:09:17+00:00",
   "current_focus": {
     "cadence": "sequential",
-    "confirmed": false,
-    "domain": "Authorize.net checkout reconciliation",
-    "started_at": "2026-11-23T17:45:26+00:00",
-    "status": "grilling",
-    "summary": "Reopen payments-authorize-net-paid-twice-044: The sandbox run's second-tab payment needs a person to submit it; the owner chose on 2026-11-23 to merge on the proven parts and check the second tab before Authorize.net goes live."
+    "confirmed": true,
+    "confirmed_at": "2026-11-24T14:58:49+00:00",
+    "domain": "Discounts from the Coupons plugin",
+    "started_at": "2026-11-24T14:58:49+00:00",
+    "status": "confirmed",
+    "summary": "The owner settled the coupons rework one decision at a time on 24 Nov 2026 and said to build it."
   },
   "decisions": [
     {
@@ -3869,6 +3870,47 @@
       "superseded_by": null,
       "updated_at": "2026-11-13T16:15:31+00:00",
       "verification_ref": "tests/checkout-sessions.test.mjs ('an expired checkout where no card was ever submitted is finished and not paid'; 'once a card was tried, expired unpaid without a canceled PaymentIntent stays unknown'); tests/stripe-checkout.test.mjs ('a session reports no PaymentIntent only when Stripe says null'); bin/verify-payments quick green locally 2026-11-13"
+    },
+    {
+      "baseline_ref": null,
+      "candidate_refs": [],
+      "choice": "Payments accepts the v1 pricing snapshot with exactly its seven keys and no coupon key: a discount is valid when each line's discount is at most its subtotal, the lines add up to couponDiscount, and subtotal minus discount plus shipping is the total. The old coupon quote is refused like any unknown key. Stripe and Authorize.net are still charged each line's net amount and the frozen shipping.",
+      "context_ref": "https://claude.ai/code/project/chan_01JLcLQeD34rfoMic23aaman?thread=cmsg_01JLcLQeD34rfoMic23aamanJKJBaZKw5FupVroiwMK1fx",
+      "created_at": "2026-11-24T14:58:49+00:00",
+      "deferred_reason": null,
+      "delivery_ref": null,
+      "dependencies": [],
+      "domain": "Discounts from the Coupons plugin",
+      "history": [
+        {
+          "at": "2026-11-24T14:58:49+00:00",
+          "choice": "Payments accepts the v1 pricing snapshot with exactly its seven keys and no coupon key: a discount is valid when each line's discount is at most its subtotal, the lines add up to couponDiscount, and subtotal minus discount plus shipping is the total. The old coupon quote is refused like any unknown key. Stripe and Authorize.net are still charged each line's net amount and the frozen shipping.",
+          "from": "proposed",
+          "implementation_ref": null,
+          "note": "user accepted the scoped decision",
+          "repair_required": false,
+          "review_classifications": [],
+          "review_ref": null,
+          "review_result": null,
+          "review_source_identity": null,
+          "to": "locked",
+          "verification_ref": null
+        }
+      ],
+      "id": "payments-discount-without-coupon-quote-20261124",
+      "implementation_ref": null,
+      "question": "What does Payments accept for a discounted checkout now that coupons are a plugin and Commerce sends no coupon quote?",
+      "rationale": "Owner approved 24 Nov 2026 (coupons as a plugin, one shared add-ons door in Commerce that checks prices and does the totals). Commerce is the one place that does the sums; Payments re-checks the arithmetic and charges what was frozen.",
+      "repair_required": false,
+      "review_classifications": [],
+      "review_history": [],
+      "review_ref": null,
+      "review_result": null,
+      "review_source_identity": null,
+      "status": "locked",
+      "superseded_by": null,
+      "updated_at": "2026-11-24T14:58:49+00:00",
+      "verification_ref": null
     }
   ],
   "last_activation": {
@@ -3891,5 +3933,5 @@
   "status": "active",
   "title": "Join Payments Registry consumer and merged CLI scaffold",
   "track_id": "gt-join-c940502e43043ae187f9f0bfc182a8e9",
-  "updated_at": "2026-11-23T17:45:26+00:00"
+  "updated_at": "2026-11-24T14:58:49+00:00"
 }

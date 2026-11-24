@@ -155,28 +155,6 @@ function canonicalizePricing(pricing: CheckoutPricingSnapshot): CheckoutPricingS
       discount: { currency: "USD", minor: line.discount.minor },
       netAmount: { currency: "USD", minor: line.netAmount.minor },
     })),
-    ...(pricing.coupon ? {
-      coupon: {
-        code: pricing.coupon.code,
-        quote: {
-          quoteId: pricing.coupon.quote.quoteId,
-          couponId: pricing.coupon.quote.couponId,
-          ruleId: pricing.coupon.quote.ruleId,
-          ruleVersion: pricing.coupon.quote.ruleVersion,
-          eligibleSubtotal: { currency: "USD", minor: pricing.coupon.quote.eligibleSubtotal.minor },
-          discount: { currency: "USD", minor: pricing.coupon.quote.discount.minor },
-          payableMerchandiseTotal: { currency: "USD", minor: pricing.coupon.quote.payableMerchandiseTotal.minor },
-          lines: pricing.coupon.quote.lines.map(line => ({
-            productId: line.productId, quantity: line.quantity,
-            unitPrice: { currency: "USD", minor: line.unitPrice.minor },
-            lineSubtotal: { currency: "USD", minor: line.lineSubtotal.minor },
-            eligible: line.eligible, discount: { currency: "USD", minor: line.discount.minor },
-          })),
-          merchandiseTotal: { currency: "USD", minor: pricing.coupon.quote.merchandiseTotal.minor },
-          overallPayableTotal: { currency: "USD", minor: pricing.coupon.quote.overallPayableTotal.minor },
-        },
-      },
-    } : {}),
   };
 }
 
@@ -257,8 +235,7 @@ function pricingMoney(value: unknown): bigint {
 
 function validatePricing(pricing: CheckoutPricingSnapshot, originalLines: CheckoutLine[], requestTotal: Money): void {
   if (!pricing || typeof pricing !== "object" || Array.isArray(pricing) ||
-      (!exactKeys(pricing, ["schema", "merchandiseSubtotal", "couponDiscount", "netMerchandise", "shipping", "finalTotal", "lines"]) &&
-       !exactKeys(pricing, ["schema", "merchandiseSubtotal", "couponDiscount", "netMerchandise", "shipping", "finalTotal", "lines", "coupon"]))) {
+      !exactKeys(pricing, ["schema", "merchandiseSubtotal", "couponDiscount", "netMerchandise", "shipping", "finalTotal", "lines"])) {
     throw new CheckoutError("invalid_pricing");
   }
   if (pricing.schema !== CHECKOUT_PRICING_SCHEMA || !Array.isArray(pricing.lines) ||
@@ -301,42 +278,6 @@ function validatePricing(pricing: CheckoutPricingSnapshot, originalLines: Checko
   if (lineSubtotal !== merchandise || lineDiscount !== couponDiscount ||
       merchandise < couponDiscount || merchandise - couponDiscount !== netMerchandise ||
       netMerchandise + shipping !== finalTotal) throw new CheckoutError("invalid_pricing");
-  if (couponDiscount > 0n && !pricing.coupon) throw new CheckoutError("invalid_pricing");
-  if (Object.hasOwn(pricing, "coupon")) {
-    const coupon = pricing.coupon;
-    if (!coupon || typeof coupon !== "object" || Array.isArray(coupon) ||
-        !exactKeys(coupon, ["code", "quote"]) || !text(coupon.code) ||
-        coupon.code !== coupon.code.trim().toLocaleUpperCase("en-US")) throw new CheckoutError("invalid_pricing");
-    const quote = coupon.quote;
-    if (!quote || typeof quote !== "object" || Array.isArray(quote) ||
-        !exactKeys(quote, ["quoteId", "couponId", "ruleId", "ruleVersion", "eligibleSubtotal", "discount", "payableMerchandiseTotal", "lines", "merchandiseTotal", "overallPayableTotal"]) ||
-        !text(quote.quoteId) || !text(quote.couponId) || !text(quote.ruleId) ||
-        !Number.isSafeInteger(quote.ruleVersion) || quote.ruleVersion < 1 ||
-        !Array.isArray(quote.lines) || quote.lines.length !== originalLines.length) throw new CheckoutError("invalid_pricing");
-    const eligible = pricingMoney(quote.eligibleSubtotal), quoteDiscount = pricingMoney(quote.discount);
-    const quotePayable = pricingMoney(quote.payableMerchandiseTotal), quoteMerchandise = pricingMoney(quote.merchandiseTotal);
-    const quoteOverall = pricingMoney(quote.overallPayableTotal);
-    if (quoteMerchandise !== merchandise || quoteDiscount !== couponDiscount ||
-        quotePayable !== netMerchandise || quoteOverall !== finalTotal) throw new CheckoutError("invalid_pricing");
-    let eligibleSum = 0n, quoteDiscountSum = 0n;
-    for (let i = 0; i < originalLines.length; i++) {
-      const q = quote.lines[i], p = pricing.lines[i];
-      if (!q || typeof q !== "object" || Array.isArray(q) ||
-          !exactKeys(q, ["productId", "quantity", "unitPrice", "lineSubtotal", "eligible", "discount"]) ||
-          q.productId !== p.catalogItemId || q.quantity !== p.quantity ||
-          !q.unitPrice || typeof q.unitPrice !== "object" || Array.isArray(q.unitPrice) ||
-          !q.lineSubtotal || typeof q.lineSubtotal !== "object" || Array.isArray(q.lineSubtotal) ||
-          !q.discount || typeof q.discount !== "object" || Array.isArray(q.discount) ||
-          q.unitPrice.minor !== p.unitPrice.minor || q.lineSubtotal.minor !== p.lineSubtotal.minor ||
-          q.discount.minor !== p.discount.minor || typeof q.eligible !== "boolean") throw new CheckoutError("invalid_pricing");
-      const qs = pricingMoney(q.lineSubtotal), qd = pricingMoney(q.discount);
-      pricingMoney(q.unitPrice);
-      if (!q.eligible && qd !== 0n) throw new CheckoutError("invalid_pricing");
-      if (q.eligible) eligibleSum += qs;
-      quoteDiscountSum += qd;
-    }
-    if (eligibleSum !== eligible || quoteDiscountSum !== quoteDiscount) throw new CheckoutError("invalid_pricing");
-  }
 }
 
 export function requestFingerprint(request: PaymentRequest): string {

@@ -95,12 +95,6 @@ test.each(["historical-unpriced", "priced-v1"])("SQLite mapping survives evictio
         discount: { currency: "USD" as const, minor: "1251" },
         netAmount: { currency: "USD" as const, minor: "1149" },
       }],
-      coupon: { code: "SAVE", quote: {
-        quoteId: "runtime-quote", couponId: "runtime-coupon", ruleId: "runtime-rule", ruleVersion: 1,
-        eligibleSubtotal: {currency:"USD" as const,minor:"2400"}, discount: {currency:"USD" as const,minor:"1251"},
-        payableMerchandiseTotal: {currency:"USD" as const,minor:"1149"}, merchandiseTotal: {currency:"USD" as const,minor:"2400"}, overallPayableTotal: {currency:"USD" as const,minor:"1200"},
-        lines: [{productId:"sku-1",quantity:2,unitPrice:{currency:"USD" as const,minor:"1200"},lineSubtotal:{currency:"USD" as const,minor:"2400"},eligible:true,discount:{currency:"USD" as const,minor:"1251"}}],
-      } },
     } } : {}),
     paymentWindow: { minSeconds: 1800 as const, maxSeconds: 1860 as const },
     paymentMethods: ["card"] as const,
