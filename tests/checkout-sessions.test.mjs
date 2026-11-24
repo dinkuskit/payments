@@ -1261,3 +1261,38 @@ test("an expired checkout where no card was ever submitted is finished and not p
   mapped.status = "expired"; mapped.paymentStatus = "paid";
   assert.equal((await f.checkout().lookupFor(owner, request())).outcome, "unknown");
 });
+
+// dinkuskit/tax ledger tax-picks-rate-commerce-does-math: tax on the snapshot and on every line, or on neither.
+function taxed() {
+  const payment = priced({ attemptId: "attempt-taxed", total: { currency: "USD", minor: "1320" } });
+  payment.pricing.tax = { currency: "USD", minor: "120" };
+  payment.pricing.finalTotal = { currency: "USD", minor: "1320" };
+  payment.pricing.lines[0].tax = { currency: "USD", minor: "0" };
+  return payment;
+}
+
+test("a taxed checkout is kept with its tax, and tax that does not add up is refused before Stripe", async () => {
+  const f = fixture(); await f.ready();
+  const payment = taxed();
+  assert.equal((await f.checkout().ensureSessionFor(owner, payment)).outcome, "open");
+  const record = f.attempts.get(payment.attemptId);
+  assert.deepEqual([record.pricing.tax.minor, record.pricing.lines[0].tax.minor], ["120", "0"]);
+  assert.deepEqual(record.chargeLines.map(line => [line.name, line.amountMinor]), [["Shipping", "1200"], ["Sales tax", "120"]]);
+  assert.equal(requestFingerprint(payment), record.requestFingerprint);
+  // The retry after a lost create rebuilds the same lines from the record.
+  assert.equal((await f.checkout().ensureSessionFor(owner, payment)).outcome, "open");
+  const calls = f.calls.length;
+  const bad = [
+    p => { p.pricing.finalTotal.minor = "1200"; p.total.minor = "1200"; },
+    p => { delete p.pricing.lines[0].tax; },
+    p => { delete p.pricing.tax; },
+    p => { p.pricing.lines[0].tax.minor = "121"; },
+    p => { p.pricing.tax.minor = "-1"; p.pricing.finalTotal.minor = "1199"; p.total.minor = "1199"; },
+    p => { p.pricing.tax = { currency: "USD", minor: "120", rate: "1" }; },
+  ];
+  for (const [i, mutate] of bad.entries()) {
+    const p = structuredClone(payment); p.attemptId = "attempt-bad-tax-" + i; mutate(p);
+    await assert.rejects(f.checkout().ensureSessionFor(owner, p), /invalid_pricing|invalid_request|invalid_amount/, String(i));
+  }
+  assert.equal(f.calls.length, calls);
+});

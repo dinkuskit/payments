@@ -146,6 +146,7 @@ function canonicalizePricing(pricing: CheckoutPricingSnapshot): CheckoutPricingS
       mode: pricing.shipping.mode,
       charge: { currency: "USD", minor: pricing.shipping.charge.minor },
     },
+    ...(pricing.tax ? { tax: { currency: "USD" as const, minor: pricing.tax.minor } } : {}),
     finalTotal: { currency: "USD", minor: pricing.finalTotal.minor },
     lines: pricing.lines.map(line => ({
       catalogItemId: line.catalogItemId,
@@ -154,6 +155,7 @@ function canonicalizePricing(pricing: CheckoutPricingSnapshot): CheckoutPricingS
       lineSubtotal: { currency: "USD", minor: line.lineSubtotal.minor },
       discount: { currency: "USD", minor: line.discount.minor },
       netAmount: { currency: "USD", minor: line.netAmount.minor },
+      ...(line.tax ? { tax: { currency: "USD" as const, minor: line.tax.minor } } : {}),
     })),
   };
 }
@@ -233,11 +235,18 @@ function pricingMoney(value: unknown): bigint {
   return parseMinorUnits(money.minor);
 }
 
+/**
+ * Sales tax (dinkuskit/tax ledger tax-picks-rate-commerce-does-math): Commerce sends `tax` on the snapshot and on every
+ * line only for a checkout the Tax plugin priced, never on one it did not, and the total is net + shipping + tax.
+ */
 function validatePricing(pricing: CheckoutPricingSnapshot, originalLines: CheckoutLine[], requestTotal: Money): void {
+  const taxed = Boolean(pricing) && typeof pricing === "object" && Object.hasOwn(pricing, "tax");
   if (!pricing || typeof pricing !== "object" || Array.isArray(pricing) ||
-      !exactKeys(pricing, ["schema", "merchandiseSubtotal", "couponDiscount", "netMerchandise", "shipping", "finalTotal", "lines"])) {
+      !exactKeys(pricing, ["schema", "merchandiseSubtotal", "couponDiscount", "netMerchandise", "shipping", "finalTotal", "lines", ...(taxed ? ["tax"] : [])])) {
     throw new CheckoutError("invalid_pricing");
   }
+  const tax = taxed ? pricingMoney(pricing.tax) : 0n;
+  if (tax < 0n) throw new CheckoutError("invalid_pricing");
   if (pricing.schema !== CHECKOUT_PRICING_SCHEMA || !Array.isArray(pricing.lines) ||
       pricing.lines.length !== originalLines.length) throw new CheckoutError("invalid_pricing");
   const merchandise = pricingMoney(pricing.merchandiseSubtotal);
@@ -253,12 +262,12 @@ function validatePricing(pricing: CheckoutPricingSnapshot, originalLines: Checko
   }
   const shipping = pricingMoney(pricing.shipping.charge);
   if (pricing.shipping.mode === "free" && shipping !== 0n) throw new CheckoutError("invalid_pricing");
-  let lineSubtotal = 0n, lineDiscount = 0n, lineNet = 0n;
+  let lineSubtotal = 0n, lineDiscount = 0n, lineNet = 0n, lineTax = 0n;
   for (let i = 0; i < originalLines.length; i++) {
     const original = originalLines[i];
     const line = pricing.lines[i];
     if (!line || typeof line !== "object" || Array.isArray(line) ||
-        !exactKeys(line, ["catalogItemId", "quantity", "unitPrice", "lineSubtotal", "discount", "netAmount"]) ||
+        !exactKeys(line, ["catalogItemId", "quantity", "unitPrice", "lineSubtotal", "discount", "netAmount", ...(taxed ? ["tax"] : [])]) ||
         line.catalogItemId !== original.catalogItemId || line.quantity !== original.quantity ||
         !Number.isSafeInteger(line.quantity) || line.quantity < 1 ||
         !line.unitPrice || typeof line.unitPrice !== "object" ||
@@ -270,14 +279,16 @@ function validatePricing(pricing: CheckoutPricingSnapshot, originalLines: Checko
     const subtotal = pricingMoney(line.lineSubtotal);
     const discount = pricingMoney(line.discount);
     const net = pricingMoney(line.netAmount);
-    if (unit * BigInt(line.quantity) !== subtotal || discount > subtotal || subtotal - discount !== net) {
+    const taxOnLine = taxed ? pricingMoney(line.tax) : 0n;
+    if (unit * BigInt(line.quantity) !== subtotal || discount > subtotal || subtotal - discount !== net || taxOnLine < 0n) {
       throw new CheckoutError("invalid_pricing");
     }
-    lineSubtotal += subtotal; lineDiscount += discount; lineNet += net;
+    lineSubtotal += subtotal; lineDiscount += discount; lineNet += net; lineTax += taxOnLine;
   }
+  // The lines' tax is all of it but shipping's, which is never below zero.
   if (lineSubtotal !== merchandise || lineDiscount !== couponDiscount ||
-      merchandise < couponDiscount || merchandise - couponDiscount !== netMerchandise ||
-      netMerchandise + shipping !== finalTotal) throw new CheckoutError("invalid_pricing");
+      merchandise < couponDiscount || merchandise - couponDiscount !== netMerchandise || lineTax > tax ||
+      netMerchandise + shipping + tax !== finalTotal) throw new CheckoutError("invalid_pricing");
 }
 
 export function requestFingerprint(request: PaymentRequest): string {
