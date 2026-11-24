@@ -1,4 +1,5 @@
 import type { SandboxedPlugin } from "emdash/plugin";
+import { businessCountry } from "./business-country.js";
 import { createRegistryConnection, type RegistryConfig, safeResponse } from "./registry/connection.js";
 import { renderSetupScreen } from "./registry/setup.js";
 
@@ -48,6 +49,10 @@ export function createPaymentsPlugin(config: PaymentsPluginConfig = DEFAULT_CONF
           // The business-country form sends the owner's choice with Set up Stripe.
           if (type === "form_submit" && actionId === "setup_processor") {
             const values = input.values && typeof input.values === "object" ? input.values as Record<string, unknown> : {};
+            // Refresh the current state for an invalid form, without starting Stripe setup.
+            if (!businessCountry(values.businessCountry)) {
+              return renderSetupScreen(await connection.status(user), { invalidCountry: true });
+            }
             return renderSetupScreen(await connection.setupProcessor(user, values.businessCountry));
           }
           if (type === "block_action" && typeof actionId === "string") {

@@ -382,7 +382,7 @@ function paidTwiceBanners(statusValue: unknown) {
   });
 }
 
-export function renderSetupScreen(input: unknown) {
+export function renderSetupScreen(input: unknown, { invalidCountry = false } = {}) {
   const nested = input && typeof input === "object" && "state" in input && "status" in input ? input.status : input;
   const lastChecked = lastCheckedProjection(input);
   const projection = lastChecked?.projection ?? projectSetupScreen(nested, input && typeof input === "object" && "diagnostics" in input ? input.diagnostics as ConnectionDiagnostics : undefined);
@@ -459,6 +459,12 @@ export function renderSetupScreen(input: unknown) {
           initial_value: "",
         }],
         submit: { label: "Set up Stripe", action_id: "setup_processor" },
+      }] : []),
+      ...(needsCountry && invalidCountry ? [{
+        type: "banner",
+        variant: "error",
+        title: "Business country is required",
+        description: "Choose the country where your business is registered, then select Set up Stripe.",
       }] : []),
       {
         type: "actions",
