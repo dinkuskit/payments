@@ -412,6 +412,13 @@ export function renderSetupScreen(input: unknown) {
   const statusRecord = statusValue && typeof statusValue === "object" ? statusValue as { state?: unknown; businessCountry?: unknown } : undefined;
   const savedCountry = statusRecord?.businessCountry;
   const needsCountry = canSetup && savedCountry === null && statusRecord?.state === "disconnected";
+  const onboarding = state === "processor_setup" ? input as { onboardingUrl?: unknown; expiresAt?: unknown } : undefined;
+  const onboardingUrl = typeof onboarding?.onboardingUrl === "string" ? onboarding.onboardingUrl : undefined;
+  const linkExpiresAt = onboarding?.expiresAt;
+  const onboardingStep = onboardingUrl && canSetup && (statusRecord?.state === "setup_required" || statusRecord?.state === "action_required") &&
+    typeof linkExpiresAt === "number" && Number.isSafeInteger(linkExpiresAt)
+    ? `Select Continue setup at Stripe. This Stripe link works once and expires ${utcTime(linkExpiresAt)}. If the link no longer works, select Get a new Stripe link. When you're done at Stripe, select Check connection.`
+    : undefined;
   const actionLabel = action === "finish_setup" ? "Finish setup" : action === "continue" ? "Continue" : action === "check" ? "Check connection" : keyProblem ? "Connect again" : state === "action_required" || state === "pass_refused" ? "Sign in again" : "Connect";
   const isConnected = state === "ready" || state === "processor_setup" || state === "provider_identity";
   const supportReference = (state === "ready" || state === "processor_setup") && input && typeof input === "object" && "diagnostics" in input
@@ -434,9 +441,9 @@ export function renderSetupScreen(input: unknown) {
       { type: "header", text: projection.title },
       { type: "banner", title: projection.overall, ...banner },
       ...paidTwiceBanners(statusValue),
-      ...projection.steps.map((step) => ({
+      ...projection.steps.map((step, index) => ({
         type: "section",
-        text: `${step.title}: ${STEP_LABELS[step.status]}. ${step.description}`,
+        text: `${step.title}: ${STEP_LABELS[step.status]}. ${index === 0 && step.status === "incomplete" && onboardingStep ? onboardingStep : step.description}`,
       })),
       ...(connectedTo ? [{ type: "section", text: connectedTo }] : []),
       ...(typeof savedCountry === "string" && Object.hasOwn(BUSINESS_COUNTRIES, savedCountry)
@@ -465,9 +472,9 @@ export function renderSetupScreen(input: unknown) {
         elements: [
           ...(state === "pending" && input && typeof input === "object" && "verificationUri" in input && typeof input.verificationUri === "string"
             ? [{ type: "link", label: "Authorize Payments at DinkusKit", target: { kind: "external", url: input.verificationUri } }] : []),
-          ...(state === "processor_setup" && input && typeof input === "object" && "onboardingUrl" in input && typeof input.onboardingUrl === "string"
-            ? [{ type: "link", label: "Continue setup at Stripe", target: { kind: "external", url: input.onboardingUrl } }] : []),
-          ...(canSetup && !needsCountry ? [{ type: "button", label: "Set up or resume Stripe", action_id: "setup_processor" }] : []),
+          ...(onboardingUrl
+            ? [{ type: "link", label: "Continue setup at Stripe", target: { kind: "external", url: onboardingUrl } }] : []),
+          ...(canSetup && !needsCountry ? [{ type: "button", label: onboardingStep ? "Get a new Stripe link" : "Set up or resume Stripe", action_id: "setup_processor" }] : []),
           { type: "button", label: actionLabel, action_id: action },
           ...(action === "check" && !otherRefusal && (!processorPending || signIn || detailSignIn) ? [{ type: "button", label: signIn || detailSignIn ? "Sign in again" : "Reconnect", action_id: "connect" }] : []),
           ...(isConnected ? [{ type: "button", label: "Check provider identity", action_id: "check_provider_identity" }] : []),

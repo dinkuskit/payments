@@ -527,7 +527,10 @@ test("compiled processor setup starts/resumes separately from consent and reject
       host.http.clear(); await f.prepareProcessorStatus();
       await host.http.respond(endpoint, Response.json({ state: "setup_required", mode: "test", bindingRef: "synthetic-binding", url, expiresAt: Date.now() + 60_000 }));
       const page = JSON.stringify(await f.action("setup_processor"));
-      assert.match(page, /Continue setup at Stripe/); assert.ok(page.includes(url));
+      assert.match(page, /Select Continue setup at Stripe\. This Stripe link works once and expires .* UTC\./);
+      assert.match(page, /"label":"Get a new Stripe link","action_id":"setup_processor"/);
+      assert.doesNotMatch(page, /Stripe connection status could not be confirmed/);
+      assert.ok(page.includes(url));
       assert.match(page, /Not ready to sell/); assert.equal(page.includes(token), false);
       const request = host.http.requests().find(r => r.url === endpoint)!;
       assert.equal(request.method, "POST"); assert.equal(request.body.length, 0);
@@ -548,7 +551,7 @@ test("compiled processor setup starts/resumes separately from consent and reject
     await host.http.respond(endpoint, Response.json({ state: "ready", mode: "test", bindingRef: "synthetic-binding" }));
     const ready = JSON.stringify(await f.action("setup_processor"));
     assert.match(ready, /Connected: Stripe test mode\. Test card payments work at checkout/);
-    assert.doesNotMatch(ready, /Continue setup at Stripe/);
+    assert.doesNotMatch(ready, /Continue setup at Stripe|Get a new Stripe link/);
     assert.ok(host.http.requests().some(r => r.url === STATUS));
     const other = await host.fixtures.user({ email: "other-admin@example.invalid", role: "admin" });
     // Another admin, or this one after the sign-in lapsed, sees the current status and Sign in again.
