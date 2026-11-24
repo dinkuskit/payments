@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CREATION_RETRY_WINDOW_MS, createCheckoutSessionService, requestFingerprint } from "../src/checkout/sessions.ts";
+import { CREATION_RETRY_WINDOW_MS, CheckoutError, createCheckoutSessionService, requestFingerprint, validatePaymentRequest } from "../src/checkout/sessions.ts";
 import { createConnectionService } from "../src/hosted/connection.ts";
 import { createHostedHandler } from "../src/hosted/http.ts";
 
@@ -1295,4 +1295,29 @@ test("a taxed checkout is kept with its tax, and tax that does not add up is ref
     await assert.rejects(f.checkout().ensureSessionFor(owner, p), /invalid_pricing|invalid_request|invalid_amount/, String(i));
   }
   assert.equal(f.calls.length, calls);
+});
+
+// Stripe takes 100 lines at most, and Sales tax is one of them: a cart that would need 101 is refused before Stripe.
+test("Sales tax counts as a Stripe line when the request is first checked", async () => {
+  const f = fixture(); await f.ready();
+  const usd = minor => ({ currency: "USD", minor });
+  const cart = (count, attemptId) => {
+    const lines = Array.from({ length: count }, (_, i) => ({ catalogItemId: `sku-${i}`, quantity: 1, name: "Pin", unitPrice: usd("100") }));
+    const subtotal = String(count * 100);
+    return request({ attemptId, lines, total: usd(String(count * 100 + 9)), pricing: {
+      schema: "dinkuskit.commerce.checkout-pricing/v1", merchandiseSubtotal: usd(subtotal), couponDiscount: usd("0"),
+      netMerchandise: usd(subtotal), shipping: { configurationId: "ship-1", revision: 1, mode: "free", charge: usd("0") },
+      tax: usd("9"), finalTotal: usd(String(count * 100 + 9)),
+      lines: lines.map((line, i) => ({ catalogItemId: line.catalogItemId, quantity: 1, unitPrice: usd("100"), lineSubtotal: usd("100"),
+        discount: usd("0"), netAmount: usd("100"), tax: usd(i === 0 ? "9" : "0") })),
+    } });
+  };
+  // Refused as a checkout error (409 at the door), not a failure inside the service (503).
+  assert.throws(() => validatePaymentRequest(cart(100, "attempt-100-taxed")), error => error instanceof CheckoutError && error.message === "stripe_line_item_limit");
+  await assert.rejects(f.checkout().ensureSessionFor(owner, cart(100, "attempt-100-taxed")), /stripe_line_item_limit/);
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.attempts.has("attempt-100-taxed"), false);
+  // 99 lines and the tax line make 100, which Stripe takes.
+  assert.equal((await f.checkout().ensureSessionFor(owner, cart(99, "attempt-99-taxed"))).outcome, "open");
+  assert.equal(f.attempts.get("attempt-99-taxed").chargeLines.length, 100);
 });

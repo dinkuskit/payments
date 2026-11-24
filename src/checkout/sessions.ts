@@ -341,8 +341,10 @@ export function validatePaymentRequest(request: PaymentRequest): PaymentRequest 
     pricingMoney(request.total);
     for (const line of request.lines) pricingMoney(line.unitPrice);
     validatePricing(request.pricing, request.lines, request.total);
+    // The same count Stripe will see: each paid line, then Shipping and Sales tax when above zero.
     if (request.pricing.lines.filter(line => BigInt(line.netAmount.minor) > 0n).length +
-        (BigInt(request.pricing.shipping.charge.minor) > 0n ? 1 : 0) > 100) {
+        (BigInt(request.pricing.shipping.charge.minor) > 0n ? 1 : 0) +
+        (BigInt(request.pricing.tax?.minor ?? "0") > 0n ? 1 : 0) > 100) {
       throw new CheckoutError("stripe_line_item_limit");
     }
   }
