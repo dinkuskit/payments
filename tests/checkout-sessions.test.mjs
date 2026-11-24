@@ -1094,6 +1094,21 @@ test("a discount from an add-on, without any coupon quote, survives and mutation
   assert.equal(f.calls.length, calls);
 });
 
+// Exactly what Payments main (5185943, live before this change) stored for a priced attempt whose create response was lost.
+const STORED_BEFORE_UPGRADE = {"attemptId": "attempt-before-upgrade", "bindingRef": "stripe_binding-one", "stripeAccountId": "acct_one", "mode": "test", "siteId": "store-a", "requestFingerprint": "{\"attemptId\":\"attempt-before-upgrade\",\"bindingRef\":\"stripe_binding-one\",\"lines\":[{\"catalogItemId\":\"sku-1\",\"quantity\":2,\"name\":\"Hat\",\"unitPrice\":{\"currency\":\"USD\",\"minor\":\"600\"}}],\"total\":{\"currency\":\"USD\",\"minor\":\"2400\"},\"pricing\":{\"schema\":\"dinkuskit.commerce.checkout-pricing/v1\",\"merchandiseSubtotal\":{\"currency\":\"USD\",\"minor\":\"1200\"},\"couponDiscount\":{\"currency\":\"USD\",\"minor\":\"0\"},\"netMerchandise\":{\"currency\":\"USD\",\"minor\":\"1200\"},\"shipping\":{\"configurationId\":\"ship-1\",\"revision\":1,\"mode\":\"flat\",\"charge\":{\"currency\":\"USD\",\"minor\":\"1200\"}},\"finalTotal\":{\"currency\":\"USD\",\"minor\":\"2400\"},\"lines\":[{\"catalogItemId\":\"sku-1\",\"quantity\":2,\"unitPrice\":{\"currency\":\"USD\",\"minor\":\"600\"},\"lineSubtotal\":{\"currency\":\"USD\",\"minor\":\"1200\"},\"discount\":{\"currency\":\"USD\",\"minor\":\"0\"},\"netAmount\":{\"currency\":\"USD\",\"minor\":\"1200\"}}]},\"paymentWindow\":{\"minSeconds\":1800,\"maxSeconds\":1860},\"paymentMethods\":[\"card\"]}", "lines": [{"catalogItemId": "sku-1", "quantity": 2, "name": "Hat", "unitPrice": {"currency": "USD", "minor": "600"}}], "amountMinor": "2400", "currency": "USD", "claimedAtMs": 1800000000000, "requestedExpiresAtSeconds": 1800001860, "providerCreatedAtSeconds": null, "providerExpiresAtSeconds": null, "idempotencyKey": "dinkus-checkout:attempt-before-upgrade", "successUrl": "https://store.example.invalid/checkout/return", "cancelUrl": "https://store.example.invalid/checkout/cancel", "stripeSessionId": null, "redirectUrl": null, "policyKind": "current-bounded-1800-1860", "checkoutText": "test-card-v1", "pricing": {"schema": "dinkuskit.commerce.checkout-pricing/v1", "merchandiseSubtotal": {"currency": "USD", "minor": "1200"}, "couponDiscount": {"currency": "USD", "minor": "0"}, "netMerchandise": {"currency": "USD", "minor": "1200"}, "shipping": {"configurationId": "ship-1", "revision": 1, "mode": "flat", "charge": {"currency": "USD", "minor": "1200"}}, "finalTotal": {"currency": "USD", "minor": "2400"}, "lines": [{"catalogItemId": "sku-1", "quantity": 2, "unitPrice": {"currency": "USD", "minor": "600"}, "lineSubtotal": {"currency": "USD", "minor": "1200"}, "discount": {"currency": "USD", "minor": "0"}, "netAmount": {"currency": "USD", "minor": "1200"}}]}, "mappingVersion": "stripe-whole-line-v2", "chargeLines": [{"quantity": 1, "amountMinor": "1200", "name": "Hat × 2"}, {"quantity": 1, "amountMinor": "1200", "name": "Shipping", "description": "Flat shipping"}]};
+
+test("an attempt Payments stored before the coupon quote was dropped retries unchanged after the upgrade", async () => {
+  const f = fixture(); await f.ready();
+  f.attempts.set(STORED_BEFORE_UPGRADE.attemptId, structuredClone(STORED_BEFORE_UPGRADE));
+  const payment = request({ attemptId: "attempt-before-upgrade", total: { currency: "USD", minor: "2400" }, pricing: structuredClone(STORED_BEFORE_UPGRADE.pricing) });
+  assert.equal(requestFingerprint(payment), STORED_BEFORE_UPGRADE.requestFingerprint);
+  assert.equal((await f.checkout().ensureSessionFor(owner, payment)).outcome, "open");
+  const [[, create]] = f.calls.filter(([kind]) => kind === "create");
+  assert.equal(create.idempotencyKey, STORED_BEFORE_UPGRADE.idempotencyKey);
+  assert.deepEqual(create.chargeLines, STORED_BEFORE_UPGRADE.chargeLines);
+  assert.equal(create.total.minor, "2400");
+});
+
 test("pricing nullish, malformed arithmetic, and legacy pricing fail closed", async () => {
   const f = fixture(); await f.ready();
   await assert.rejects(f.checkout().ensureSessionFor(owner, { ...request({ attemptId: "null-pricing" }), pricing: undefined }), /invalid_pricing/);
