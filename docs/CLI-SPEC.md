@@ -166,7 +166,7 @@ merchant for that site. It is never written to a file or config.
 | `-h`, `--help` | Show context-appropriate help; ignore other arguments. |
 | `--version` | Print only the installed version. |
 | `--endpoint <url>` | Payments service base URL. `https` only (`http` for `localhost`, `127.0.0.1`, `[::1]`). No credentials, query, or fragment. No built-in default. |
-| `--site <id>` | Site id sent as `x-dinkus-site`. Required for every service call; 1-200 printable characters without spaces. The service rejects a site that differs from the token's signed site claim. |
+| `--site <id>` | Site id sent as `x-dinkus-site`. Required for every service call; 1-200 printable characters without spaces. The service accepts only the site ids DinkusKit.com issues (1-200 letters, digits, `-` or `_`) and rejects a site that differs from the token's signed site claim. |
 | `--profile <name>` | Select a non-secret profile from config files. |
 | `--json` | Emit exactly one JSON document to stdout. Mutually exclusive with `--plain`. |
 | `--plain` | Emit stable tab-separated `key=value` records. Mutually exclusive with `--json`. |

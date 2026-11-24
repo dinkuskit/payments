@@ -21,7 +21,7 @@ import {
   transactionOutcome,
 } from "../src/authorize-net/checkout.ts";
 import { createHostedHandler } from "../src/hosted/http.ts";
-import { authorizeNetPayPagePath, matchAuthorizeNetPaySession } from "../src/hosted/manifest.ts";
+import { authorizeNetPayPagePath, matchAuthorizeNetPaySession, matchAuthorizeNetWebhookSite } from "../src/hosted/manifest.ts";
 import {
   createAuthorizeNetWebhookHandler,
   verifyAuthorizeNetReturn,
@@ -711,10 +711,19 @@ test("unpaid is final only after the last card form can no longer be used, and a
 });
 
 test("the pay page route posts the token without putting it in a URL", async () => {
-  assert.equal(authorizeNetPayPagePath("store a/b"), "/v1/pay/authorize-net/store%20a%2Fb");
-  assert.deepEqual(matchAuthorizeNetPaySession("/v1/pay/authorize-net/store%20a/abc.def"), { siteId: "store a", sessionId: "abc.def" });
-  for (const path of ["/v1/pay/authorize-net/store", "/v1/pay/authorize-net/store/a/b", "/v1/pay/authorize-net//abc", "/v1/pay/authorize-net/%2F/abc", "/v1/pay/authorize-net/%E0/abc"]) {
+  const sessionId = `${"0a".repeat(16)}.attempt-one`;
+  assert.equal(authorizeNetPayPagePath("store-a_1"), "/v1/pay/authorize-net/store-a_1");
+  assert.throws(() => authorizeNetPayPagePath("store a/b"), /invalid_site_path_segment/);
+  assert.deepEqual(matchAuthorizeNetPaySession(`/v1/pay/authorize-net/store-a/${sessionId}`), { siteId: "store-a", sessionId });
+  // A store name DinkusKit.com never mints, or a malformed session, is refused before any store is looked up.
+  for (const path of ["/v1/pay/authorize-net/store", "/v1/pay/authorize-net/store/a/b", "/v1/pay/authorize-net//abc", `/v1/pay/authorize-net/%2F/${sessionId}`,
+    `/v1/pay/authorize-net/%E0/${sessionId}`, `/v1/pay/authorize-net/store%20a/${sessionId}`, `/v1/pay/authorize-net/${"s".repeat(201)}/${sessionId}`,
+    "/v1/pay/authorize-net/store-a/abc.def"]) {
     assert.equal(matchAuthorizeNetPaySession(path), null, path);
+  }
+  assert.equal(matchAuthorizeNetWebhookSite("/v1/webhooks/authorize-net/store-a"), "store-a");
+  for (const path of ["/v1/webhooks/authorize-net/store%20a", "/v1/webhooks/authorize-net/caf%C3%A9", `/v1/webhooks/authorize-net/${"s".repeat(201)}`]) {
+    assert.equal(matchAuthorizeNetWebhookSite(path), null, path);
   }
   const seen = [];
   let page = post('tok"<en>');
@@ -723,9 +732,9 @@ test("the pay page route posts the token without putting it in a URL", async () 
     service: () => { throw new Error("unused"); },
     authorizeNetPayPage: async (site, sessionId) => { seen.push([site, sessionId]); return page; },
   });
-  const url = `https://payments.example${authorizeNetPayPagePath(siteId)}/abc.attempt-one`;
+  const url = `https://payments.example${authorizeNetPayPagePath(siteId)}/${sessionId}`;
   const response = await handle(new Request(url));
-  assert.deepEqual(seen, [[siteId, "abc.attempt-one"]]);
+  assert.deepEqual(seen, [[siteId, sessionId]]);
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.equal(response.headers.get("referrer-policy"), "no-referrer");
