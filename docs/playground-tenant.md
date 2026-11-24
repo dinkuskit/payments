@@ -21,7 +21,9 @@ sandbox. It is a hosted-service tenant like any store, with these differences.
   session creation fails with `400 client_ip_required`, and a value that is not
   a strict IPv4 or IPv6 address fails with `400 invalid_client_ip`. The limit
   key is normalized: lowercase, IPv4-mapped IPv6 as IPv4, and other IPv6 by its
-  /64 prefix. Keys are stored only as SHA-256 hashes.
+  /64 prefix. Keys are stored as unsalted SHA-256 hashes, which keep the raw
+  address out of the rows but are not secret: anyone who can read the rows can
+  recover the address.
 - **Retention.** Playground checkout records and rate-limit hits are deleted
   after 24 h by a Durable Object alarm. Records hold catalog lines and Stripe
   ids only.

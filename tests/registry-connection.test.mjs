@@ -237,6 +237,11 @@ test('unconfigured production status never contacts a Payments host even after c
   await f.connect(); assert.equal((await connection.status({ id: 'admin' })).state, 'unconfigured'); assert.equal(f.statuses, 0);
 });
 
+test('a status endpoint with a port is refused like setup and provider identity refuse it', async () => {
+  const { connection, f } = await fixture({ endpoint: { status: 'https://payments-proof.invalid:8443/v1/status' } });
+  await f.connect(); assert.equal((await connection.status({ id: 'admin' })).state, 'unconfigured'); assert.equal(f.statuses, 0);
+});
+
 test('future not-before and wrong service scope fail closed', async () => {
   for (const claims of [{ nbf: 1_800_000_500 }, { scope: 'inventory:admin' }]) {
     const { f } = await fixture(); f.claims = claims; assert.equal((await f.connect()).state, 'failed');

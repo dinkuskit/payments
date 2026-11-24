@@ -74,7 +74,7 @@ export class PaymentConnection extends DurableObject<Env> {
     sql.exec("CREATE TABLE IF NOT EXISTS authorize_net_open_tries (attempt_id TEXT PRIMARY KEY, site_id TEXT NOT NULL, next_at INTEGER NOT NULL, tries INTEGER NOT NULL, owner_account TEXT NOT NULL)");
     // Setup's "Place a test order" check: the first time the provider confirmed each TEST checkout as paid.
     sql.exec("CREATE TABLE IF NOT EXISTS paid_test_checkouts (attempt_id TEXT PRIMARY KEY, binding_ref TEXT NOT NULL, provider TEXT NOT NULL, account_ref TEXT NOT NULL, amount_minor TEXT NOT NULL, currency TEXT NOT NULL, paid_at INTEGER NOT NULL)");
-    // Playground only: which attempts to purge, and opaque rate-limit hits.
+    // Playground only: which attempts to purge, and rate-limit hits keyed by a hashed IP.
     sql.exec("CREATE TABLE IF NOT EXISTS playground_attempts (attempt_id TEXT PRIMARY KEY, created_at INTEGER NOT NULL)");
     sql.exec("CREATE TABLE IF NOT EXISTS playground_rate_hits (bucket TEXT NOT NULL, at INTEGER NOT NULL)");
     sql.exec("CREATE INDEX IF NOT EXISTS playground_rate_hits_bucket ON playground_rate_hits (bucket, at)");

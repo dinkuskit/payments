@@ -111,15 +111,15 @@ test("all six wake fields are required before reconciliation is called", async (
     delete malformed[field];
     assert.throws(() => assertWakeContext(malformed), /invalid_wake_context|invalid_event_id/);
   }
-  let called = false;
-  await assert.rejects(
-    consumeWakeBatch(store([{ ...first, siteId: undefined }]), async () => {
-      called = true;
-      return true;
-    }),
-    /invalid_wake_context/,
-  );
-  assert.equal(called, false);
+  const seen = [];
+  const durable = store([{ ...first, siteId: undefined }, { ...first, eventId: "evt_two" }]);
+  // The malformed row is skipped on its own; it never reaches reconciliation and
+  // does not stop the good row behind it.
+  assert.deepEqual(await consumeWakeBatch(durable, async context => {
+    seen.push(context.eventId);
+    return true;
+  }), { inspected: 2, acknowledged: 1 });
+  assert.deepEqual(seen, ["evt_two"]);
 });
 
 test("overlapping consumers reconcile an event once and count only its ACK", async () => {

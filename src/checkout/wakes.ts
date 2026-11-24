@@ -89,9 +89,10 @@ async function consumeWakeBatchSerial(
 ): Promise<{ inspected: number; acknowledged: number }> {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new WakeError("invalid_batch_limit");
   const events = store.pending(limit);
-  for (const event of events) assertWakeContext(event);
   let acknowledged = 0;
   for (const event of events) {
+    // A malformed row is skipped on its own, so it cannot stop the rest of the batch.
+    try { assertWakeContext(event); } catch { continue; }
     const acknowledgement = Object.freeze({ ...event });
     const callbackContext: Readonly<WakeContext> = Object.freeze({ ...acknowledgement });
     try {
