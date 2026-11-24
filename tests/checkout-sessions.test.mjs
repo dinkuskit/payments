@@ -1073,36 +1073,40 @@ function priced(overrides = {}) {
         discount: { currency: "USD", minor: "1200" },
         netAmount: { currency: "USD", minor: "0" },
       }],
-      coupon: {
-        code: "SAVE",
-        quote: {
-          quoteId: "quote-1", couponId: "coupon-1", ruleId: "rule-1", ruleVersion: 1,
-          eligibleSubtotal: { currency: "USD", minor: "1200" },
-          discount: { currency: "USD", minor: "1200" },
-          payableMerchandiseTotal: { currency: "USD", minor: "0" },
-          lines: [{ productId: "sku-1", quantity: 2, unitPrice: { currency: "USD", minor: "600" }, lineSubtotal: { currency: "USD", minor: "1200" }, eligible: true, discount: { currency: "USD", minor: "1200" } }],
-          merchandiseTotal: { currency: "USD", minor: "1200" },
-          overallPayableTotal: { currency: "USD", minor: "1200" },
-        },
-      },
     },
     ...overrides,
   });
 }
 
-test("pricing snapshot survives coupon offset and mutations reject before provider contact", async () => {
+test("a discount from an add-on, without any coupon quote, survives and mutations reject before provider contact", async () => {
   const f = fixture(); await f.ready();
   const payment = priced();
   const result = await f.checkout().ensureSessionFor(owner, payment);
   assert.equal(result.outcome, "open");
   const record = f.attempts.get(payment.attemptId);
-  assert.equal(record.pricing.coupon.quote.overallPayableTotal.minor, "1200");
+  assert.equal(Object.hasOwn(record.pricing, "coupon"), false);
+  assert.equal(record.pricing.couponDiscount.minor, "1200");
   assert.equal(record.pricing.lines[0].netAmount.minor, "0");
   const fingerprint = record.requestFingerprint;
   assert.notEqual(fingerprint, requestFingerprint({ ...payment, pricing: { ...payment.pricing, finalTotal: { currency: "USD", minor: "1201" } } }));
   const calls = f.calls.length;
   await assert.rejects(f.checkout().lookupFor(owner, { ...payment, pricing: { ...payment.pricing, shipping: { ...payment.pricing.shipping, revision: 2 } } }), /request_mutation|invalid_pricing/);
   assert.equal(f.calls.length, calls);
+});
+
+// Exactly what Payments main (5185943, live before this change) stored for a priced attempt whose create response was lost.
+const STORED_BEFORE_UPGRADE = {"attemptId": "attempt-before-upgrade", "bindingRef": "stripe_binding-one", "stripeAccountId": "acct_one", "mode": "test", "siteId": "store-a", "requestFingerprint": "{\"attemptId\":\"attempt-before-upgrade\",\"bindingRef\":\"stripe_binding-one\",\"lines\":[{\"catalogItemId\":\"sku-1\",\"quantity\":2,\"name\":\"Hat\",\"unitPrice\":{\"currency\":\"USD\",\"minor\":\"600\"}}],\"total\":{\"currency\":\"USD\",\"minor\":\"2400\"},\"pricing\":{\"schema\":\"dinkuskit.commerce.checkout-pricing/v1\",\"merchandiseSubtotal\":{\"currency\":\"USD\",\"minor\":\"1200\"},\"couponDiscount\":{\"currency\":\"USD\",\"minor\":\"0\"},\"netMerchandise\":{\"currency\":\"USD\",\"minor\":\"1200\"},\"shipping\":{\"configurationId\":\"ship-1\",\"revision\":1,\"mode\":\"flat\",\"charge\":{\"currency\":\"USD\",\"minor\":\"1200\"}},\"finalTotal\":{\"currency\":\"USD\",\"minor\":\"2400\"},\"lines\":[{\"catalogItemId\":\"sku-1\",\"quantity\":2,\"unitPrice\":{\"currency\":\"USD\",\"minor\":\"600\"},\"lineSubtotal\":{\"currency\":\"USD\",\"minor\":\"1200\"},\"discount\":{\"currency\":\"USD\",\"minor\":\"0\"},\"netAmount\":{\"currency\":\"USD\",\"minor\":\"1200\"}}]},\"paymentWindow\":{\"minSeconds\":1800,\"maxSeconds\":1860},\"paymentMethods\":[\"card\"]}", "lines": [{"catalogItemId": "sku-1", "quantity": 2, "name": "Hat", "unitPrice": {"currency": "USD", "minor": "600"}}], "amountMinor": "2400", "currency": "USD", "claimedAtMs": 1800000000000, "requestedExpiresAtSeconds": 1800001860, "providerCreatedAtSeconds": null, "providerExpiresAtSeconds": null, "idempotencyKey": "dinkus-checkout:attempt-before-upgrade", "successUrl": "https://store.example.invalid/checkout/return", "cancelUrl": "https://store.example.invalid/checkout/cancel", "stripeSessionId": null, "redirectUrl": null, "policyKind": "current-bounded-1800-1860", "checkoutText": "test-card-v1", "pricing": {"schema": "dinkuskit.commerce.checkout-pricing/v1", "merchandiseSubtotal": {"currency": "USD", "minor": "1200"}, "couponDiscount": {"currency": "USD", "minor": "0"}, "netMerchandise": {"currency": "USD", "minor": "1200"}, "shipping": {"configurationId": "ship-1", "revision": 1, "mode": "flat", "charge": {"currency": "USD", "minor": "1200"}}, "finalTotal": {"currency": "USD", "minor": "2400"}, "lines": [{"catalogItemId": "sku-1", "quantity": 2, "unitPrice": {"currency": "USD", "minor": "600"}, "lineSubtotal": {"currency": "USD", "minor": "1200"}, "discount": {"currency": "USD", "minor": "0"}, "netAmount": {"currency": "USD", "minor": "1200"}}]}, "mappingVersion": "stripe-whole-line-v2", "chargeLines": [{"quantity": 1, "amountMinor": "1200", "name": "Hat × 2"}, {"quantity": 1, "amountMinor": "1200", "name": "Shipping", "description": "Flat shipping"}]};
+
+test("an attempt Payments stored before the coupon quote was dropped retries unchanged after the upgrade", async () => {
+  const f = fixture(); await f.ready();
+  f.attempts.set(STORED_BEFORE_UPGRADE.attemptId, structuredClone(STORED_BEFORE_UPGRADE));
+  const payment = request({ attemptId: "attempt-before-upgrade", total: { currency: "USD", minor: "2400" }, pricing: structuredClone(STORED_BEFORE_UPGRADE.pricing) });
+  assert.equal(requestFingerprint(payment), STORED_BEFORE_UPGRADE.requestFingerprint);
+  assert.equal((await f.checkout().ensureSessionFor(owner, payment)).outcome, "open");
+  const [[, create]] = f.calls.filter(([kind]) => kind === "create");
+  assert.equal(create.idempotencyKey, STORED_BEFORE_UPGRADE.idempotencyKey);
+  assert.deepEqual(create.chargeLines, STORED_BEFORE_UPGRADE.chargeLines);
+  assert.equal(create.total.minor, "2400");
 });
 
 test("pricing nullish, malformed arithmetic, and legacy pricing fail closed", async () => {
@@ -1126,16 +1130,12 @@ test("discounted and shipping-only pricing totals reach the provider unchanged",
     payment.pricing.finalTotal.minor = payment.total.minor;
     payment.pricing.lines[0].discount.minor = "200";
     payment.pricing.lines[0].netAmount.minor = "1000";
-    payment.pricing.coupon.quote.discount.minor = "200";
-    payment.pricing.coupon.quote.lines[0].discount.minor = "200";
-    payment.pricing.coupon.quote.payableMerchandiseTotal.minor = "1000";
-    payment.pricing.coupon.quote.overallPayableTotal.minor = payment.total.minor;
     assert.equal((await f.checkout().ensureSessionFor(owner,payment)).outcome,"open");
     assert.equal(f.calls[0][1].total.minor,payment.total.minor);
     assert.deepEqual(f.attempts.get(payment.attemptId).pricing,payment.pricing);
   }
   const f=fixture();await f.ready();const payment=priced();
-  payment.total.minor="50";payment.pricing.shipping.charge.minor="50";payment.pricing.finalTotal.minor="50";payment.pricing.coupon.quote.overallPayableTotal.minor="50";
+  payment.total.minor="50";payment.pricing.shipping.charge.minor="50";payment.pricing.finalTotal.minor="50";
   assert.equal((await f.checkout().ensureSessionFor(owner,payment)).outcome,"open");
 });
 
@@ -1145,13 +1145,14 @@ test("101 mapped items reject before any attempt or provider operation", async (
   payment.total=usd("200");const p=payment.pricing;
   p.merchandiseSubtotal=usd("200");p.couponDiscount=usd("100");p.netMerchandise=usd("100");p.shipping.charge=usd("100");p.finalTotal=usd("200");
   p.lines=payment.lines.map(l=>({catalogItemId:l.catalogItemId,quantity:1,unitPrice:usd("2"),lineSubtotal:usd("2"),discount:usd("1"),netAmount:usd("1")}));
-  p.coupon.quote={quoteId:"many-quote",couponId:"coupon-1",ruleId:"rule-1",ruleVersion:1,eligibleSubtotal:usd("200"),discount:usd("100"),payableMerchandiseTotal:usd("100"),merchandiseTotal:usd("200"),overallPayableTotal:usd("200"),lines:payment.lines.map(l=>({productId:l.catalogItemId,quantity:1,unitPrice:usd("2"),lineSubtotal:usd("2"),eligible:true,discount:usd("1")}))};
   await assert.rejects(f.checkout().ensureSessionFor(owner,payment),/invalid_pricing|line_item_limit/);
   assert.equal(f.attempts.size,0);assert.equal(f.calls.length,0);
 });
 
-test("coupon code, whitespace identities and ineligible discounts fail before contact", async () => {
-  const mutations=[p=>{p.coupon.code="save";},p=>{p.shipping.configurationId=" ";},p=>{p.coupon.quote.ruleId=" ";},p=>{p.coupon.quote.lines[0].eligible=false;p.coupon.quote.eligibleSubtotal.minor="0";},p=>{p.coupon.quote.lines[0].unitPrice.currency="EUR";},p=>{p.coupon=undefined;}];
+test("whitespace identities, a discount above its line and any old coupon quote fail before contact", async () => {
+  const quote={code:"SAVE",quote:{quoteId:"quote-1",couponId:"coupon-1",ruleId:"rule-1",ruleVersion:1}};
+  const mutations=[p=>{p.shipping.configurationId=" ";},p=>{p.coupon=quote;},p=>{p.coupon=undefined;},
+    p=>{p.lines[0].discount.minor="1201";p.lines[0].netAmount.minor="-1";}];
   for(const mutate of mutations){const f=fixture();await f.ready();const payment=priced();mutate(payment.pricing);await assert.rejects(f.checkout().ensureSessionFor(owner,payment),/invalid_pricing|invalid_amount/);assert.equal(f.attempts.size,0);assert.equal(f.calls.length,0);}
 });
 
@@ -1160,11 +1161,9 @@ test("complete pricing rejects malformed schema, line, quote and money fields be
     p=>{p.schema="unsupported";}, p=>{p.shipping.mode="free";}, p=>{p.shipping.revision=0;},
     p=>{p.lines[0].quantity=1;}, p=>{p.lines[0].catalogItemId="other";},
     p=>{p.lines[0].netAmount.minor="1";}, p=>{p.lines[0].unitPrice.extra=true;},
-    p=>{p.couponDiscount.minor="01";}, p=>{p.coupon.quote.eligibleSubtotal.minor="1";},
-    p=>{p.coupon.quote.lines[0].unitPrice=null;}, p=>{p.coupon.quote.ruleVersion=0;},
-    p=>{p.coupon.quote.lines[0].discount.currency="EUR";},
-    p=>{p.shipping.charge.minor="9007199254740992";}, p=>{p.coupon.quote.overallPayableTotal.minor="1201";},
-    p=>{p.coupon.quote.lines[0].extra=true;}, p=>{p.coupon=null;}, p=>{p.lines=[];},
+    p=>{p.couponDiscount.minor="01";}, p=>{p.lines[0].discount.currency="EUR";},
+    p=>{p.shipping.charge.minor="9007199254740992";}, p=>{p.couponDiscount.minor="1201";},
+    p=>{p.lines[0].extra=true;}, p=>{p.coupon=null;}, p=>{p.lines=[];},
     p=>{p.finalTotal.currency="EUR";},p=>{p.shipping.charge.minor="-1";},p=>{p.extra=true;},
   ];
   for(const mutate of mutations){const f=fixture();await f.ready();const payment=priced();mutate(payment.pricing);await assert.rejects(f.checkout().ensureSessionFor(owner,payment),/invalid_pricing|invalid_amount/);assert.equal(f.attempts.size,0);assert.equal(f.calls.length,0);}
@@ -1173,7 +1172,7 @@ test("complete pricing rejects malformed schema, line, quote and money fields be
 test("claim snapshots transport mapping before await and retries original after caller mutation", async () => {
   const f=fixture();await f.ready();f.setCreateDown(true);const payment=priced();const original=structuredClone(payment);
   const pending=f.checkout().ensureSessionFor(owner,payment);
-  payment.pricing.shipping.revision=9;payment.pricing.coupon.quote.quoteId="changed";
+  payment.pricing.shipping.revision=9;payment.pricing.lines[0].discount.minor="0";
   assert.equal((await pending).outcome,"unknown");
   const record=structuredClone(f.attempts.get(original.attemptId));
   assert.deepEqual(record.pricing,original.pricing);assert.equal(record.mappingVersion,"stripe-whole-line-v2");
@@ -1194,7 +1193,7 @@ test("an attempt claimed before line options retries with its original v1 Stripe
   // Merchandise worth charging, so the v1 quantity wording is in the record.
   const payment=priced();payment.pricing.couponDiscount.minor="0";payment.pricing.netMerchandise.minor="1200";
   payment.pricing.lines[0].discount.minor="0";payment.pricing.lines[0].netAmount.minor="1200";
-  payment.pricing.finalTotal.minor="2400";payment.total.minor="2400";delete payment.pricing.coupon;
+  payment.pricing.finalTotal.minor="2400";payment.total.minor="2400";
   assert.equal((await f.checkout().ensureSessionFor(owner,payment)).outcome,"unknown");
   // Exactly what Payments 0.5.0 stored for this claim before its create response was lost.
   const v1=[{quantity:1,amountMinor:"1200",name:"Hat (quantity 2)",description:"Original catalog quantity: 2"},

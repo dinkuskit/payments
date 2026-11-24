@@ -43,10 +43,14 @@ Existing onboarding times stay milliseconds.
 - Unclaimed legacy requests return `unknown` immediately without contacting the provider.
   Existing historical legacy claims safely default policy to exact 1800 and remain recoverable.
 - Current requests may carry the exact
-  `dinkuskit.commerce.checkout-pricing/v1` snapshot. Payments validates the
-  complete USD arithmetic, ordered original lines, frozen shipping identity and
-  optional coupon quote, then stores and fingerprints the complete snapshot
-  before provider contact. Pricing-bearing legacy requests are rejected.
+  `dinkuskit.commerce.checkout-pricing/v1` snapshot, with exactly its seven keys.
+  Payments validates the complete USD arithmetic, ordered original lines and
+  frozen shipping identity, then stores and fingerprints the complete snapshot
+  before provider contact. Commerce decides any discount: each line's discount
+  is at most its subtotal and every sum must agree. A snapshot that still carries
+  the old `coupon` quote is refused as `invalid_pricing`, like any unknown key; no
+  stored attempt carries one, because Commerce's Registry build never quoted a
+  coupon. Pricing-bearing legacy requests are rejected.
 - Priced Stripe charges use each positive merchandise whole-line net as one
   quantity-one item, plus one frozen shipping item. The item's name carries
   the original quantity ("Wrong Turn Tee", or "Wrong Turn Tee × 2"), and its

@@ -74,26 +74,6 @@ export interface CheckoutPricingLine {
   discount: Money;
   netAmount: Money;
 }
-export interface CouponQuoteLine {
-  productId: string;
-  quantity: number;
-  unitPrice: Money;
-  lineSubtotal: Money;
-  eligible: boolean;
-  discount: Money;
-}
-export interface CouponQuoteSnapshot {
-  quoteId: string;
-  couponId: string;
-  ruleId: string;
-  ruleVersion: number;
-  eligibleSubtotal: Money;
-  discount: Money;
-  payableMerchandiseTotal: Money;
-  lines: readonly CouponQuoteLine[];
-  merchandiseTotal: Money;
-  overallPayableTotal: Money;
-}
 export interface CheckoutPricingSnapshot {
   schema: typeof CHECKOUT_PRICING_SCHEMA;
   merchandiseSubtotal: Money;
@@ -107,7 +87,6 @@ export interface CheckoutPricingSnapshot {
   };
   finalTotal: Money;
   lines: readonly CheckoutPricingLine[];
-  coupon?: { code: string; quote: CouponQuoteSnapshot };
 }
 
 interface PaymentRequestBase {
