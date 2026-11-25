@@ -92,8 +92,9 @@ export function takePlaygroundSessionSlot(store: RateWindowStore, ipKey: string,
 }
 
 /**
- * Hash the shopper IP so only an opaque key is stored. Rate-limit rows are
- * purged with the rest of the playground data.
+ * Hash the shopper IP so the raw address is not stored. The hash is unsalted,
+ * so it is not secret: anyone who can read the rows can recover the address.
+ * Rate-limit rows are purged with the rest of the playground data.
  */
 export async function playgroundIpKey(ip: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`dinkus-playground-ip:${ip}`));

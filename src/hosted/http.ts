@@ -342,7 +342,8 @@ export function createHostedHandler(options: {
           status, headers: { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "Retry-After": String(PLAYGROUND_IP_LIMIT.windowMs / 1000) },
         });
       }
-      return respond({ error: error instanceof Error ? error.message : "service_unavailable" }, status);
+      // Answer only our own snake_case codes; any other message (a runtime or platform error) stays private.
+      return respond({ error: error instanceof Error && /^[a-z][a-z0-9_]{0,79}$/.test(error.message) ? error.message : "service_unavailable" }, status);
     }
   };
 }

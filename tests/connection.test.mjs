@@ -220,6 +220,22 @@ test('malformed checkout bodies are rejected before the service or durable objec
   assert.equal(checkoutCalls, 0);
 });
 
+test('an unexpected error answers service_unavailable; only our own codes pass through', async () => {
+  for (const [thrown, status, error] of [
+    [new TypeError("Cannot read properties of undefined (reading 'value')"), 503, 'service_unavailable'],
+    [new Error('SQLITE_ERROR: no such table: checkout_attempts'), 503, 'service_unavailable'],
+    [new Error('store_origin_missing'), 409, 'store_origin_missing'],
+  ]) {
+    const handle = createHostedHandler({
+      authenticate: async () => owner,
+      service: () => ({ status: async () => { throw thrown; } }),
+    });
+    const response = await handle(new Request('https://service.invalid/v1/status', { headers: { authorization: 'Bearer synthetic' } }));
+    assert.equal(response.status, status);
+    assert.deepEqual(await response.json(), { error });
+  }
+});
+
 test('authenticated status adds evidence while connect retains its legacy payload', async () => {
   const f = fixture();
   await f.service().connect(owner);

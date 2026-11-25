@@ -13,9 +13,13 @@ const first = {
 
 function store(events) {
   const acknowledged = new Set();
+  const setAside = new Set();
   return {
     pending(limit) {
-      return events.filter(event => !acknowledged.has(event.eventId)).slice(0, limit);
+      return events.filter(event => !acknowledged.has(event.eventId) && !setAside.has(event)).slice(0, limit);
+    },
+    setAside(eventId) {
+      for (const event of events) if (event.eventId === eventId && !acknowledged.has(eventId)) setAside.add(event);
     },
     acknowledge(context) {
       const event = events.find(candidate => candidate.eventId === context.eventId);
@@ -111,15 +115,30 @@ test("all six wake fields are required before reconciliation is called", async (
     delete malformed[field];
     assert.throws(() => assertWakeContext(malformed), /invalid_wake_context|invalid_event_id/);
   }
-  let called = false;
-  await assert.rejects(
-    consumeWakeBatch(store([{ ...first, siteId: undefined }]), async () => {
-      called = true;
-      return true;
-    }),
-    /invalid_wake_context/,
-  );
-  assert.equal(called, false);
+  const seen = [];
+  const durable = store([{ ...first, siteId: undefined }, { ...first, eventId: "evt_two" }]);
+  // The malformed row is set aside on its own; it never reaches reconciliation and
+  // does not stop the good row behind it.
+  assert.deepEqual(await consumeWakeBatch(durable, async context => {
+    seen.push(context.eventId);
+    return true;
+  }), { inspected: 2, acknowledged: 1 });
+  assert.deepEqual(seen, ["evt_two"]);
+});
+
+test("malformed rows that fill a batch are set aside, so the next bounded call reaches the good row", async () => {
+  const bad = Array.from({ length: 25 }, (_, index) => ({ ...first, eventId: `evt_bad${index}`, mode: "production" }));
+  const durable = store([...bad, { ...first, eventId: "evt_good" }]);
+  const seen = [];
+  const reconcile = async context => (seen.push(context.eventId), true);
+  assert.deepEqual(await consumeWakeBatch(durable, reconcile), { inspected: 25, acknowledged: 0 });
+  assert.deepEqual(await consumeWakeBatch(durable, reconcile), { inspected: 1, acknowledged: 1 });
+  assert.deepEqual(seen, ["evt_good"]);
+  // With a batch of one, a single bad head row costs one call, not every call.
+  const one = store([{ ...first, siteId: "" }, { ...first, eventId: "evt_two" }]);
+  assert.deepEqual(await consumeWakeBatch(one, reconcile, 1), { inspected: 1, acknowledged: 0 });
+  assert.deepEqual(await consumeWakeBatch(one, reconcile, 1), { inspected: 1, acknowledged: 1 });
+  assert.deepEqual([...one.acknowledged], ["evt_two"]);
 });
 
 test("overlapping consumers reconcile an event once and count only its ACK", async () => {

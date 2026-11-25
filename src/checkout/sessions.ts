@@ -220,7 +220,8 @@ function currentFingerprint(canonical: CurrentPaymentRequest): string {
 }
 
 function exactKeys(value: object, keys: readonly string[]): boolean {
-  return Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
+  const own = Object.keys(value);
+  return own.length === keys.length && keys.every(key => own.includes(key));
 }
 
 function text(value: unknown, maxLength = MAX_ID_LENGTH): value is string {

@@ -66,6 +66,10 @@ export class PaymentConnection extends DurableObject<Env> {
     if (!sql.exec<{ name: string }>("PRAGMA table_info(checkout_wake_events)").toArray().some(column => column.name === "delivery_generation")) {
       sql.exec("ALTER TABLE checkout_wake_events ADD COLUMN delivery_generation INTEGER NOT NULL DEFAULT 1");
     }
+    // A malformed row is set aside (never acknowledged) so it stops taking a place in every wake batch.
+    if (!sql.exec<{ name: string }>("PRAGMA table_info(checkout_wake_events)").toArray().some(column => column.name === "set_aside_at")) {
+      sql.exec("ALTER TABLE checkout_wake_events ADD COLUMN set_aside_at INTEGER");
+    }
     // Authorize.net checkouts paid more than once, for the owner to refund by hand (payments-authorize-net-paid-twice-044).
     // Each row names the account that owned the store's connection when it was found; only that account sees it.
     sql.exec("CREATE TABLE IF NOT EXISTS authorize_net_paid_twice (attempt_id TEXT PRIMARY KEY, transaction_ids TEXT NOT NULL, amount_minor TEXT NOT NULL, noticed_at INTEGER NOT NULL, owner_account TEXT NOT NULL)");
@@ -74,13 +78,13 @@ export class PaymentConnection extends DurableObject<Env> {
     sql.exec("CREATE TABLE IF NOT EXISTS authorize_net_open_tries (attempt_id TEXT PRIMARY KEY, site_id TEXT NOT NULL, next_at INTEGER NOT NULL, tries INTEGER NOT NULL, owner_account TEXT NOT NULL)");
     // Setup's "Place a test order" check: the first time the provider confirmed each TEST checkout as paid.
     sql.exec("CREATE TABLE IF NOT EXISTS paid_test_checkouts (attempt_id TEXT PRIMARY KEY, binding_ref TEXT NOT NULL, provider TEXT NOT NULL, account_ref TEXT NOT NULL, amount_minor TEXT NOT NULL, currency TEXT NOT NULL, paid_at INTEGER NOT NULL)");
-    // Playground only: which attempts to purge, and opaque rate-limit hits.
+    // Playground only: which attempts to purge, and rate-limit hits keyed by a hashed IP.
     sql.exec("CREATE TABLE IF NOT EXISTS playground_attempts (attempt_id TEXT PRIMARY KEY, created_at INTEGER NOT NULL)");
     sql.exec("CREATE TABLE IF NOT EXISTS playground_rate_hits (bucket TEXT NOT NULL, at INTEGER NOT NULL)");
     sql.exec("CREATE INDEX IF NOT EXISTS playground_rate_hits_bucket ON playground_rate_hits (bucket, at)");
     this.wakeEvents = {
       pending: batchLimit => sql.exec<WakeRow>(
-        "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, authorize_net_merchant_id AS authorizeNetMerchantId, mode FROM checkout_wake_events WHERE acknowledged_at IS NULL ORDER BY received_at ASC LIMIT ?",
+        "SELECT event_id AS eventId, attempt_id AS attemptId, site_id AS siteId, binding_ref AS bindingRef, stripe_account_id AS stripeAccountId, authorize_net_merchant_id AS authorizeNetMerchantId, mode FROM checkout_wake_events WHERE acknowledged_at IS NULL AND set_aside_at IS NULL ORDER BY received_at ASC LIMIT ?",
         batchLimit,
       ).toArray().map(row => wakeContextFromRow(row)),
       acknowledge: context => {
@@ -93,6 +97,10 @@ export class PaymentConnection extends DurableObject<Env> {
           throw new WakeError("wake_association_mismatch");
         }
         return sql.exec("UPDATE checkout_wake_events SET acknowledged_at=? WHERE event_id=? AND acknowledged_at IS NULL", Date.now(), context.eventId).rowsWritten === 1;
+      },
+      setAside: eventId => {
+        console.error("payments wake set aside", JSON.stringify({ eventId: typeof eventId === "string" ? eventId.slice(0, 64) : null }));
+        sql.exec("UPDATE checkout_wake_events SET set_aside_at=? WHERE event_id IS ? AND acknowledged_at IS NULL", Date.now(), typeof eventId === "string" ? eventId : null);
       },
     };
   }
