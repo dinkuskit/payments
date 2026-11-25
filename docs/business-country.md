@@ -12,6 +12,8 @@ LIVE alike, for every store. There is no operator list and no store cap.
 - The options are the countries where Stripe opens accounts without an invite
   or extended-network review (`src/business-country.ts`, from stripe.com/global).
   "Choose a country" comes first; nothing is preselected.
+- If you press **Set up Stripe** without choosing a country, the form stays
+  open and asks you to choose one; nothing is sent to Stripe.
 - Payments never infers a country from IP, hosting, currency, email, the
   browser, or Commerce's store or shipping countries. Payments works without
   Commerce, so it does not read Commerce settings.

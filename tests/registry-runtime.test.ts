@@ -828,6 +828,16 @@ test("compiled business-country form sends the owner's choice with Set up Stripe
     assert.match(page, /\{"label":"United States","value":"US"\}/);
     assert.match(page, /"submit":\{"label":"Set up Stripe","action_id":"setup_processor"\}/);
     assert.doesNotMatch(page, /Set up or resume Stripe/);
+    for (const businessCountry of ["", "ZZ"]) {
+      host.http.clear();
+      await f.prepareStatusResponse({ state: "disconnected", mode: "test", businessCountry: null });
+      const refused = await host.admin.submit("/status", "setup_processor", { businessCountry }, { user: f.admin });
+      const blocks = refused.blocks as { type: string; title?: string; block_id?: string }[];
+      const form = blocks.findIndex(block => block.block_id === "business-country");
+      assert.ok(form >= 0);
+      assert.equal(blocks[form + 1].title, "Business country is required");
+      assert.equal(host.http.requests().some(r => r.url === endpoint), false);
+    }
     host.http.clear(); await f.prepareProcessorStatus();
     await host.http.respond(endpoint, Response.json({ state: "setup_required", mode: "test", bindingRef: "synthetic-binding", url: "https://connect.stripe.com/setup/first", expiresAt: Date.now() + 60_000 }));
     const result = JSON.stringify(await host.admin.submit("/status", "setup_processor", { businessCountry: "US" }, { user: f.admin }));
@@ -840,6 +850,13 @@ test("compiled business-country form sends the owner's choice with Set up Stripe
     assert.doesNotMatch(resumed, /"action_id":"businessCountry"/);
     assert.match(resumed, /Business country: United States\. Stripe can't change it\./);
     assert.match(resumed, /"label":"Set up or resume Stripe","action_id":"setup_processor"/);
+    // Another tab may have already entered a country. Do not resurrect the old form.
+    host.http.clear();
+    await f.prepareStatusResponse({ state: "setup_required", mode: "test", bindingRef: "synthetic-binding", businessCountry: "US" });
+    const stale = JSON.stringify(await host.admin.submit("/status", "setup_processor", { businessCountry: "" }, { user: f.admin }));
+    assert.match(stale, /Business country: United States/);
+    assert.doesNotMatch(stale, /Business country is required|"action_id":"businessCountry"/);
+    assert.equal(host.http.requests().some(r => r.url === endpoint), false);
   } finally { await host.dispose(); }
 });
 
