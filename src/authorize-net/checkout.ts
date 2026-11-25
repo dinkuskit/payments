@@ -759,7 +759,7 @@ export function createAuthorizeNetPaymentPort(options: {
           const resolvedIndex = ids.findIndex(resolved);
           ids.splice(resolvedIndex >= 0 ? resolvedIndex : 0, 1);
         }
-        tx.write(attemptId, { ...current, transactionId, transactionIds: ids });
+        tx.write(attemptId, { ...current, transactionId: ids.at(-1) ?? transactionId, transactionIds: ids });
       });
     },
   };
