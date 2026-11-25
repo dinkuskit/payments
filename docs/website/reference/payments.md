@@ -17,7 +17,7 @@ On Stripe's payment page each item shows its name, with the quantity when there 
 
 ## Release scope
 
-This reference describes Payments `{{version}}`, released on the EmDash Registry as `dinkus-payments` on {{release_date}} (tag `v{{version}}`). It requires EmDash `1.5.0`. Changes merged after that release are not described here until they ship in a stable release.
+This reference describes Payments `{{version}}`, released on the EmDash Registry as `dinkus-payments` on {{release_date}} (tag `v{{version}}`). It is built and tested on EmDash `1.6.0` and also runs on `1.5.0`. Changes merged after that release are not described here until they ship in a stable release.
 
 The Registry plugin, hosted Payments service and DinkusKit account service have separate versions. A connected account does not prove that a particular plugin version is installed or that live payments are enabled.
 
