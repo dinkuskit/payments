@@ -1,8 +1,9 @@
 # Authorize.net checkout records survive the upgrade (25 Nov 2026)
 
 This PR changes which list a paid Authorize.net try is kept in (`settled`) and when the pay page hands out a card
-form. The record's shape does not change: no field is added, renamed or removed. This proof shows that checkout
-records written by older Payments code keep working when this branch reads them.
+form. It adds one optional field, `notices`, a count of payment notices; a record without it counts as 0, and no
+field is renamed or removed. This proof shows that checkout records written by older Payments code keep working
+when this branch reads them.
 
 `upgrade.mjs` runs the real payment port twice over one shared store: first the older `src/authorize-net/checkout.ts`
 writes the records, then this branch's reads them. The store is in memory and passed through the same `store`

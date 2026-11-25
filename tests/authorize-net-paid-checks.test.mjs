@@ -388,3 +388,43 @@ test("paid twice: a checkout left with an open 21st paid try by the previous rel
   assert.equal(await port.recheck(payment.attemptId), true);
   assert.equal(state.reads.length, reads, "and is not read again");
 });
+
+test("payPage sees a payment notice even when later notices rotate the try list back to the ids it read", async () => {
+  // The try list keeps the latest 20 ids, so redelivered notices can push a new paid id out again.
+  const declined = Array.from({ length: 20 }, (_, i) => String(1401 + i));
+  const rotate = port => {
+    transactions[1421] = paidTry;
+    port.recordTransaction(payment.attemptId, "1421");
+    for (const id of declined) port.recordTransaction(payment.attemptId, id);
+  };
+  let transactions;
+  // While the earlier tries are being read.
+  {
+    const h = harness();
+    transactions = h.transactions;
+    const { session } = await h.port.ensureSession(payment);
+    for (const id of declined) { transactions[id] = declinedTry; h.port.recordTransaction(payment.attemptId, id); }
+    let once = false;
+    h.state.onRead = () => { if (!once) { once = true; rotate(h.port); } };
+    assert.deepEqual(await h.port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout/success" });
+    assert.deepEqual(h.records.get(payment.attemptId).transactionIds, declined, "the list is back to the ids that were read");
+  }
+  // While a fresh card form is being made.
+  {
+    const h = harness();
+    transactions = h.transactions;
+    const { session } = await h.port.ensureSession(payment);
+    for (const id of declined) { transactions[id] = declinedTry; h.port.recordTransaction(payment.attemptId, id); }
+    const { token, tokenAt } = h.records.get(payment.attemptId);
+    h.state.clock += 900_000;
+    let release;
+    h.state.mintGate = new Promise(resolve => { release = resolve; });
+    const pending = h.port.payPage(session.sessionId);
+    while (h.state.mints < 2) await new Promise(resolve => setTimeout(resolve, 1));
+    rotate(h.port);
+    release();
+    assert.deepEqual(await pending, { action: "redirect", url: "https://store.example/checkout/success" });
+    assert.equal(h.records.get(payment.attemptId).token, token);
+    assert.equal(h.records.get(payment.attemptId).tokenAt, tokenAt);
+  }
+});

@@ -344,6 +344,8 @@ export interface AuthorizeNetAttemptRecord {
   settled?: string[];
   transactionId: string | null;
   transactionIds?: string[];
+  /** How many payment notices this checkout has had. The try list is bounded and can rotate back to the same ids, so a count says a notice landed. */
+  notices?: number;
   createdAt: number;
   expiresAt: number;
   bindingRef?: string;
@@ -686,7 +688,9 @@ export function createAuthorizeNetPaymentPort(options: {
       // checked again after every provider call, so a visit that crosses it never gets a token.
       if (record.paidId) return back;
       if (seconds() >= record.expiresAt) return ended;
-      const seenTries = transactionsOf(record);
+      const seenTries = transactionsOf(record), seenNotices = record.notices ?? 0;
+      // A notice that landed while this visit was waiting on Authorize.net.
+      const noticed = (value: AuthorizeNetAttemptRecord) => (value.notices ?? 0) !== seenNotices || transactionsOf(value).some(id => !seenTries.includes(id));
       if (seenTries.length > 0) {
         let result;
         try { result = await tries(attemptId, record, total); }
@@ -697,7 +701,7 @@ export function createAuthorizeNetPaymentPort(options: {
         // A payment notice can land while earlier tries are being read.
         const latest = read(attemptId);
         if (!latest || latest.sessionId !== record.sessionId) return ended;
-        if (latest.paidId || transactionsOf(latest).some(id => !seenTries.includes(id))) return back;
+        if (latest.paidId || noticed(latest)) return back;
       }
       // One live card form per checkout: its token is handed out until Authorize.net stops showing it.
       const usable = (value: AuthorizeNetAttemptRecord) => seconds() - (value.tokenAt ?? value.createdAt) < AUTHORIZE_NET_FORM_TOKEN_SECONDS;
@@ -718,7 +722,7 @@ export function createAuthorizeNetPaymentPort(options: {
       const shown = options.store.transaction(tx => {
         const current = tx.read(attemptId);
         if (!current || current.sessionId !== record.sessionId) return null;
-        if (current.paidId || transactionsOf(current).some(id => !seenTries.includes(id))) return back;
+        if (current.paidId || noticed(current)) return back;
         if ((current.tokenAt ?? current.createdAt) !== (record.tokenAt ?? record.createdAt)) {
           return usable(current) ? current.token : null;
         }
@@ -743,7 +747,7 @@ export function createAuthorizeNetPaymentPort(options: {
         // also stays in transactionId for older readers. A proven paid try is kept apart, in paidId.
         const ids = transactionsOf(current).filter(id => id !== transactionId);
         ids.push(transactionId);
-        tx.write(attemptId, { ...current, transactionId, transactionIds: ids.slice(-AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT) });
+        tx.write(attemptId, { ...current, transactionId, transactionIds: ids.slice(-AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT), notices: (current.notices ?? 0) + 1 });
       });
     },
   };
