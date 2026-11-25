@@ -80,7 +80,7 @@ export const PAYMENTS_SETUP_JOURNEY = Object.freeze({
 });
 
 const SECRET_LEAK_PATTERN =
-  /\b(?:sk_test_[0-9A-Za-z]+|sk_live_[0-9A-Za-z]+|rk_test_[0-9A-Za-z]+|rk_live_[0-9A-Za-z]+|whsec_[0-9A-Za-z]+|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b/;
+  /\b(?:sk_test_[0-9A-Za-z]+|sk_live_[0-9A-Za-z]+|rk_test_[0-9A-Za-z]+|rk_live_[0-9A-Za-z]+|whsec_[0-9A-Za-z]+|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b|dk_store_[A-Za-z0-9_-]{43}/;
 
 export function resolvePaymentsSetupTarget(
   storeOrigin: string,

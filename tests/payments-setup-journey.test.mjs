@@ -252,3 +252,15 @@ test("inspectPaymentsSetupScreen flags leaked secret material", () => {
   });
   assert.equal(inspection.hasSecretLeak, true);
 });
+
+test("inspectPaymentsSetupScreen flags a leaked DinkusKit store key, even one ending in a dash", () => {
+  for (const key of [`dk_store_${"A".repeat(43)}`, `dk_store_${"A".repeat(42)}-`]) {
+    const inspection = inspectPaymentsSetupScreen({
+      blocks: [
+        { type: "header", text: "Payment setup" },
+        { type: "section", text: `Store key: ${key}.` },
+      ],
+    });
+    assert.equal(inspection.hasSecretLeak, true, key);
+  }
+});

@@ -1,0 +1,17 @@
+{"route":"pay page","case":"the store's own session","status":200,"doLookups":1,"providerCalls":1}
+{"route":"pay page","case":"well-formed wrong session secret","status":404,"doLookups":1,"providerCalls":0}
+{"route":"pay page","case":"this session under another store","status":404,"doLookups":1,"providerCalls":0}
+{"route":"pay page","case":"percent-encoded store name","status":404,"doLookups":1,"providerCalls":0}
+{"route":"pay page","case":"non-ASCII store name","status":404,"doLookups":1,"providerCalls":0}
+{"route":"pay page","case":"201-character store name","status":404,"doLookups":1,"providerCalls":0}
+{"route":"pay page","case":"malformed session","status":404,"doLookups":1,"providerCalls":0}
+{"route":"notice","case":"percent-encoded store name","status":400,"doLookups":1,"providerCalls":0}
+{"route":"notice","case":"non-ASCII store name","status":400,"doLookups":1,"providerCalls":0}
+{"route":"notice","case":"201-character store name","status":400,"doLookups":1,"providerCalls":0}
+{"route":"notice","case":"well-formed store name, bad signature","status":400,"doLookups":1,"providerCalls":0}
+{"route":"store pass","case":"a DinkusKit.com site id (UUID)","status":200,"doLookups":1,"providerCalls":0}
+{"route":"store pass","case":"200-character site id","status":200,"doLookups":1,"providerCalls":0}
+{"route":"store pass","case":"site id with a space","status":200,"doLookups":1,"providerCalls":0}
+{"route":"store pass","case":"non-ASCII site id","status":200,"doLookups":1,"providerCalls":0}
+{"route":"store pass","case":"201-character site id","status":401,"doLookups":0,"providerCalls":0}
+Tests  2 failed (2)

@@ -172,7 +172,7 @@ merchant for that site. It is never written to a file or config.
 | `--plain` | Emit stable tab-separated `key=value` records. Mutually exclusive with `--json`. |
 | `--no-input` | Never prompt. Missing input or confirmation fails closed. |
 | `--no-color` | Disable color (the CLI currently prints none). `NO_COLOR` and `TERM=dumb` do the same. |
-| `--timeout <duration>` | Network timeout such as `1500ms`, `15s`, `1m` (default `15s`, maximum `10m`). For `connect`, a timeout is an unknown outcome, never an assumed failure. |
+| `--timeout <duration>` | Network timeout such as `1500ms`, `15s`, `1m` (default `15s`, maximum `10m`). The timeout covers the whole reply, so one that stalls after its headers is a timeout too. For `connect`, a timeout is an unknown outcome, never an assumed failure. |
 
 ## Command flags
 
@@ -305,7 +305,9 @@ optional `profiles` map whose entries override them:
 
 Config files are rejected (exit `2`) if any key looks like a secret (`token`,
 `secret`, `password`, `authorization`, `credential`, `api_key`, `cookie`). An
-unknown `--profile` is a usage error.
+unknown `--profile` is a usage error. Only names written in the file's own
+`profiles` map count, so `--profile constructor` is unknown, and a profile that
+is not a JSON object is rejected as `invalid_config`.
 
 Every request carries the token, so the endpoint must come from `--endpoint`,
 `DINKUS_PAYMENTS_ENDPOINT`, or user config. Project config comes with the
