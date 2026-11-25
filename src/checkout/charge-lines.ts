@@ -40,6 +40,13 @@ export function createPricedChargeLines(lines: readonly CheckoutLine[], pricing:
     items.push({ quantity: 1, amountMinor: pricing.shipping.charge.minor, name: "Shipping", description: "Flat shipping" });
     total += shipping;
   }
+  // Sales tax, one line after shipping, as Commerce worked it out (dinkuskit/tax ledger tax-picks-rate-commerce-does-math).
+  const tax = BigInt(pricing.tax?.minor ?? 0);
+  if (tax < 0n || tax > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("invalid_pricing_mapping");
+  if (tax > 0n) {
+    items.push({ quantity: 1, amountMinor: pricing.tax!.minor, name: "Sales tax" });
+    total += tax;
+  }
   if (items.length > 100) throw new Error("stripe_line_item_limit");
   if (total <= 0n || total !== BigInt(pricing.finalTotal.minor) || pricing.finalTotal.minor !== requestTotal) throw new Error("invalid_pricing_mapping");
   return items;

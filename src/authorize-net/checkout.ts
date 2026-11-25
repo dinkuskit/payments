@@ -246,6 +246,8 @@ export function createAuthorizeNetGateway(options: {
     attemptId: string;
     siteId: string;
     total: { currency: "USD"; minor: string };
+    /** The sales tax inside the total, in cents, sent as the transaction's tax so it shows on the receipt and in reports. */
+    tax?: string;
     returnUrl: string;
     cancelUrl: string;
   }): Promise<{ token: string; identity: string }>;
@@ -274,7 +276,8 @@ export function createAuthorizeNetGateway(options: {
             transactionType: "authCaptureTransaction",
             amount,
             order: { invoiceNumber: identity },
-            // After order: Authorize.net validates element order.
+            // After order and before transactionSettings: Authorize.net validates element order.
+            ...(input.tax && input.tax !== "0" ? { tax: { amount: minorToAmount(input.tax), name: "Sales tax" } } : {}),
             transactionSettings: {
               setting: [{ settingName: "duplicateWindow", settingValue: String(AUTHORIZE_NET_DUPLICATE_WINDOW_SECONDS) }],
             },
@@ -347,6 +350,8 @@ export interface AuthorizeNetAttemptRecord {
   siteId?: string;
   amountMinor?: string;
   currency?: string;
+  /** The sales tax inside the amount, in cents; absent on an untaxed checkout. */
+  taxMinor?: string;
   /** Stable session id: 32 random hex, ".", the attempt id. Also the pay page's last path segment. */
   sessionId?: string;
   redirectUrl?: string;
@@ -617,6 +622,7 @@ export function createAuthorizeNetPaymentPort(options: {
           attemptId: request.attemptId,
           siteId: options.siteId,
           total: request.total,
+          ...(request.pricing?.tax ? { tax: request.pricing.tax.minor } : {}),
           returnUrl: options.returnUrl,
           cancelUrl: options.cancelUrl,
         });
@@ -636,6 +642,7 @@ export function createAuthorizeNetPaymentPort(options: {
             token: created.token, requestFingerprint: fingerprint, transactionId: null, createdAt, expiresAt,
             bindingRef: request.bindingRef, siteId: options.siteId,
             amountMinor: request.total.minor, currency: request.total.currency,
+            ...(request.pricing?.tax ? { taxMinor: request.pricing.tax.minor } : {}),
             sessionId, redirectUrl: `${options.payPageUrl}/${sessionId}`, tokenAt: createdAt,
             returnUrl: options.returnUrl, cancelUrl: options.cancelUrl,
           };
@@ -692,7 +699,8 @@ export function createAuthorizeNetPaymentPort(options: {
       let created;
       try {
         created = await options.gateway.createHostedPayment({
-          attemptId, siteId: options.siteId, total, returnUrl: record.returnUrl, cancelUrl: record.cancelUrl,
+          attemptId, siteId: options.siteId, total, ...(record.taxMinor ? { tax: record.taxMinor } : {}),
+          returnUrl: record.returnUrl, cancelUrl: record.cancelUrl,
         });
       } catch {
         return ended;

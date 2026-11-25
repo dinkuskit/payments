@@ -840,3 +840,43 @@ test("ensureSession resolves stored Authorize.Net attempts authoritatively acros
   // Paid is absorbing in the explicit transition matrix.
   assert.deepEqual(AUTHORIZE_NET_OUTCOME_TRANSITIONS.paid, ["paid"]);
 });
+
+// dinkuskit/tax ledger tax-picks-rate-commerce-does-math: Authorize.net gets the sales tax inside the amount as the
+// transaction's tax, on the first card form and on every fresh one the pay page mints.
+test("a taxed checkout sends its sales tax as the transaction's tax on every card form", async () => {
+  const usd = minor => ({ currency: "USD", minor });
+  const taxedPayment = { ...payment, attemptId: "att-tax", total: usd("1290"), pricing: {
+    schema: "dinkuskit.commerce.checkout-pricing/v1", merchandiseSubtotal: usd("1200"), couponDiscount: usd("0"), netMerchandise: usd("1200"),
+    shipping: { configurationId: "ship-1", revision: 1, mode: "free", charge: usd("0") }, tax: usd("90"), finalTotal: usd("1290"),
+    lines: [{ catalogItemId: "sku", quantity: 1, unitPrice: usd("1200"), lineSubtotal: usd("1200"), discount: usd("0"), netAmount: usd("1200"), tax: usd("90") }] } };
+  const sent = [];
+  let clock = 1_800_000_000_000;
+  const records = new Map();
+  const gateway = createAuthorizeNetGateway({ ...credentials, transport: { request: async body => {
+    sent.push(body.getHostedPaymentPageRequest.transactionRequest);
+    return { messages: { resultCode: "Ok" }, token: `token-${sent.length}` };
+  } } });
+  const port = createAuthorizeNetPaymentPort({
+    gateway, siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
+    returnUrl: "https://store.example/checkout/success", cancelUrl: "https://store.example/checkout", payPageUrl, now: () => clock,
+    store: { transaction: fn => fn({ read: id => structuredClone(records.get(id) ?? null), write: (id, value) => records.set(id, structuredClone(value)) }) },
+  });
+  const open = await port.ensureSession(taxedPayment);
+  assert.equal(open.outcome, "open");
+  assert.equal(records.get("att-tax").taxMinor, "90");
+  clock += 900_000;
+  assert.equal((await port.payPage(open.session.sessionId)).token, "token-2");
+  for (const request of sent) {
+    assert.equal(request.amount, "12.90");
+    assert.deepEqual(request.tax, { amount: "0.90", name: "Sales tax" });
+    // Authorize.net checks element order: tax sits between order and transactionSettings.
+    assert.deepEqual(Object.keys(request), ["transactionType", "amount", "order", "tax", "transactionSettings"]);
+  }
+  // An untaxed checkout, and one whose tax is zero, send no tax element.
+  for (const untaxed of [{ ...payment, attemptId: "att-notax" },
+    { ...taxedPayment, attemptId: "att-zero", total: usd("1200"), pricing: { ...taxedPayment.pricing, tax: usd("0"), finalTotal: usd("1200"),
+      lines: [{ ...taxedPayment.pricing.lines[0], tax: usd("0") }] } }]) {
+    await port.ensureSession(untaxed);
+    assert.deepEqual(Object.keys(sent.at(-1)), ["transactionType", "amount", "order", "transactionSettings"]);
+  }
+});

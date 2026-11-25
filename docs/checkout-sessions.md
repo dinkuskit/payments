@@ -51,8 +51,16 @@ Existing onboarding times stay milliseconds.
   the old `coupon` quote is refused as `invalid_pricing`, like any unknown key; no
   stored attempt carries one, because Commerce's Registry build never quoted a
   coupon. Pricing-bearing legacy requests are rejected.
+- Sales tax (dinkuskit/tax ledger `tax-picks-rate-commerce-does-math`, which
+  the owner approved on 24 Nov 2026): a checkout the Tax plugin priced adds an
+  eighth key, `tax`, and `tax` on every line. Both or neither: a snapshot with
+  tax on only some lines, or line tax without the order's, is refused. The
+  lines' tax is never more than the order's (the rest is shipping's), no tax is
+  below zero, and net merchandise plus shipping plus tax is the total. An
+  untaxed snapshot keeps its seven keys, its canonical form and its fingerprint.
 - Priced Stripe charges use each positive merchandise whole-line net as one
-  quantity-one item, plus one frozen shipping item. The item's name carries
+  quantity-one item, plus one frozen shipping item, plus one "Sales tax" item
+  when the snapshot's tax is above zero. The item's name carries
   the original quantity ("Wrong Turn Tee", or "Wrong Turn Tee × 2"), and its
   description is the line's optional `options` text from Commerce, such as
   "Size: M"; an item without options has no description. New claims store

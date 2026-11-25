@@ -499,3 +499,45 @@ test("a v1 attempt's retry sends Stripe its original wording, and v1 lines never
   await assert.rejects(provider.createSession(input), /invalid_pricing_mapping/);
   assert.equal(bodies.length, 1);
 });
+
+// dinkuskit/tax ledger tax-picks-rate-commerce-does-math: Commerce's tax is one "Sales tax" line after shipping.
+test("a taxed checkout charges its sales tax as one Sales tax line after shipping", async () => {
+  const calls = [];
+  const httpClient = Stripe.createFetchHttpClient(async (url, init) => {
+    calls.push({ body: String(init.body ?? "") });
+    return new Response(JSON.stringify({
+      object: "checkout.session", id: "cs_taxed", url: "https://checkout.stripe.com/c/pay/cs_taxed",
+      status: "open", payment_status: "unpaid", amount_total: 710, currency: "usd",
+      created: 1800000000, expires_at: 1800001860, livemode: false, payment_intent: null,
+      metadata: { dinkus_attempt: "taxed", dinkus_binding: "bind", dinkus_site: "site" }, payment_method_types: ["card"],
+    }), { headers: { "content-type": "application/json" } });
+  });
+  const provider = createStripeCheckout({ apiKey: "sk_test_taxed", mode: "test", httpClient });
+  const usd = minor => ({ currency: "USD", minor });
+  const input = {
+    attemptId: "taxed", bindingRef: "bind", siteId: "site", stripeAccountId: "acct",
+    lines: [{ catalogItemId: "hat", quantity: 1, name: "Hat", unitPrice: usd("250") }],
+    total: usd("710"), expiresAtSeconds: 1800001860,
+    successUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel", idempotencyKey: "key",
+    pricing: {
+      schema: "dinkuskit.commerce.checkout-pricing/v1", merchandiseSubtotal: usd("250"), couponDiscount: usd("100"), netMerchandise: usd("150"),
+      shipping: { configurationId: "ship", revision: 1, mode: "flat", charge: usd("500") }, tax: usd("60"), finalTotal: usd("710"),
+      lines: [{ catalogItemId: "hat", quantity: 1, unitPrice: usd("250"), lineSubtotal: usd("250"), discount: usd("100"), netAmount: usd("150"), tax: usd("14") }],
+    },
+  };
+  await provider.createSession(input);
+  const params = new URLSearchParams(calls[0].body);
+  assert.deepEqual([0, 1, 2].map(i => [params.get(`line_items[${i}][price_data][product_data][name]`), params.get(`line_items[${i}][price_data][unit_amount]`)]),
+    [["Hat", "150"], ["Shipping", "500"], ["Sales tax", "60"]]);
+  assert.equal(params.has("line_items[2][price_data][product_data][description]"), false);
+  assert.equal(params.has("line_items[3][quantity]"), false);
+  // Zero tax adds no line; a total that leaves the tax out is refused before Stripe is called.
+  const zero = structuredClone(input);
+  zero.pricing.tax = usd("0"); zero.pricing.lines[0].tax = usd("0"); zero.pricing.finalTotal = usd("650"); zero.total = usd("650"); zero.attemptId = "untaxed";
+  await provider.createSession(zero);
+  assert.equal(new URLSearchParams(calls[1].body).has("line_items[2][quantity]"), false);
+  const short = structuredClone(input);
+  short.pricing.finalTotal = usd("650"); short.total = usd("650"); short.attemptId = "short";
+  await assert.rejects(provider.createSession(short), /invalid_pricing_mapping/);
+  assert.equal(calls.length, 2);
+});

@@ -13,7 +13,7 @@ Payments connects a store to its server-selected processor. It owns provider tra
 
 One provider is active per store. A shopper cannot select a processor in checkout input, and an unknown provider does not trigger fallback to another one. The inspected code includes Stripe and Authorize.net adapters, with USD integer minor units and no currency conversion. An adapter's presence does not qualify its owner setup or release.
 
-On Stripe's payment page each item shows its name, with the quantity when there is more than one ("Wrong Turn Tee × 2"), and the shopper's choices in grey beneath it, such as "Size: M". Items without options have no grey line. Authorize.net's hosted page shows only the order total.
+On Stripe's payment page each item shows its name, with the quantity when there is more than one ("Wrong Turn Tee × 2"), and the shopper's choices in grey beneath it, such as "Size: M". Items without options have no grey line. When the store collects sales tax with the Tax plugin, Commerce works out the tax and Stripe's page shows it as one **Sales tax** line after shipping. Authorize.net's hosted page shows only the order total; the tax inside it is sent as the transaction's tax, so it appears on the Authorize.net receipt and in its reports. A checkout with no tax shows no tax line.
 
 ## Release scope
 

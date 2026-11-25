@@ -73,6 +73,8 @@ export interface CheckoutPricingLine {
   lineSubtotal: Money;
   discount: Money;
   netAmount: Money;
+  /** The line's sales tax, on its amount after discounts; present only on a checkout the Tax plugin priced. */
+  tax?: Money;
 }
 export interface CheckoutPricingSnapshot {
   schema: typeof CHECKOUT_PRICING_SCHEMA;
@@ -85,6 +87,8 @@ export interface CheckoutPricingSnapshot {
     mode: "free" | "flat";
     charge: Money;
   };
+  /** All sales tax, the lines' and shipping's; present only on a checkout the Tax plugin priced. */
+  tax?: Money;
   finalTotal: Money;
   lines: readonly CheckoutPricingLine[];
 }
