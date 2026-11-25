@@ -2,9 +2,10 @@
 \* Bounded formal model of src/authorize-net/checkout.ts concurrency guards:
 \*   - LookupFinish re-reads store state before concluding open / unknown / expired-unpaid.
 \*   - PayPageFinishFetch & PayPageFinishMint re-read paidId and transactionIds before returning "post".
-\*   - RecordTx keeps resolved-first eviction within ListCap (never drops unread tries while a
-\*     resolved try can be evicted; models bursts up to ListCap concurrent unread tries).
-EXTENDS Naturals, Sequences
+\*   - RecordTx models capped resolved-first eviction within ListCap (evicts oldest try in
+\*     paidId \/ settled \/ alsoPaid before dropping any unread try; models bursts up to
+\*     ListCap concurrent unread tries).
+EXTENDS Naturals, Sequences, FiniteSets
 
 CONSTANTS TxIds, ListCap, ExpiresAt, FormTokenWindow, SettleMargin, MaxTime
 
@@ -12,12 +13,12 @@ ASSUME TxIds # {}
 ASSUME ListCap >= 2
 
 VARIABLES
-    now, gwStatus, paidId, txList, tokenAt, everPaidTx,
+    now, gwStatus, paidId, txList, settled, alsoPaid, tokenAt, everPaidTx,
     lookupPhase, lookupSnapTx, lookupSnapTok, lookupResult,
     payPhase, paySnapTx, paySnapTok, payResult,
     badExpiredReturn, badPayPostReturn
 
-vars == <<now, gwStatus, paidId, txList, tokenAt, everPaidTx,
+vars == <<now, gwStatus, paidId, txList, settled, alsoPaid, tokenAt, everPaidTx,
           lookupPhase, lookupSnapTx, lookupSnapTok, lookupResult,
           payPhase, paySnapTx, paySnapTok, payResult,
           badExpiredReturn, badPayPostReturn>>
@@ -26,15 +27,30 @@ InSeq(s, x) == \E i \in 1..Len(s) : s[i] = x
 HasPaidInSeq(s) == \E i \in 1..Len(s) : gwStatus[s[i]] = "paid"
 PickPaidInSeq(s) == CHOOSE id \in TxIds : InSeq(s, id) /\ gwStatus[id] = "paid"
 
+Resolved == (IF paidId = "none" THEN {} ELSE {paidId}) \cup settled \cup alsoPaid
+DropAt(s, idx) == SubSeq(s, 1, idx - 1) \o SubSeq(s, idx + 1, Len(s))
+HasResolvedInSeq(s) == \E i \in 1..Len(s) : s[i] \in Resolved
+OldestResolvedIdx(s) ==
+    CHOOSE i \in 1..Len(s) :
+        s[i] \in Resolved /\ (\A j \in 1..(i - 1) : s[j] \notin Resolved)
+
+\* Matches src/authorize-net/checkout.ts `recordTransaction`:
+\* Move/append `id` to the tail; while `Len > ListCap`, evict the oldest resolved try
+\* (`paidId`, `settled`, `alsoPaid`) before falling back to evicting the head.
 AppendResolvedFirst(s, id) ==
-    IF InSeq(s, id) \/ id = paidId THEN s
-    ELSE Append(SelectSeq(s, LAMBDA x : x # paidId), id)
+    IF InSeq(s, id) \/ id = paidId \/ id \in alsoPaid THEN s
+    ELSE LET raw == Append(s, id)
+         IN IF Len(raw) <= ListCap THEN raw
+            ELSE IF HasResolvedInSeq(raw) THEN DropAt(raw, OldestResolvedIdx(raw))
+            ELSE Tail(raw)
 
 Init ==
     /\ now = 0
     /\ gwStatus \in [TxIds -> {"unpaid", "paid"}]
     /\ paidId = "none"
     /\ txList = <<>>
+    /\ settled = {}
+    /\ alsoPaid = {}
     /\ tokenAt = 0
     /\ everPaidTx = {}
     /\ lookupPhase = "idle"
@@ -49,9 +65,11 @@ Init ==
     /\ badPayPostReturn = FALSE
 
 RecordTx(id) ==
+    /\ Cardinality({txList[i] : i \in 1..Len(txList)} \ Resolved) < ListCap
+       \/ id \in Resolved \/ InSeq(txList, id)
     /\ txList' = AppendResolvedFirst(txList, id)
     /\ everPaidTx' = IF gwStatus[id] = "paid" THEN everPaidTx \cup {id} ELSE everPaidTx
-    /\ UNCHANGED <<now, gwStatus, paidId, tokenAt,
+    /\ UNCHANGED <<now, gwStatus, paidId, settled, alsoPaid, tokenAt,
                    lookupPhase, lookupSnapTx, lookupSnapTok, lookupResult,
                    payPhase, paySnapTx, paySnapTok, payResult,
                    badExpiredReturn, badPayPostReturn>>
@@ -60,7 +78,23 @@ SettleDirect ==
     /\ paidId = "none"
     /\ HasPaidInSeq(txList)
     /\ paidId' = PickPaidInSeq(txList)
-    /\ UNCHANGED <<now, gwStatus, txList, tokenAt, everPaidTx,
+    /\ UNCHANGED <<now, gwStatus, txList, settled, alsoPaid, tokenAt, everPaidTx,
+                   lookupPhase, lookupSnapTx, lookupSnapTok, lookupResult,
+                   payPhase, paySnapTx, paySnapTok, payResult,
+                   badExpiredReturn, badPayPostReturn>>
+
+\* Models `recheck` reading a previously unread try after `paidId` is already decided:
+\* a non-paid try enters `settled`, while a second paid try enters `alsoPaid`.
+RecheckResolve(id) ==
+    /\ paidId # "none"
+    /\ InSeq(txList, id)
+    /\ id \notin Resolved
+    /\ IF gwStatus[id] = "paid"
+       THEN /\ alsoPaid' = alsoPaid \cup {id}
+            /\ settled' = settled
+       ELSE /\ settled' = settled \cup {id}
+            /\ alsoPaid' = alsoPaid
+    /\ UNCHANGED <<now, gwStatus, paidId, txList, tokenAt, everPaidTx,
                    lookupPhase, lookupSnapTx, lookupSnapTok, lookupResult,
                    payPhase, paySnapTx, paySnapTok, payResult,
                    badExpiredReturn, badPayPostReturn>>
@@ -68,7 +102,7 @@ SettleDirect ==
 Tick ==
     /\ now < MaxTime
     /\ now' = now + 1
-    /\ UNCHANGED <<gwStatus, paidId, txList, tokenAt, everPaidTx,
+    /\ UNCHANGED <<gwStatus, paidId, txList, settled, alsoPaid, tokenAt, everPaidTx,
                    lookupPhase, lookupSnapTx, lookupSnapTok, lookupResult,
                    payPhase, paySnapTx, paySnapTok, payResult,
                    badExpiredReturn, badPayPostReturn>>
@@ -80,7 +114,7 @@ LookupStart ==
     /\ lookupPhase' = "fetching"
     /\ lookupSnapTx' = txList
     /\ lookupSnapTok' = tokenAt
-    /\ UNCHANGED <<now, gwStatus, paidId, txList, tokenAt, everPaidTx, lookupResult,
+    /\ UNCHANGED <<now, gwStatus, paidId, txList, settled, alsoPaid, tokenAt, everPaidTx, lookupResult,
                    payPhase, paySnapTx, paySnapTok, payResult,
                    badExpiredReturn, badPayPostReturn>>
 
@@ -110,7 +144,7 @@ LookupFinish ==
                       (badExpiredReturn \/
                        (res = "expired-unpaid" /\
                         (paidId # "none" \/ HasPaidInSeq(txList) \/ everPaidTx # {} \/ now < tokenAt + FormTokenWindow + SettleMargin)))
-    /\ UNCHANGED <<now, gwStatus, txList, tokenAt, everPaidTx,
+    /\ UNCHANGED <<now, gwStatus, txList, settled, alsoPaid, tokenAt, everPaidTx,
                    lookupSnapTx, lookupSnapTok,
                    payPhase, paySnapTx, paySnapTok, payResult, badPayPostReturn>>
 
@@ -132,7 +166,7 @@ PayPageStart ==
            /\ payPhase' = "minting"
            /\ payResult' = payResult
            /\ badPayPostReturn' = badPayPostReturn
-    /\ UNCHANGED <<now, gwStatus, paidId, txList, tokenAt, everPaidTx,
+    /\ UNCHANGED <<now, gwStatus, paidId, txList, settled, alsoPaid, tokenAt, everPaidTx,
                    lookupPhase, lookupSnapTx, lookupSnapTok, lookupResult,
                    badExpiredReturn>>
 
@@ -163,7 +197,7 @@ PayPageFinishFetch ==
            /\ payPhase' = "minting"
            /\ payResult' = payResult
            /\ badPayPostReturn' = badPayPostReturn
-    /\ UNCHANGED <<now, gwStatus, txList, tokenAt, everPaidTx,
+    /\ UNCHANGED <<now, gwStatus, txList, settled, alsoPaid, tokenAt, everPaidTx,
                    lookupPhase, lookupSnapTx, lookupSnapTok, lookupResult,
                    paySnapTx, paySnapTok, badExpiredReturn>>
 
@@ -187,13 +221,14 @@ PayPageFinishMint ==
            /\ tokenAt' = now
            /\ payResult' = "post"
            /\ badPayPostReturn' = (badPayPostReturn \/ HasPaidInSeq(txList))
-    /\ UNCHANGED <<now, gwStatus, paidId, txList, everPaidTx,
+    /\ UNCHANGED <<now, gwStatus, paidId, txList, settled, alsoPaid, everPaidTx,
                    lookupPhase, lookupSnapTx, lookupSnapTok, lookupResult,
                    paySnapTx, paySnapTok, badExpiredReturn>>
 
 Next ==
     \/ \E id \in TxIds : RecordTx(id)
     \/ SettleDirect
+    \/ \E id \in TxIds : RecheckResolve(id)
     \/ Tick
     \/ LookupStart
     \/ LookupFinish
@@ -203,6 +238,6 @@ Next ==
 
 InvNoExpiredWhenPaid == ~badExpiredReturn
 InvNoCardFormWhenPaid == ~badPayPostReturn
-InvNoPaidEvicted == \A id \in everPaidTx : (paidId = id \/ InSeq(txList, id))
+InvNoPaidEvicted == \A id \in everPaidTx : id = paidId \/ id \in alsoPaid \/ InSeq(txList, id)
 
 ====

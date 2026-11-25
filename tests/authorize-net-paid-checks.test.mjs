@@ -493,20 +493,24 @@ test("concurrency guards: recordTransaction evicts resolved tries before droppin
   port.recordTransaction(payment.attemptId, "101");
   assert.equal((await port.lookup(payment)).paymentId, "101");
 
-  // Record 19 settled declined tries (all resolved via recheck), then 1 unread paid try ("999"),
-  // then 1 more declined try ("220"): resolved-first eviction must drop settled "201" instead of unread "999".
+  // Record unread paid try "999" FIRST (index 0) and 19 declined tries "201".."219" behind it.
+  // Make "999" throw transiently on the first recheck so "999" stays open/unread at index 0
+  // while "201".."219" settle; then record "220" (21st entry -> cap eviction).
+  // FIFO would evict index 0 ("999"), whereas resolved-first evicts settled "201" and keeps "999".
+  port.recordTransaction(payment.attemptId, "999");
   for (let id = 201; id <= 219; id++) {
     transactions[id] = declinedTry;
     port.recordTransaction(payment.attemptId, String(id));
   }
-  assert.equal(await port.recheck(payment.attemptId), true);
+  assert.equal(await port.recheck(payment.attemptId), false);
   transactions[999] = paidTry;
-  port.recordTransaction(payment.attemptId, "999");
   transactions[220] = declinedTry;
   port.recordTransaction(payment.attemptId, "220");
 
-  assert.ok(records.get(payment.attemptId).transactionIds.includes("999"), "unread try 999 is preserved");
-  assert.equal(records.get(payment.attemptId).transactionIds.includes("201"), false, "already-settled try 201 is evicted first");
+  const stored = records.get(payment.attemptId);
+  assert.equal(stored.transactionIds.length, 20);
+  assert.equal(stored.transactionIds[0], "999", "index-0 unread try 999 is preserved");
+  assert.equal(stored.transactionIds.includes("201"), false, "oldest settled try 201 is evicted first");
   assert.equal(await port.recheck(payment.attemptId), true);
   assert.deepEqual(records.get(payment.attemptId).alsoPaid, ["999"]);
 });
