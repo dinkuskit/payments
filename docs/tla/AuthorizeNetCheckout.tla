@@ -33,16 +33,17 @@ HasResolvedInSeq(s) == \E i \in 1..Len(s) : s[i] \in Resolved
 OldestResolvedIdx(s) ==
     CHOOSE i \in 1..Len(s) :
         s[i] \in Resolved /\ (\A j \in 1..(i - 1) : s[j] \notin Resolved)
+Max(a, b) == IF a >= b THEN a ELSE b
+SettlesAt(tok) == Max(ExpiresAt, tok + FormTokenWindow) + SettleMargin
 
 \* Matches src/authorize-net/checkout.ts `recordTransaction`:
 \* Move/append `id` to the tail; while `Len > ListCap`, evict the oldest resolved try
-\* (`paidId`, `settled`, `alsoPaid`) before falling back to evicting the head.
+\* (`paidId`, `settled`, `alsoPaid` — including `id` itself on a replay) before falling back to head.
 AppendResolvedFirst(s, id) ==
-    IF InSeq(s, id) \/ id = paidId \/ id \in alsoPaid THEN s
-    ELSE LET raw == Append(s, id)
-         IN IF Len(raw) <= ListCap THEN raw
-            ELSE IF HasResolvedInSeq(raw) THEN DropAt(raw, OldestResolvedIdx(raw))
-            ELSE Tail(raw)
+    LET raw == Append(SelectSeq(s, LAMBDA x : x # id), id)
+    IN IF Len(raw) <= ListCap THEN raw
+       ELSE IF HasResolvedInSeq(raw) THEN DropAt(raw, OldestResolvedIdx(raw))
+       ELSE Tail(raw)
 
 Init ==
     /\ now = 0
@@ -129,7 +130,7 @@ LookupFinish ==
            /\ paidId' = paidId
            /\ lookupResult' = "paid"
            /\ badExpiredReturn' = badExpiredReturn
-       ELSE IF txList # lookupSnapTx \/ tokenAt # lookupSnapTok THEN
+       ELSE IF txList # lookupSnapTx THEN
            /\ paidId' = paidId
            /\ lookupResult' = "unknown"
            /\ badExpiredReturn' = badExpiredReturn
@@ -137,13 +138,13 @@ LookupFinish ==
            /\ paidId' = paidId
            /\ LET res ==
                     IF now < ExpiresAt THEN "open"
-                    ELSE IF now < tokenAt + FormTokenWindow + SettleMargin THEN "unknown"
+                    ELSE IF now < SettlesAt(tokenAt) THEN "unknown"
                     ELSE "expired-unpaid"
               IN /\ lookupResult' = res
                  /\ badExpiredReturn' =
                       (badExpiredReturn \/
                        (res = "expired-unpaid" /\
-                        (paidId # "none" \/ HasPaidInSeq(txList) \/ everPaidTx # {} \/ now < tokenAt + FormTokenWindow + SettleMargin)))
+                        (paidId # "none" \/ HasPaidInSeq(txList) \/ everPaidTx # {} \/ now < SettlesAt(tokenAt))))
     /\ UNCHANGED <<now, gwStatus, txList, settled, alsoPaid, tokenAt, everPaidTx,
                    lookupSnapTx, lookupSnapTok,
                    payPhase, paySnapTx, paySnapTok, payResult, badPayPostReturn>>

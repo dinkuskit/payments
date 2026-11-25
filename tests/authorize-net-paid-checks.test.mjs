@@ -514,3 +514,23 @@ test("concurrency guards: recordTransaction evicts resolved tries before droppin
   assert.equal(await port.recheck(payment.attemptId), true);
   assert.deepEqual(records.get(payment.attemptId).alsoPaid, ["999"]);
 });
+
+test("concurrency guards: replaying an already-resolved try when full of unread tries evicts the replay, not an unread try", async () => {
+  const { records, transactions, port } = harness();
+  await port.ensureSession(payment);
+  transactions[101] = paidTry;
+  port.recordTransaction(payment.attemptId, "101");
+  assert.equal((await port.lookup(payment)).paymentId, "101");
+
+  // Fill all 20 slots with unread tries ("800".."819"); "101" (paidId) is outside transactionIds.
+  for (let id = 800; id <= 819; id++) {
+    port.recordTransaction(payment.attemptId, String(id));
+  }
+  assert.equal(records.get(payment.attemptId).transactionIds[0], "800");
+  // Replaying resolved "101" must evict "101" (resolved) rather than unread "800".
+  port.recordTransaction(payment.attemptId, "101");
+  const ids = records.get(payment.attemptId).transactionIds;
+  assert.equal(ids.length, 20);
+  assert.equal(ids[0], "800", "unread try 800 at index 0 is preserved on resolved replay");
+  assert.equal(ids.includes("101"), false, "replayed already-resolved paidId 101 is evicted first");
+});

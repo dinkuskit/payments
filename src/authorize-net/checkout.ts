@@ -756,7 +756,7 @@ export function createAuthorizeNetPaymentPort(options: {
         const ids = transactionsOf(current).filter(id => id !== transactionId);
         ids.push(transactionId);
         while (ids.length > AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT) {
-          const resolvedIndex = ids.findIndex((id, index) => index < ids.length - 1 && resolved(id));
+          const resolvedIndex = ids.findIndex(resolved);
           ids.splice(resolvedIndex >= 0 ? resolvedIndex : 0, 1);
         }
         tx.write(attemptId, { ...current, transactionId, transactionIds: ids });
