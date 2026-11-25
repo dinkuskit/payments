@@ -12,6 +12,7 @@ case "$mode" in
     npm test
     npm run typecheck
     npm run audit:repo
+    npm run lint:workflows
     ;;
   full)
     "$script_dir/verify-payments" quick
