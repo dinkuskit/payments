@@ -370,3 +370,21 @@ test("paid twice: a paid try beyond the 20-item alsoPaid cap drains openTries in
   assert.equal(await port.recheck(payment.attemptId), true);
   assert.equal(state.reads.length, reads);
 });
+
+test("paid twice: a checkout left with an open 21st paid try by the previous release drains after the upgrade", async () => {
+  // The record as main 9d7479c stores it (proof/authorize-net-upgrade-20261125): paid, 20 extras listed, try 421 open.
+  const { records, state, transactions, port } = harness();
+  await port.ensureSession(payment);
+  const ids = Array.from({ length: 22 }, (_, i) => String(400 + i));
+  for (const id of ids) transactions[id] = paidTry;
+  records.set(payment.attemptId, { ...records.get(payment.attemptId),
+    transactionId: "421", transactionIds: ids.slice(2), paidId: "400", alsoPaid: ids.slice(1, 21) });
+  assert.deepEqual(port.openTries(payment.attemptId), ["421"]);
+  assert.equal(await port.recheck(payment.attemptId), true);
+  assert.deepEqual(port.openTries(payment.attemptId), []);
+  assert.equal(records.get(payment.attemptId).paidId, "400");
+  assert.deepEqual(records.get(payment.attemptId).alsoPaid, ids.slice(1, 21));
+  const reads = state.reads.length;
+  assert.equal(await port.recheck(payment.attemptId), true);
+  assert.equal(state.reads.length, reads, "and is not read again");
+});
