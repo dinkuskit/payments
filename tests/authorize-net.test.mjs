@@ -812,8 +812,9 @@ test("a checkout stored before the pay page keeps its session and still reconcil
   status = { responseCode: 1, transactionStatus: "capturedPendingSettlement" };
   assert.deepEqual(await port.lookup(payment), { outcome: "paid", attemptId: payment.attemptId, total: payment.total, session: legacySession, paymentId: "123" });
   assert.deepEqual(await port.payPage(`${"0".repeat(32)}.${payment.attemptId}`), { action: "not_found" });
-  // Both tries read as paid here, so the record keeps the first and notes the second as paid twice.
-  assert.deepEqual(records.get(payment.attemptId), { ...preChangeRecord, transactionId: "124", transactionIds: ["123", "124"], paidId: "123", alsoPaid: ["124"] });
+  // Both tries read as paid here, so the record keeps the first and notes the second as paid twice. The one
+  // notice since the upgrade starts the record's notice count.
+  assert.deepEqual(records.get(payment.attemptId), { ...preChangeRecord, transactionId: "124", transactionIds: ["123", "124"], paidId: "123", alsoPaid: ["124"], notices: 1 });
   // ensureSession resolves the stored transaction authoritatively (1), then one lookup reads 123 (1) and the
   // next reads both tries (2).
   assert.equal(calls, 4);

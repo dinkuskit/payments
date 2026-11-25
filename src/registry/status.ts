@@ -122,7 +122,7 @@ function decodePaidTwice(value: unknown, connectionEvidence?: ConnectionEvidence
     if (!Array.isArray(transactionIds) || transactionIds.length < 2 || transactionIds.length > 21 ||
         transactionIds.some(id => typeof id !== "string" || !/^[0-9]{1,20}$/.test(id)) || new Set(transactionIds).size !== transactionIds.length ||
         !isRecord(total) || Object.keys(total).sort().join() !== "currency,minor" || total.currency !== "USD" ||
-        typeof total.minor !== "string" || !/^[1-9][0-9]{0,15}$/.test(total.minor) ||
+        typeof total.minor !== "string" || !/^[1-9][0-9]{0,15}$/.test(total.minor) || !Number.isSafeInteger(Number(total.minor)) ||
         typeof at !== "number" || !Number.isSafeInteger(at) || at <= 0 || at > MAX_DATE_MS) throw new Error("invalid_status");
     return { transactionIds: [...transactionIds] as string[], total: { currency: "USD" as const, minor: total.minor }, at };
   });

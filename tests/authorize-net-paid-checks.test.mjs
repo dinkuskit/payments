@@ -208,7 +208,8 @@ test("G1-04: two tabs opening the card form at once get the same one, and only o
   state.mintGate = new Promise(resolve => { release = resolve; });
   const first = port.payPage(session.sessionId);
   const second = port.payPage(session.sessionId);
-  await new Promise(resolve => setTimeout(resolve, 0));
+  // Wait until both visits are minting (each first reads its record), however long that takes on this machine.
+  for (let turns = 0; state.mints < 3 && turns < 1000; turns++) await new Promise(resolve => setTimeout(resolve, 1));
   assert.equal(state.mints, 3);
   release();
   const [a, b] = await Promise.all([first, second]);
@@ -259,7 +260,7 @@ test("the plugin reads a paid-twice list strictly and shows the owner each check
   assert.deepEqual(decodeStatus({ ...status, paidTwice: [notice] }).paidTwice, [notice]);
   for (const bad of [
     [], [{ ...notice, transactionIds: ["1"] }], [{ ...notice, transactionIds: ["1", "1"] }], [{ ...notice, transactionIds: ["1", "x"] }],
-    [{ ...notice, extra: 1 }], [{ ...notice, total: { currency: "EUR", minor: "4500" } }], [{ ...notice, at: 0 }], Array(11).fill(notice), notice,
+    [{ ...notice, extra: 1 }], [{ ...notice, total: { currency: "EUR", minor: "4500" } }], [{ ...notice, total: { currency: "USD", minor: "9999999999999999" } }], [{ ...notice, at: 0 }], Array(11).fill(notice), notice,
   ]) assert.throws(() => decodeStatus({ ...status, paidTwice: bad }), /invalid_status/, JSON.stringify(bad));
   // Stripe can't take a second payment for one checkout, so a Stripe status never carries the list.
   assert.throws(() => decodeStatus({ ...status, connectionEvidence: { provider: "stripe", mode: "test", result: "verified", accountRef: "acct_1" }, paidTwice: [notice] }), /invalid_status/);
@@ -319,4 +320,115 @@ test("paid twice: a try read after the try list is full is kept as read, not rea
   const reads = state.reads.length;
   assert.equal(await port.recheck(payment.attemptId), true);
   assert.equal(state.reads.length, reads, "and is not read again");
+});
+
+test("payPage sends the shopper back instead of handing out a form if a try lands during mint or try lookup", async () => {
+  // Case 1: a payment notice arrives while payPage is minting a fresh form token.
+  {
+    const { records, state, transactions, port } = harness();
+    const { session } = await port.ensureSession(payment);
+    const originalToken = records.get(payment.attemptId).token;
+    const originalTokenAt = records.get(payment.attemptId).tokenAt;
+    state.clock += 900_000;
+    let release;
+    state.mintGate = new Promise(resolve => { release = resolve; });
+    const pending = port.payPage(session.sessionId);
+    // The notice lands only once the visit is minting its card form.
+    for (let turns = 0; state.mints < 2 && turns < 1000; turns++) await new Promise(resolve => setTimeout(resolve, 1));
+    assert.equal(state.mints, 2);
+    transactions[1101] = paidTry;
+    port.recordTransaction(payment.attemptId, "1101");
+    release();
+    assert.deepEqual(await pending, { action: "redirect", url: "https://store.example/checkout/success" });
+    // The newly minted token is never stored and tokenAt is not extended.
+    assert.equal(records.get(payment.attemptId).token, originalToken);
+    assert.equal(records.get(payment.attemptId).tokenAt, originalTokenAt);
+  }
+  // Case 2: a payment notice arrives while payPage is checking an earlier declined try (existing token still usable).
+  {
+    const { state, transactions, port } = harness();
+    const { session } = await port.ensureSession(payment);
+    transactions[1201] = declinedTry;
+    transactions[1202] = paidTry;
+    port.recordTransaction(payment.attemptId, "1201");
+    state.onRead = id => { if (id === "1201") port.recordTransaction(payment.attemptId, "1202"); };
+    assert.deepEqual(await port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout/success" });
+  }
+});
+
+test("paid twice: a paid try beyond the 20-item alsoPaid cap drains openTries instead of retrying forever", async () => {
+  const { records, state, transactions, port } = harness();
+  await port.ensureSession(payment);
+  transactions[1300] = paidTry;
+  port.recordTransaction(payment.attemptId, "1300");
+  assert.equal((await port.lookup(payment)).paymentId, "1300");
+  for (let id = 1301; id <= 1321; id++) {
+    transactions[id] = paidTry;
+    port.recordTransaction(payment.attemptId, String(id));
+    await port.checkLateTry(payment.attemptId, String(id));
+  }
+  assert.equal(records.get(payment.attemptId).alsoPaid.length, 20);
+  assert.deepEqual(port.openTries(payment.attemptId), []);
+  const reads = state.reads.length;
+  assert.equal(await port.recheck(payment.attemptId), true);
+  assert.equal(state.reads.length, reads);
+});
+
+test("paid twice: a checkout left with an open 21st paid try by the previous release drains after the upgrade", async () => {
+  // The record as main 9d7479c stores it (proof/authorize-net-upgrade-20261125): paid, 20 extras listed, try 421 open.
+  const { records, state, transactions, port } = harness();
+  await port.ensureSession(payment);
+  const ids = Array.from({ length: 22 }, (_, i) => String(400 + i));
+  for (const id of ids) transactions[id] = paidTry;
+  records.set(payment.attemptId, { ...records.get(payment.attemptId),
+    transactionId: "421", transactionIds: ids.slice(2), paidId: "400", alsoPaid: ids.slice(1, 21) });
+  assert.deepEqual(port.openTries(payment.attemptId), ["421"]);
+  assert.equal(await port.recheck(payment.attemptId), true);
+  assert.deepEqual(port.openTries(payment.attemptId), []);
+  assert.equal(records.get(payment.attemptId).paidId, "400");
+  assert.deepEqual(records.get(payment.attemptId).alsoPaid, ids.slice(1, 21));
+  const reads = state.reads.length;
+  assert.equal(await port.recheck(payment.attemptId), true);
+  assert.equal(state.reads.length, reads, "and is not read again");
+});
+
+test("payPage sees a payment notice even when later notices rotate the try list back to the ids it read", async () => {
+  // The try list keeps the latest 20 ids, so redelivered notices can push a new paid id out again.
+  const declined = Array.from({ length: 20 }, (_, i) => String(1401 + i));
+  const rotate = port => {
+    transactions[1421] = paidTry;
+    port.recordTransaction(payment.attemptId, "1421");
+    for (const id of declined) port.recordTransaction(payment.attemptId, id);
+  };
+  let transactions;
+  // While the earlier tries are being read.
+  {
+    const h = harness();
+    transactions = h.transactions;
+    const { session } = await h.port.ensureSession(payment);
+    for (const id of declined) { transactions[id] = declinedTry; h.port.recordTransaction(payment.attemptId, id); }
+    let once = false;
+    h.state.onRead = () => { if (!once) { once = true; rotate(h.port); } };
+    assert.deepEqual(await h.port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout/success" });
+    assert.deepEqual(h.records.get(payment.attemptId).transactionIds, declined, "the list is back to the ids that were read");
+  }
+  // While a fresh card form is being made.
+  {
+    const h = harness();
+    transactions = h.transactions;
+    const { session } = await h.port.ensureSession(payment);
+    for (const id of declined) { transactions[id] = declinedTry; h.port.recordTransaction(payment.attemptId, id); }
+    const { token, tokenAt } = h.records.get(payment.attemptId);
+    h.state.clock += 900_000;
+    let release;
+    h.state.mintGate = new Promise(resolve => { release = resolve; });
+    const pending = h.port.payPage(session.sessionId);
+    for (let turns = 0; h.state.mints < 2 && turns < 1000; turns++) await new Promise(resolve => setTimeout(resolve, 1));
+    assert.equal(h.state.mints, 2);
+    rotate(h.port);
+    release();
+    assert.deepEqual(await pending, { action: "redirect", url: "https://store.example/checkout/success" });
+    assert.equal(h.records.get(payment.attemptId).token, token);
+    assert.equal(h.records.get(payment.attemptId).tokenAt, tokenAt);
+  }
 });

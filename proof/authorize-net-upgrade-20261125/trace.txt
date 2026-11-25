@@ -1,0 +1,23 @@
+== Records written by v0.5.0 (latest stable), read by this branch
+stored by old code: attempt-a, attempt-b | record keys of A: amountMinor,bindingRef,cancelUrl,createdAt,currency,expiresAt,redirectUrl,returnUrl,sessionId,siteId,token,tokenAt,transactionId,transactionIds
+new code, A pay page: post (card form)
+new code, B lookup: paid 301
+new code, B pay page: redirect https://store.example/checkout/success
+
+== Records written by main 9d7479c, read by this branch
+old code, C: alsoPaid 20 | openTries ["421"] | recheck false
+stored by old code: attempt-a, attempt-b, attempt-c | record keys of A: amountMinor,bindingRef,cancelUrl,createdAt,currency,expiresAt,redirectUrl,requestFingerprint,returnUrl,sessionId,siteId,token,tokenAt,transactionId,transactionIds
+new code, A pay page: post (card form)
+new code, B lookup: paid 301
+new code, B pay page: redirect https://store.example/checkout/success
+new code, C recheck: true | openTries [] | paidId 400 | alsoPaid 20 | provider reads during recheck 1
+new code, C second recheck reads: 0
+
+== Control: records written by main 9d7479c, read by main 9d7479c
+old code, C: alsoPaid 20 | openTries ["421"] | recheck false
+stored by old code: attempt-a, attempt-b, attempt-c | record keys of A: amountMinor,bindingRef,cancelUrl,createdAt,currency,expiresAt,redirectUrl,requestFingerprint,returnUrl,sessionId,siteId,token,tokenAt,transactionId,transactionIds
+new code, A pay page: post (card form)
+new code, B lookup: paid 301
+new code, B pay page: redirect https://store.example/checkout/success
+new code, C recheck: false | openTries ["421"] | paidId 400 | alsoPaid 20 | provider reads during recheck 1
+new code, C second recheck reads: 1
