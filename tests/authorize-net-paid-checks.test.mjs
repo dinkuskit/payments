@@ -16,6 +16,7 @@ import { renderSetupScreen } from "../src/registry/setup.ts";
 
 const credentials = { apiLoginId: "synthetic-login", transactionKey: "synthetic-transaction-key", merchantCurrency: "USD", mode: "test" };
 const siteId = "store-a";
+const payPageUrl = "https://payments.example/v1/pay/authorize-net/store-a";
 const payment = {
   attemptId: "attempt-one", bindingRef: "bind-one",
   lines: [{ catalogItemId: "sku", quantity: 1, name: "Item", unitPrice: { currency: "USD", minor: "1200" } }],
@@ -319,4 +320,193 @@ test("paid twice: a try read after the try list is full is kept as read, not rea
   const reads = state.reads.length;
   assert.equal(await port.recheck(payment.attemptId), true);
   assert.equal(state.reads.length, reads, "and is not read again");
+});
+
+test("concurrency guards: lookup never reports expired-unpaid or open over a mid-flight settlement, late try, or extended token", async () => {
+  const identity = await buildAuthorizeNetInvoiceReference(siteId, payment.attemptId);
+  let clock = 1_800_000_000_000 + 2_200_000; // past expiresAt (1860s) and initial settle margin (900+300=1200s)
+  const records = new Map();
+  const transactions = {
+    101: { responseCode: 2, transactionStatus: "declined" },
+    102: { responseCode: 1, transactionStatus: "settledSuccessfully" },
+  };
+  let onGetTx = null;
+  const gateway = createAuthorizeNetGateway({
+    ...credentials,
+    transport: { request: async body => {
+      if (body.getHostedPaymentPageRequest) return { messages: { resultCode: "Ok" }, token: "tok-1" };
+      const id = body.getTransactionDetailsRequest.transId;
+      await onGetTx?.(id);
+      const tx = transactions[id];
+      return { messages: { resultCode: "Ok" }, transaction: { transId: id, authAmount: "12.00", order: { invoiceNumber: identity }, ...tx } };
+    } },
+  });
+  const port = createAuthorizeNetPaymentPort({
+    gateway, siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
+    returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel", payPageUrl,
+    now: () => clock,
+    store: { transaction: fn => fn({
+      read: id => structuredClone(records.get(id) ?? null),
+      write: (id, value) => records.set(id, structuredClone(value)),
+    }) },
+  });
+
+  clock = 1_800_000_000_000;
+  await port.ensureSession(payment);
+  port.recordTransaction(payment.attemptId, "101");
+
+  // Case 1: Late paid transaction arrives while lookup is fetching unpaid try 101 past expiry.
+  clock = 1_800_000_000_000 + 2_200_000;
+  let injected = false;
+  onGetTx = () => {
+    if (!injected) {
+      injected = true;
+      port.recordTransaction(payment.attemptId, "102");
+    }
+  };
+  const first = await port.lookup(payment);
+  assert.equal(first.outcome, "unknown", "mid-flight new transaction fails closed as unknown instead of expired-unpaid");
+  onGetTx = null;
+  const second = await port.lookup(payment);
+  assert.equal(second.outcome, "paid");
+  assert.equal(second.paymentId, "102");
+
+  // Case 2: Concurrent tokenAt refresh while lookup fetches unpaid try 101 extends settlesAt -> unknown, not expired-unpaid.
+  const attemptB = { ...payment, attemptId: "attempt-b" };
+  const identityB = await buildAuthorizeNetInvoiceReference(siteId, attemptB.attemptId);
+  const gatewayB = createAuthorizeNetGateway({
+    ...credentials,
+    transport: { request: async body => {
+      if (body.getHostedPaymentPageRequest) return { messages: { resultCode: "Ok" }, token: "tok-b" };
+      const id = body.getTransactionDetailsRequest.transId;
+      await onGetTx?.(id);
+      return { messages: { resultCode: "Ok" }, transaction: { transId: id, authAmount: "12.00", order: { invoiceNumber: identityB }, responseCode: 2, transactionStatus: "declined" } };
+    } },
+  });
+  const portB = createAuthorizeNetPaymentPort({
+    gateway: gatewayB, siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
+    returnUrl: "https://store.example/return", cancelUrl: "https://store.example/cancel", payPageUrl,
+    now: () => clock,
+    store: { transaction: fn => fn({
+      read: id => structuredClone(records.get(id) ?? null),
+      write: (id, value) => records.set(id, structuredClone(value)),
+    }) },
+  });
+  clock = 1_800_000_000_000;
+  await portB.ensureSession(attemptB);
+  portB.recordTransaction(attemptB.attemptId, "101");
+  clock = 1_800_000_000_000 + 1_900_000; // past expiresAt (1860) and initial settlesAt (1860+300? max(1860,900)+300=2160) -> test past 2160:
+  clock = 1_800_000_000_000 + 2_200_000;
+  onGetTx = () => {
+    const rec = records.get(attemptB.attemptId);
+    if (rec && rec.tokenAt === 1_800_000_000) {
+      records.set(attemptB.attemptId, { ...rec, tokenAt: 1_800_000_000 + 1_800 });
+    }
+  };
+  assert.equal((await portB.lookup(attemptB)).outcome, "unknown", "refreshed tokenAt settlesAt window prevents premature expired-unpaid");
+});
+
+test("concurrency guards: payPage redirects back and never renders a card form when a payment arrives mid-fetch or mid-mint", async () => {
+  const { records, state, transactions, port } = harness();
+  const { session } = await port.ensureSession(payment);
+  transactions[101] = declinedTry;
+  transactions[102] = paidTry;
+  port.recordTransaction(payment.attemptId, "101");
+
+  // Case 1: New transaction arrives while payPage is fetching unpaid try 101 -> redirect back, never post.
+  const origLookup = await port.lookup(payment);
+  assert.equal(origLookup.outcome, "open");
+  let once = false;
+  const gwWait = createAuthorizeNetGateway({
+    ...credentials,
+    transport: { request: async body => {
+      if (body.getHostedPaymentPageRequest) {
+        if (!once && body.getHostedPaymentPageRequest.refId.endsWith("att-mint")) {
+          once = true;
+          portMint.recordTransaction("att-mint", "102");
+        }
+        return { messages: { resultCode: "Ok" }, token: "tok-fresh" };
+      }
+      if (!once) {
+        once = true;
+        portFetch.recordTransaction(payment.attemptId, "102");
+      }
+      return { messages: { resultCode: "Ok" }, transaction: {
+        transId: body.getTransactionDetailsRequest.transId, authAmount: "12.00",
+        order: { invoiceNumber: await buildAuthorizeNetInvoiceReference(siteId, payment.attemptId) }, ...declinedTry,
+      } };
+    } },
+  });
+  const portFetch = createAuthorizeNetPaymentPort({
+    gateway: gwWait, siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
+    returnUrl: "https://store.example/checkout/success", cancelUrl: "https://store.example/checkout", payPageUrl,
+    now: () => state.clock,
+    store: { transaction: fn => fn({
+      read: id => structuredClone(records.get(id) ?? null),
+      write: (id, value) => records.set(id, structuredClone(value)),
+    }) },
+  });
+  assert.deepEqual(await portFetch.payPage(session.sessionId), {
+    action: "redirect",
+    url: "https://store.example/checkout/success",
+  });
+
+  // Case 2: New transaction arrives while payPage is minting a fresh token after 15 minutes -> redirect back, never post.
+  const attemptMint = { ...payment, attemptId: "att-mint" };
+  let mintClock = 1_800_000_000_000;
+  let mintGatewayCalls = 0;
+  const portMint = createAuthorizeNetPaymentPort({
+    gateway: createAuthorizeNetGateway({
+      ...credentials,
+      transport: { request: async body => {
+        mintGatewayCalls += 1;
+        if (body.getHostedPaymentPageRequest) {
+          if (mintGatewayCalls === 2) {
+            // Second mint happens inside payPage after 900s: webhook arrives mid-mint!
+            portMint.recordTransaction("att-mint", "102");
+          }
+          return { messages: { resultCode: "Ok" }, token: `tok-mint-${mintGatewayCalls}` };
+        }
+        return { messages: { resultCode: "Ok" }, transaction: { transId: "102", authAmount: "12.00", order: { invoiceNumber: await buildAuthorizeNetInvoiceReference(siteId, "att-mint") }, ...paidTry } };
+      } },
+    }),
+    siteId, hostedUrl: AUTHORIZE_NET_HOSTED_SANDBOX_URL,
+    returnUrl: "https://store.example/checkout/success", cancelUrl: "https://store.example/checkout", payPageUrl,
+    now: () => mintClock,
+    store: { transaction: fn => fn({
+      read: id => structuredClone(records.get(id) ?? null),
+      write: (id, value) => records.set(id, structuredClone(value)),
+    }) },
+  });
+  const openedMint = await portMint.ensureSession(attemptMint);
+  mintClock += 900_000;
+  assert.deepEqual(await portMint.payPage(openedMint.session.sessionId), {
+    action: "redirect",
+    url: "https://store.example/checkout/success",
+  });
+});
+
+test("concurrency guards: recordTransaction evicts resolved tries before dropping an unread try", async () => {
+  const { records, transactions, port } = harness();
+  await port.ensureSession(payment);
+  transactions[101] = paidTry;
+  port.recordTransaction(payment.attemptId, "101");
+  assert.equal((await port.lookup(payment)).paymentId, "101");
+
+  // Record 19 settled declined tries (all resolved via recheck), then 1 unread paid try ("999"),
+  // then 1 more declined try ("220"): resolved-first eviction must drop settled "201" instead of unread "999".
+  for (let id = 201; id <= 219; id++) {
+    transactions[id] = declinedTry;
+    port.recordTransaction(payment.attemptId, String(id));
+  }
+  assert.equal(await port.recheck(payment.attemptId), true);
+  transactions[999] = paidTry;
+  port.recordTransaction(payment.attemptId, "999");
+  transactions[220] = declinedTry;
+  port.recordTransaction(payment.attemptId, "220");
+
+  assert.ok(records.get(payment.attemptId).transactionIds.includes("999"), "unread try 999 is preserved");
+  assert.equal(records.get(payment.attemptId).transactionIds.includes("201"), false, "already-settled try 201 is evicted first");
+  assert.equal(await port.recheck(payment.attemptId), true);
+  assert.deepEqual(records.get(payment.attemptId).alsoPaid, ["999"]);
 });
