@@ -104,15 +104,18 @@ test("real SQLite additive upgrade preserves canonical, tombstone, legacy, and a
     const sql = (instance as any).ctx.storage.sql;
     return {
       columns: sql.exec("PRAGMA table_info(checkout_wake_events)").toArray().map((column: any) => column.name),
-      events: sql.exec("SELECT event_id,received_at,acknowledged_at,delivery_generation FROM checkout_wake_events ORDER BY event_id").toArray(),
+      events: sql.exec("SELECT event_id,received_at,acknowledged_at,delivery_generation,set_aside_at FROM checkout_wake_events ORDER BY event_id").toArray(),
       legacy: sql.exec("SELECT attempt_id,woke_at FROM checkout_wakes ORDER BY attempt_id").toArray(),
       attempts: sql.exec("SELECT attempt_id,value FROM checkout_attempts ORDER BY attempt_id").toArray(),
     };
   });
   expect(preserved.columns).toContain("delivery_generation");
+  // The set-aside column is added to the old table too; rows written before it keep NULL, so the pending one was
+  // listed and acknowledged above as before.
+  expect(preserved.columns).toContain("set_aside_at");
   expect(preserved.events).toEqual([
-    { event_id: "evt_acked", received_at: acked.wokeAt, acknowledged_at: 1_800_000_000_999, delivery_generation: 1 },
-    { event_id: "evt_pending", received_at: pending.wokeAt, acknowledged_at: expect.any(Number), delivery_generation: 1 },
+    { event_id: "evt_acked", received_at: acked.wokeAt, acknowledged_at: 1_800_000_000_999, delivery_generation: 1, set_aside_at: null },
+    { event_id: "evt_pending", received_at: pending.wokeAt, acknowledged_at: expect.any(Number), delivery_generation: 1, set_aside_at: null },
   ]);
   expect(preserved.legacy).toEqual([{ attempt_id: historicalAttempt.attemptId, woke_at: 1_700_000_000_001 }]);
   expect(preserved.attempts).toEqual([

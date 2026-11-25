@@ -324,7 +324,8 @@ export function createHttp({ baseUrl, headers = {}, timeoutMs, fetchImpl, signal
 			// The timeout also covers the body, so a reply that stalls after its headers is a timeout too.
 			text = await response.text();
 		} catch (error) {
-			if (error?.name === "TimeoutError") {
+			// The combined signal's reason says which deadline ended the request, whatever error the body read threw.
+			if (error?.name === "TimeoutError" || init.signal.reason?.name === "TimeoutError") {
 				throw new CliError("timeout", `No response from ${url.origin} within ${timeoutMs}ms.`, { exit: EXIT.unavailable });
 			}
 			if (error?.name === "AbortError") {

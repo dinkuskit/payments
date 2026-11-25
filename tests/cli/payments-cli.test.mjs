@@ -22,31 +22,31 @@ const { version } = manifest;
 
 let scratch;
 let emptyDir;
+// A real HTTP server that sends its headers and part of a body, then never finishes.
+let stalledServer;
+let stalledUrl;
 before(async () => {
 	scratch = await mkdtemp(join(tmpdir(), "dinkus-payments-cli-"));
 	emptyDir = join(scratch, "empty");
 	await mkdir(emptyDir);
+	stalledServer = createServer((request, response) => {
+		response.writeHead(200, { "content-type": "application/json" });
+		response.write('{"state":');
+	});
+	await new Promise((resolve) => stalledServer.listen(0, "127.0.0.1", resolve));
+	stalledUrl = `http://127.0.0.1:${stalledServer.address().port}/`;
 });
 after(async () => {
+	stalledServer.closeAllConnections();
+	await new Promise((resolve) => stalledServer.close(resolve));
 	await rm(scratch, { recursive: true, force: true });
 });
 
 const reply = (status, body) => () => new Response(typeof body === "string" ? body : JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
 // A reply that sends its headers and the first bytes, then stalls until the request's timeout fires.
-const stalledBody = (call, init) => {
-	const socket = setInterval(() => {}, 1000);
-	const body = new ReadableStream({
-		start(controller) {
-			controller.enqueue(new TextEncoder().encode('{"state":'));
-			init.signal.addEventListener("abort", () => {
-				clearInterval(socket);
-				controller.error(init.signal.reason);
-			});
-		},
-	});
-	return new Response(body, { status: 200, headers: { "content-type": "application/json" } });
-};
+// Node's own fetch reads the stalled body, so the CLI's deadline aborts a real body read.
+const stalledBody = (call, init) => fetch(stalledUrl, { signal: init.signal });
 
 function fakeFetch(routes = {}) {
 	const calls = [];
