@@ -285,3 +285,25 @@ test("signed JWT list and ACK reach the real Durable Object without provider tra
 });
 
 afterEach(() => vi.restoreAllMocks());
+
+test("a malformed wake row is set aside in SQLite, never acknowledged, so a batch of one reaches the next row", async () => {
+  const siteId = crypto.randomUUID();
+  const stub = env.PAYMENT_CONNECTIONS.getByName(JSON.stringify(["test", siteId]));
+  await runInDurableObject(stub, instance => {
+    const sql = (instance as any).ctx.storage.sql;
+    const insert = "INSERT INTO checkout_wake_events (event_id,attempt_id,site_id,binding_ref,stripe_account_id,mode,received_at) VALUES (?,?,?,?,?,?,?)";
+    sql.exec(insert, "evt_bad", "attempt_bad", siteId, bindingRef, accountId, "production", 1);
+    sql.exec(insert, "evt_good", "attempt_good", siteId, bindingRef, accountId, "test", 2);
+  });
+  const seen: string[] = [];
+  const consume = () => runInDurableObject(stub, instance => (instance as any).consumeWakes(async (context: { eventId: string }) => (seen.push(context.eventId), true), 1));
+  expect(await consume()).toEqual({ inspected: 1, acknowledged: 0 });
+  expect(await consume()).toEqual({ inspected: 1, acknowledged: 1 });
+  expect(seen).toEqual(["evt_good"]);
+  const rows = await runInDurableObject(stub, instance => (instance as any).ctx.storage.sql.exec(
+    "SELECT event_id, acknowledged_at, set_aside_at FROM checkout_wake_events ORDER BY event_id").toArray());
+  expect(rows).toMatchObject([
+    { event_id: "evt_bad", acknowledged_at: null, set_aside_at: expect.any(Number) },
+    { event_id: "evt_good", acknowledged_at: expect.any(Number), set_aside_at: null },
+  ]);
+});
