@@ -404,6 +404,10 @@ function transactionsOf(record: { transactionId: string | null; transactionIds?:
   return ids.slice(-AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT);
 }
 
+function sameTransactionList(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
 /** Most further paid tries kept for one checkout. */
 export const AUTHORIZE_NET_ALSO_PAID_PER_ATTEMPT = 20;
 
@@ -577,14 +581,21 @@ export function createAuthorizeNetPaymentPort(options: {
     if (transactionsOf(existing).length === 0) return { outcome: "unknown" };
     try {
       const result = await tries(request.attemptId, existing, total);
-      if ("paid" in result) return { outcome: "paid", ...fields, paymentId: await settle(request.attemptId, result.paid, result.read) };
+      const current = read(request.attemptId);
+      if (!current) return { outcome: "unknown" };
+      const currentFields = { attemptId: request.attemptId, total: savedTotal(current), session: asSession(current) };
+      if ("paid" in result) return { outcome: "paid", ...currentFields, paymentId: await settle(request.attemptId, result.paid, result.read) };
       if ("pending" in result) return { outcome: "unknown" };
+      // Re-check store state after awaiting the gateway so a concurrent settlement, late try, or refreshed
+      // card token never produces a stale open or expired-unpaid result.
+      if (current.paidId) return { outcome: "paid", ...currentFields, paymentId: current.paidId };
+      if (!sameTransactionList(transactionsOf(current), transactionsOf(existing))) return { outcome: "unknown" };
       // Every try so far is unpaid. The shopper can still try again until the checkout ends, and a card form
       // opened just before the end stays usable for a while after it.
       const at = seconds();
-      if (at < existing.expiresAt) return { outcome: "open", ...fields };
-      if (at < settlesAt(existing)) return { outcome: "unknown" };
-      return { outcome: "expired-unpaid", ...fields };
+      if (at < current.expiresAt) return { outcome: "open", ...currentFields };
+      if (at < settlesAt(current)) return { outcome: "unknown" };
+      return { outcome: "expired-unpaid", ...currentFields };
     } catch (error) {
       if (error instanceof AuthorizeNetError &&
           (error.message === "amount_or_currency_mismatch" || error.message === "identity_mismatch")) {
@@ -685,35 +696,40 @@ export function createAuthorizeNetPaymentPort(options: {
       // checked again after every provider call, so a visit that crosses it never gets a token.
       if (record.paidId) return back;
       if (seconds() >= record.expiresAt) return ended;
+      let latest = record;
       if (transactionsOf(record).length > 0) {
         let result;
         try { result = await tries(attemptId, record, total); }
         catch { return back; }
         if ("paid" in result) await settle(attemptId, result.paid, result.read);
         if (!("unpaid" in result)) return back;
-        if (seconds() >= record.expiresAt) return ended;
+        const current = read(attemptId);
+        if (!current?.sessionId || !sameText(current.sessionId, sessionId)) return { action: "not_found" };
+        if (current.paidId || !sameTransactionList(transactionsOf(current), transactionsOf(record))) return back;
+        if (seconds() >= current.expiresAt) return ended;
+        latest = current;
       }
       // One live card form per checkout: its token is handed out until Authorize.net stops showing it.
       const usable = (value: AuthorizeNetAttemptRecord) => seconds() - (value.tokenAt ?? value.createdAt) < AUTHORIZE_NET_FORM_TOKEN_SECONDS;
-      if (usable(record)) return { action: "post", hostedUrl: options.hostedUrl, token: record.token };
+      if (usable(latest)) return { action: "post", hostedUrl: options.hostedUrl, token: latest.token };
       let created;
       try {
         created = await options.gateway.createHostedPayment({
-          attemptId, siteId: options.siteId, total, ...(record.taxMinor ? { tax: record.taxMinor } : {}),
-          returnUrl: record.returnUrl, cancelUrl: record.cancelUrl,
+          attemptId, siteId: options.siteId, total, ...(latest.taxMinor ? { tax: latest.taxMinor } : {}),
+          returnUrl: latest.returnUrl ?? record.returnUrl, cancelUrl: latest.cancelUrl ?? record.cancelUrl,
         });
       } catch {
         return ended;
       }
       const tokenAt = seconds();
       // A token minted after the end is never stored or shown.
-      if (tokenAt >= record.expiresAt) return ended;
+      if (tokenAt >= latest.expiresAt) return ended;
       // Two visits can mint at once. The first to store its token wins and both get it; the other token is never shown.
       const shown = options.store.transaction(tx => {
         const current = tx.read(attemptId);
         if (!current || current.sessionId !== record.sessionId) return null;
-        if (current.paidId) return back;
-        if ((current.tokenAt ?? current.createdAt) !== (record.tokenAt ?? record.createdAt)) {
+        if (current.paidId || !sameTransactionList(transactionsOf(current), transactionsOf(latest))) return back;
+        if ((current.tokenAt ?? current.createdAt) !== (latest.tokenAt ?? latest.createdAt)) {
           return usable(current) ? current.token : null;
         }
         tx.write(attemptId, { ...current, token: created.token, tokenAt });
@@ -733,11 +749,17 @@ export function createAuthorizeNetPaymentPort(options: {
       options.store.transaction(tx => {
         const current = tx.read(attemptId);
         if (!current) return;
-        // The latest tries are kept, in arrival order, and a full list drops its oldest first; the latest
-        // also stays in transactionId for older readers. A proven paid try is kept apart, in paidId.
+        const resolved = (id: string) =>
+          id === current.paidId || Boolean(current.alsoPaid?.includes(id)) || Boolean(current.settled?.includes(id));
+        // Keep the latest tries in arrival order; when full, evict oldest already-resolved tries
+        // before dropping any unread/unsettled try. A proven paid try is also kept apart in paidId.
         const ids = transactionsOf(current).filter(id => id !== transactionId);
         ids.push(transactionId);
-        tx.write(attemptId, { ...current, transactionId, transactionIds: ids.slice(-AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT) });
+        while (ids.length > AUTHORIZE_NET_TRANSACTIONS_PER_ATTEMPT) {
+          const resolvedIndex = ids.findIndex(resolved);
+          ids.splice(resolvedIndex >= 0 ? resolvedIndex : 0, 1);
+        }
+        tx.write(attemptId, { ...current, transactionId: ids.at(-1) ?? transactionId, transactionIds: ids });
       });
     },
   };
