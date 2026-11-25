@@ -221,6 +221,10 @@ admin sees the same current status, whether or not their own sign-in is live.
 | Payments isn't connected for the store at DinkusKit.com, or this page never connected it | **Payment status not checked** (no alert) | Not checked. **Sign in again**. | Not checked |
 | Anything else, including nothing connected | **Not ready to sell** (alert) | Unchanged | Unchanged |
 
+An unchecked or last-checked status does not establish whether checkout can
+currently take payments. Checkout does not use the page's own sign-in, but a
+store-wide refusal of the payment pass can also stop checkout.
+
 The page's own DinkusKit sign-in (**Connect** / **Sign in again**) is now
 needed only for actions that change Stripe: **Set up or resume Stripe**,
 **Check provider identity** and recovery. Pressed after it lapsed, or by another

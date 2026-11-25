@@ -332,6 +332,7 @@ test("a store that hasn't connected Payments on this page asks for Sign in again
   assert.match(screen.steps[0].description, /This page needs a fresh DinkusKit sign-in for this store\. Select Sign in again to connect Payments/);
   const rendered = JSON.stringify(renderSetupScreen({ state: "action_required" }));
   assert.match(rendered, /Connect payments: Not checked\./);
+  assert.match(rendered, /Checkout doesn't use this sign-in/);
   assert.match(rendered, /Place a test order: Not checked\./);
   assert.match(rendered, /"label":"Sign in again","action_id":"connect"/);
   assert.doesNotMatch(rendered, /Not ready to sell|needs attention|Set up or resume Stripe|"variant":"alert"/);
@@ -494,7 +495,7 @@ test("with no store key from Connect, the page shows the last checked connection
   const page = renderSetupScreen({ state: "store_key_required", lastChecked: { at: Date.UTC(2026, 9, 18, 17, 10), status } });
   const banner = page.blocks.find(block => block.type === "banner");
   assert.equal(banner.title, "Connected: Stripe test mode");
-  assert.match(banner.description, /^Last checked Oct 18, 2026 at 5:10 PM UTC\. Select Connect again so this page can check it now\./);
+  assert.equal(banner.description, "Last checked Oct 18, 2026 at 5:10 PM UTC. Select Connect again to check the current payment status.");
   const text = JSON.stringify(page);
   assert.match(text, /"label":"Connect again","action_id":"connect"/);
   assert.doesNotMatch(text, /setup_processor|Sign in again|Reconnect/);

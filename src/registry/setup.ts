@@ -295,7 +295,7 @@ export function projectSetupScreen(input: unknown, diagnostics?: ConnectionDiagn
 const BANNERS: Record<SetupOverall, { description: string; variant: "default" | "alert" }> = {
   "Not ready to sell": { description: "Complete both steps before accepting regular customer payments.", variant: "alert" },
   "Connected: Stripe test mode": { description: "Shoppers can pay with Stripe test cards. Real customer payments need a live Stripe connection.", variant: "default" },
-  "Payment status not checked": { description: "This page couldn't read your payment status. The first step says why. Checkout isn't affected.", variant: "default" },
+  "Payment status not checked": { description: "This page couldn't read your payment status. See Connect payments for the reason.", variant: "default" },
 };
 
 export function describeProviderIdentity(diagnostic: ProviderIdentityDiagnostic): string {
@@ -387,7 +387,7 @@ export function renderSetupScreen(input: unknown, { invalidCountry = false } = {
   const lastChecked = lastCheckedProjection(input);
   const projection = lastChecked?.projection ?? projectSetupScreen(nested, input && typeof input === "object" && "diagnostics" in input ? input.diagnostics as ConnectionDiagnostics : undefined);
   const banner = lastChecked
-    ? { ...BANNERS[projection.overall], description: `Last checked ${utcTime(lastChecked.at)}. Select Connect again so this page can check it now. Checkout isn't affected.` }
+    ? { ...BANNERS[projection.overall], description: `Last checked ${utcTime(lastChecked.at)}. Select Connect again to check the current payment status.` }
     : BANNERS[projection.overall];
   const state = typeof input === "object" && input !== null && !Array.isArray(input) &&
     typeof (input as { state?: unknown }).state === "string" ? (input as { state: string }).state : "disconnected";
