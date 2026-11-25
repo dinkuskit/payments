@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 import type { Principal } from "./connection.js";
 import { PLAYGROUND_SITE_ID } from "../checkout/playground.js";
+import { SITE_ID_PATTERN } from "./manifest.js";
 
 type Scope = "payments:admin" | "payments:checkout";
 
@@ -13,7 +14,7 @@ export function createAccountAuthenticator(config: { issuer: string; audience: s
     const { payload } = await jwtVerify(bearer, resolveKey, {
       issuer: config.issuer, audience: config.audience, algorithms: ["RS256", "ES256"], requiredClaims: ["exp", "iat", "sub"], maxTokenAge: "1h",
     });
-    if (typeof payload.sub !== "string" || !payload.sub.trim() || payload.sub.length > 200 || typeof payload.site_id !== "string" || !payload.site_id.trim() || payload.site_id.length > 200 || typeof payload.scope !== "string" || request.headers.get("x-dinkus-site") !== payload.site_id) throw new Error("unauthorized");
+    if (typeof payload.sub !== "string" || !payload.sub.trim() || payload.sub.length > 200 || typeof payload.site_id !== "string" || !SITE_ID_PATTERN.test(payload.site_id) || typeof payload.scope !== "string" || request.headers.get("x-dinkus-site") !== payload.site_id) throw new Error("unauthorized");
     const granted = payload.scope.split(" ");
     const matched = (typeof scope === "string" ? [scope] : scope).find(item => granted.includes(item));
     if (!matched) throw new Error("unauthorized");

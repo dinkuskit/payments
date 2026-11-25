@@ -28,6 +28,11 @@ test('shared issuer identity is verified with audience, expiry, site, and separa
     await assert.rejects(verify(request(checkoutPass), hostedHttpRoutes[path].scope));
   }
   await assert.rejects(verify(request(await issue({ site_id: '' })), 'payments:admin'));
+  // Only the site ids DinkusKit.com mints: letters, digits, '-' and '_', up to 200.
+  for (const site of ['store a', 'caf\u00e9', 's'.repeat(201)]) {
+    await assert.rejects(verify(request(await issue({ site_id: site }), site), 'payments:admin'), /unauthorized/, site);
+  }
+  assert.equal((await verify(request(await issue({ site_id: 'S'.repeat(200) }), 'S'.repeat(200)), 'payments:admin')).siteId, 'S'.repeat(200));
   const otherKey = await generateKeyPair('ES256');
   const wrong = await new SignJWT({ site_id: 'site-a', scope: 'payments:admin' }).setProtectedHeader({ alg: 'ES256' }).setIssuer(issuer).setAudience('dinkus-payments').setSubject('merchant-a').setIssuedAt().setExpirationTime('5m').sign(otherKey.privateKey);
   await assert.rejects(verify(request(wrong), 'payments:admin'));

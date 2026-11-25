@@ -350,7 +350,7 @@ export function createRegistryConnection(options: {
     if (!configured) return null;
     try {
       const url = new URL(configured);
-      return url.protocol !== "https:" || url.username || url.password || url.search || url.hash || url.pathname !== "/v1/status" ? null : url;
+      return url.protocol !== "https:" || url.port || url.username || url.password || url.search || url.hash || url.pathname !== "/v1/status" ? null : url;
     } catch { return null; }
   }
   async function status(user?: UserInfo): Promise<RegistryFlowResult> {

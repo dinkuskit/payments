@@ -249,8 +249,12 @@ function selectProfile(file, profile) {
 	if (!file) return { values: {}, found: false };
 	const { profiles, ...base } = file;
 	if (!profile) return { values: base, found: false };
-	const selected = profiles && typeof profiles === "object" ? profiles[profile] : undefined;
-	return { values: { ...base, ...(selected ?? {}) }, found: Boolean(selected) };
+	// Own names only, so --profile constructor or toString is unknown, not Object.prototype.
+	const selected = profiles && typeof profiles === "object" && Object.hasOwn(profiles, profile) ? profiles[profile] : undefined;
+	if (selected !== undefined && (!selected || typeof selected !== "object" || Array.isArray(selected))) {
+		throw usageError(`Profile "${profile}" must be a JSON object.`, "invalid_config");
+	}
+	return { values: { ...base, ...(selected ?? {}) }, found: selected !== undefined };
 }
 
 export async function loadConfig(spec, { flags, env, cwd }) {
@@ -314,11 +318,14 @@ export function createHttp({ baseUrl, headers = {}, timeoutMs, fetchImpl, signal
 		const signals = [AbortSignal.timeout(timeoutMs)];
 		if (signal) signals.push(signal);
 		init.signal = AbortSignal.any(signals);
-		let response;
+		let response, text;
 		try {
 			response = await fetchImpl(url, init);
+			// The timeout also covers the body, so a reply that stalls after its headers is a timeout too.
+			text = await response.text();
 		} catch (error) {
-			if (error?.name === "TimeoutError") {
+			// The combined signal's reason says which deadline ended the request, whatever error the body read threw.
+			if (error?.name === "TimeoutError" || init.signal.reason?.name === "TimeoutError") {
 				throw new CliError("timeout", `No response from ${url.origin} within ${timeoutMs}ms.`, { exit: EXIT.unavailable });
 			}
 			if (error?.name === "AbortError") {
@@ -326,7 +333,6 @@ export function createHttp({ baseUrl, headers = {}, timeoutMs, fetchImpl, signal
 			}
 			throw new CliError("service_unreachable", `Could not reach ${url.origin}.`, { exit: EXIT.unavailable });
 		}
-		const text = await response.text();
 		let json;
 		if (text.length > 0) {
 			try {

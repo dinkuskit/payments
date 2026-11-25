@@ -22,16 +22,31 @@ const { version } = manifest;
 
 let scratch;
 let emptyDir;
+// A real HTTP server that sends its headers and part of a body, then never finishes.
+let stalledServer;
+let stalledUrl;
 before(async () => {
 	scratch = await mkdtemp(join(tmpdir(), "dinkus-payments-cli-"));
 	emptyDir = join(scratch, "empty");
 	await mkdir(emptyDir);
+	stalledServer = createServer((request, response) => {
+		response.writeHead(200, { "content-type": "application/json" });
+		response.write('{"state":');
+	});
+	await new Promise((resolve) => stalledServer.listen(0, "127.0.0.1", resolve));
+	stalledUrl = `http://127.0.0.1:${stalledServer.address().port}/`;
 });
 after(async () => {
+	stalledServer.closeAllConnections();
+	await new Promise((resolve) => stalledServer.close(resolve));
 	await rm(scratch, { recursive: true, force: true });
 });
 
 const reply = (status, body) => () => new Response(typeof body === "string" ? body : JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+// A reply that sends its headers and the first bytes, then stalls until the request's timeout fires.
+// Node's own fetch reads the stalled body, so the CLI's deadline aborts a real body read.
+const stalledBody = (call, init) => fetch(stalledUrl, { signal: init.signal });
 
 function fakeFetch(routes = {}) {
 	const calls = [];
@@ -212,6 +227,23 @@ test("site and endpoint resolve from flags, environment and config files in that
 	const fromEnv = await run(["status", "--json"], { routes: ready, cwd: project, env: { DINKUS_PAYMENTS_SITE: "site_env" } });
 	assert.equal(fromEnv.json().context.siteId, "site_env");
 
+	// Only the file's own profiles count; names on Object.prototype are unknown.
+	for (const name of ["constructor", "toString", "hasOwnProperty"]) {
+		const inherited = await run(["--profile", name, "status", "--json"], { routes: ready, cwd: project });
+		assert.equal(inherited.code, 2, name);
+		assert.equal(inherited.json().error.code, "unknown_profile", name);
+		assert.equal(inherited.calls.length, 0, name);
+	}
+	const shaped = join(scratch, "profile-shapes");
+	await mkdir(join(shaped, ".dinkuskit"), { recursive: true });
+	await writeFile(join(shaped, ".dinkuskit", "payments.json"), JSON.stringify({ site: "site_config", profiles: { text: "abc", list: ["site_profile"] } }));
+	for (const name of ["text", "list"]) {
+		const notObject = await run(["--profile", name, "status", "--json"], { routes: ready, cwd: shaped });
+		assert.equal(notObject.code, 2, name);
+		assert.equal(notObject.json().error.code, "invalid_config", name);
+		assert.equal(notObject.calls.length, 0, name);
+	}
+
 	const fromFlag = await run(["--site", SITE, "status", "--json"], { routes: ready, cwd: project, env: { DINKUS_PAYMENTS_SITE: "site_env" } });
 	assert.equal(fromFlag.json().context.siteId, SITE);
 });
@@ -322,6 +354,7 @@ test("HTTP and transport results map to the shared exit codes", async () => {
 		["503 html", reply(503, "<html>down</html>"), 3, "error"],
 		["network", () => { throw new TypeError("fetch failed"); }, 3, "error"],
 		["timeout", timeout, 3, "error"],
+		["body stalls after the headers", stalledBody, 3, "error"],
 		["200 non-JSON", reply(200, "<html>ok</html>"), 5, "error"],
 		["200 off-contract", reply(200, { status: "ready" }), 5, "error"],
 		["200 bad mode", reply(200, { state: "ready", mode: "production" }), 5, "error"],
@@ -464,6 +497,11 @@ test("connect reports an unknown outcome when the answer is lost after the send"
 		assert.ok(!result.stdout.includes("connect.example.invalid"), "an off-contract link is never printed");
 		assert.match(result.stderr, /safe to repeat/);
 	}
+	const stalled = await run(["--site", SITE, "--timeout", "50ms", "connect", "--no-input", "--confirm", SITE, "--json"], { routes: connectRoutes(stalledBody) });
+	assert.equal(stalled.code, 3, "a reply that stalls after its headers");
+	assert.equal(stalled.json().outcome, "unknown");
+	assert.equal(stalled.json().unknown.reason, "timeout");
+	assert.match(stalled.stderr, /safe to repeat/);
 	const refused = await run(["--site", SITE, "connect", "--no-input", "--confirm", SITE, "--json"], { routes: connectRoutes(reply(403, { error: "connection_owner_mismatch" })) });
 	assert.equal(refused.code, 4);
 	assert.equal(refused.json().outcome, "error");

@@ -1,3 +1,8 @@
+import { payPageAttemptId } from "../authorize-net/checkout.js";
+
+/** The site ids DinkusKit.com mints; anything else names no store, so a public route refuses it before any Durable Object is named. */
+export const SITE_ID_PATTERN = /^[A-Za-z0-9_-]{1,200}$/;
+
 /** Hosted service routes are not EmDash plugin routes. */
 export const hostedHttpRoutes = {
   "/v1/connect": { method: "POST", scope: "payments:admin" },
@@ -36,7 +41,7 @@ export const hostedPayRoutes = {
 
 /** Exact paths for one server-owned site, never an Access wildcard or template. */
 export function hostedPublicRouteManifest(siteId: string) {
-  if (!/^[A-Za-z0-9_-]{1,200}$/.test(siteId)) throw new Error("invalid_site_path_segment");
+  if (!SITE_ID_PATTERN.test(siteId)) throw new Error("invalid_site_path_segment");
   return [
     { ...hostedHealthRoute, surface: "hosted", public: true },
     { ...hostedWebhookRoutes.stripe, surface: "hosted", public: true },
@@ -53,19 +58,18 @@ export function matchAuthorizeNetWebhookSite(path: string): string | null {
   const prefix = hostedWebhookRoutes.authorizeNet.prefix;
   if (!path.startsWith(prefix)) return null;
   const siteId = path.slice(prefix.length);
-  return siteId && !siteId.includes("/") ? siteId : null;
+  return SITE_ID_PATTERN.test(siteId) ? siteId : null;
 }
 
 export function authorizeNetPayPagePath(siteId: string): string {
-  return `${hostedPayRoutes.authorizeNet.prefix}${encodeURIComponent(siteId)}`;
+  if (!SITE_ID_PATTERN.test(siteId)) throw new Error("invalid_site_path_segment");
+  return `${hostedPayRoutes.authorizeNet.prefix}${siteId}`;
 }
 
 export function matchAuthorizeNetPaySession(path: string): { siteId: string; sessionId: string } | null {
   const prefix = hostedPayRoutes.authorizeNet.prefix;
   if (!path.startsWith(prefix)) return null;
   const parts = path.slice(prefix.length).split("/");
-  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
-  let siteId: string;
-  try { siteId = decodeURIComponent(parts[0]); } catch { return null; }
-  return siteId && !siteId.includes("/") ? { siteId, sessionId: parts[1] } : null;
+  if (parts.length !== 2 || !SITE_ID_PATTERN.test(parts[0]) || !payPageAttemptId(parts[1])) return null;
+  return { siteId: parts[0], sessionId: parts[1] };
 }

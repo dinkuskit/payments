@@ -31,7 +31,7 @@ test("rate slot: 3 per IP per 10 minutes and a tenant ceiling, sliding window", 
   assert.throws(() => takePlaygroundSessionSlot(full, "ip-z", t0 + 1), error => error.limit === "tenant");
 });
 
-test("shopper IPs are stored only as an opaque hash", async () => {
+test("shopper IPs are stored as a hash, never as the raw address", async () => {
   const key = await playgroundIpKey("203.0.113.7");
   assert.match(key, /^[0-9a-f]{64}$/);
   assert.ok(!key.includes("203"));
