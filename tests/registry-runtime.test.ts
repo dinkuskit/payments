@@ -150,6 +150,22 @@ test("compiled Continue saves authorization and reads status within ten bridge c
   } finally { vi.restoreAllMocks(); await host.dispose(); }
 });
 
+test("compiled Payment setup does not promise working checkout when DinkusKit cuts off Payments", async () => {
+  const f = await fixture({ installedId: "r_3brsc2on3bu673rn" }); const { host } = f;
+  try {
+    await f.prepareStart("payment-cut-off"); await f.action("connect"); await f.pollDue();
+    await f.prepareExchange(); await f.action("continue"); host.http.clear();
+    await host.http.respond(PASSES, Response.json({ error: "service_cut_off" }, { status: 403 }));
+    const page = JSON.stringify(await f.action("check"));
+    assert.match(page, /Payment status not checked/);
+    assert.match(page, /DinkusKit\.com has cut Payments off for this store\. Contact DinkusKit\./);
+    assert.match(page, /"label":"Check connection","action_id":"check"/);
+    assert.deepEqual(host.http.requests().map(r => [r.method, r.url]), [["POST", PASSES]]);
+    assert.equal(body(host.http.requests()[0]!).scope, "payments:checkout");
+    assert.doesNotMatch(page, /Checkout isn't affected|Connected: Stripe test mode/);
+  } finally { await host.dispose(); }
+});
+
 test("compiled Check performs one status sequence for an already completed grant", async () => {
   const f = await fixture(); const { host } = f;
   try {
@@ -740,7 +756,7 @@ test("compiled Approve with no store key from DinkusKit.com shows the status rea
     host.http.clear();
     const page = await f.page();
     assert.equal(page.blocks[1].title, "Connected: Stripe test mode");
-    assert.match(String(page.blocks[1].description), /^Last checked .* UTC\. Select Connect again so this page can check it now/);
+    assert.match(String(page.blocks[1].description), /^Last checked .* UTC\. Select Connect again to check the current payment status\.$/);
     assert.match(JSON.stringify(page), /"label":"Connect again","action_id":"connect"/);
     assert.doesNotMatch(JSON.stringify(page), /Sign in again/);
     assert.deepEqual(host.http.requests(), []);
