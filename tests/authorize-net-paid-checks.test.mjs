@@ -208,7 +208,8 @@ test("G1-04: two tabs opening the card form at once get the same one, and only o
   state.mintGate = new Promise(resolve => { release = resolve; });
   const first = port.payPage(session.sessionId);
   const second = port.payPage(session.sessionId);
-  await new Promise(resolve => setTimeout(resolve, 0));
+  // Wait until both visits are minting (each first reads its record), however long that takes on this machine.
+  for (let turns = 0; state.mints < 3 && turns < 1000; turns++) await new Promise(resolve => setTimeout(resolve, 1));
   assert.equal(state.mints, 3);
   release();
   const [a, b] = await Promise.all([first, second]);
@@ -332,7 +333,9 @@ test("payPage sends the shopper back instead of handing out a form if a try land
     let release;
     state.mintGate = new Promise(resolve => { release = resolve; });
     const pending = port.payPage(session.sessionId);
-    await new Promise(resolve => setTimeout(resolve, 10));
+    // The notice lands only once the visit is minting its card form.
+    for (let turns = 0; state.mints < 2 && turns < 1000; turns++) await new Promise(resolve => setTimeout(resolve, 1));
+    assert.equal(state.mints, 2);
     transactions[1101] = paidTry;
     port.recordTransaction(payment.attemptId, "1101");
     release();
@@ -420,7 +423,8 @@ test("payPage sees a payment notice even when later notices rotate the try list 
     let release;
     h.state.mintGate = new Promise(resolve => { release = resolve; });
     const pending = h.port.payPage(session.sessionId);
-    while (h.state.mints < 2) await new Promise(resolve => setTimeout(resolve, 1));
+    for (let turns = 0; h.state.mints < 2 && turns < 1000; turns++) await new Promise(resolve => setTimeout(resolve, 1));
+    assert.equal(h.state.mints, 2);
     rotate(h.port);
     release();
     assert.deepEqual(await pending, { action: "redirect", url: "https://store.example/checkout/success" });
