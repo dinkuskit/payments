@@ -259,7 +259,7 @@ test("the plugin reads a paid-twice list strictly and shows the owner each check
   assert.deepEqual(decodeStatus({ ...status, paidTwice: [notice] }).paidTwice, [notice]);
   for (const bad of [
     [], [{ ...notice, transactionIds: ["1"] }], [{ ...notice, transactionIds: ["1", "1"] }], [{ ...notice, transactionIds: ["1", "x"] }],
-    [{ ...notice, extra: 1 }], [{ ...notice, total: { currency: "EUR", minor: "4500" } }], [{ ...notice, at: 0 }], Array(11).fill(notice), notice,
+    [{ ...notice, extra: 1 }], [{ ...notice, total: { currency: "EUR", minor: "4500" } }], [{ ...notice, total: { currency: "USD", minor: "9999999999999999" } }], [{ ...notice, at: 0 }], Array(11).fill(notice), notice,
   ]) assert.throws(() => decodeStatus({ ...status, paidTwice: bad }), /invalid_status/, JSON.stringify(bad));
   // Stripe can't take a second payment for one checkout, so a Stripe status never carries the list.
   assert.throws(() => decodeStatus({ ...status, connectionEvidence: { provider: "stripe", mode: "test", result: "verified", accountRef: "acct_1" }, paidTwice: [notice] }), /invalid_status/);
@@ -319,4 +319,54 @@ test("paid twice: a try read after the try list is full is kept as read, not rea
   const reads = state.reads.length;
   assert.equal(await port.recheck(payment.attemptId), true);
   assert.equal(state.reads.length, reads, "and is not read again");
+});
+
+test("payPage sends the shopper back instead of handing out a form if a try lands during mint or try lookup", async () => {
+  // Case 1: a payment notice arrives while payPage is minting a fresh form token.
+  {
+    const { records, state, transactions, port } = harness();
+    const { session } = await port.ensureSession(payment);
+    const originalToken = records.get(payment.attemptId).token;
+    const originalTokenAt = records.get(payment.attemptId).tokenAt;
+    state.clock += 900_000;
+    let release;
+    state.mintGate = new Promise(resolve => { release = resolve; });
+    const pending = port.payPage(session.sessionId);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    transactions[1101] = paidTry;
+    port.recordTransaction(payment.attemptId, "1101");
+    release();
+    assert.deepEqual(await pending, { action: "redirect", url: "https://store.example/checkout/success" });
+    // The newly minted token is never stored and tokenAt is not extended.
+    assert.equal(records.get(payment.attemptId).token, originalToken);
+    assert.equal(records.get(payment.attemptId).tokenAt, originalTokenAt);
+  }
+  // Case 2: a payment notice arrives while payPage is checking an earlier declined try (existing token still usable).
+  {
+    const { state, transactions, port } = harness();
+    const { session } = await port.ensureSession(payment);
+    transactions[1201] = declinedTry;
+    transactions[1202] = paidTry;
+    port.recordTransaction(payment.attemptId, "1201");
+    state.onRead = id => { if (id === "1201") port.recordTransaction(payment.attemptId, "1202"); };
+    assert.deepEqual(await port.payPage(session.sessionId), { action: "redirect", url: "https://store.example/checkout/success" });
+  }
+});
+
+test("paid twice: a paid try beyond the 20-item alsoPaid cap drains openTries instead of retrying forever", async () => {
+  const { records, state, transactions, port } = harness();
+  await port.ensureSession(payment);
+  transactions[1300] = paidTry;
+  port.recordTransaction(payment.attemptId, "1300");
+  assert.equal((await port.lookup(payment)).paymentId, "1300");
+  for (let id = 1301; id <= 1321; id++) {
+    transactions[id] = paidTry;
+    port.recordTransaction(payment.attemptId, String(id));
+    await port.checkLateTry(payment.attemptId, String(id));
+  }
+  assert.equal(records.get(payment.attemptId).alsoPaid.length, 20);
+  assert.deepEqual(port.openTries(payment.attemptId), []);
+  const reads = state.reads.length;
+  assert.equal(await port.recheck(payment.attemptId), true);
+  assert.equal(state.reads.length, reads);
 });

@@ -519,7 +519,8 @@ export function createAuthorizeNetPaymentPort(options: {
       const alsoPaid = [...new Set([...before, ...paid])].filter(id => id !== paidId).slice(0, AUTHORIZE_NET_ALSO_PAID_PER_ATTEMPT);
       const tried = transactionsOf(current), wasSettled = current.settled ?? [];
       // Only tries still on the list are kept, so the list stays as short as the try list.
-      const settled = tried.filter(id => wasSettled.includes(id) || read.includes(id) && id !== paidId && !alsoPaid.includes(id));
+      // A paid try beyond the alsoPaid cap is already decided, so count it read instead of retrying it.
+      const settled = tried.filter(id => wasSettled.includes(id) || (read.includes(id) || paid.includes(id)) && id !== paidId && !alsoPaid.includes(id));
       // A full try list drops its oldest try, so the read list can change while keeping its length.
       const resettled = settled.length !== wasSettled.length || settled.some(id => !wasSettled.includes(id));
       if (current.paidId !== paidId || alsoPaid.length !== before.length || resettled) {
@@ -685,13 +686,18 @@ export function createAuthorizeNetPaymentPort(options: {
       // checked again after every provider call, so a visit that crosses it never gets a token.
       if (record.paidId) return back;
       if (seconds() >= record.expiresAt) return ended;
-      if (transactionsOf(record).length > 0) {
+      const seenTries = transactionsOf(record);
+      if (seenTries.length > 0) {
         let result;
         try { result = await tries(attemptId, record, total); }
         catch { return back; }
         if ("paid" in result) await settle(attemptId, result.paid, result.read);
         if (!("unpaid" in result)) return back;
         if (seconds() >= record.expiresAt) return ended;
+        // A payment notice can land while earlier tries are being read.
+        const latest = read(attemptId);
+        if (!latest || latest.sessionId !== record.sessionId) return ended;
+        if (latest.paidId || transactionsOf(latest).some(id => !seenTries.includes(id))) return back;
       }
       // One live card form per checkout: its token is handed out until Authorize.net stops showing it.
       const usable = (value: AuthorizeNetAttemptRecord) => seconds() - (value.tokenAt ?? value.createdAt) < AUTHORIZE_NET_FORM_TOKEN_SECONDS;
@@ -712,7 +718,7 @@ export function createAuthorizeNetPaymentPort(options: {
       const shown = options.store.transaction(tx => {
         const current = tx.read(attemptId);
         if (!current || current.sessionId !== record.sessionId) return null;
-        if (current.paidId) return back;
+        if (current.paidId || transactionsOf(current).some(id => !seenTries.includes(id))) return back;
         if ((current.tokenAt ?? current.createdAt) !== (record.tokenAt ?? record.createdAt)) {
           return usable(current) ? current.token : null;
         }
