@@ -12,6 +12,7 @@
 - Every release builds the Cloudflare sandbox artifact (`dist/sandbox/plugin.mjs`) and verifies that its size stays strictly under `128 KB` (`131,072` bytes).
 - Historical git tags before `v0.2.8` are never backfilled; the stable tag baseline is `v0.2.8`.
 - Every GitHub Actions `uses:` reference in `.github/workflows/*.yml` is pinned to a full 40-character commit SHA (enforced by `npm run audit:repo`).
+- Every pinned SHA, in `.github/workflows/*.yml` and `scripts/agent-skills`, is listed in `.github/reviewed-pins.json` with a review note (enforced by `npm run audit:pins`, which `npm test` also runs). Review the source before adding a line: `node scripts/pin-audit.mjs --fetch <dir> --base-manifest <copy of main's manifest>` resolves every pin at its source and writes the source diff of each new one into `<dir>`.
 - All release buttons are on **Release** (`.github/workflows/release.yml`), pressed on `main`: `action: cut-beta`, `add-fix` and `promote`. A button run never publishes; it pushes a version tag, and that tag's run publishes (`vX.Y.Z-beta.N` to `dinkus-payments-beta`, `vX.Y.Z` to `dinkus-payments`). `.github/workflows/emdash-release.yml` is a `workflow_call`-only helper that only the tag run calls. DinkusKit Commerce and Ship run the same files, so all three plugins release the same way.
 
 ## Delegated Registry Publishing (No Stored PDS Credentials)

@@ -11,6 +11,7 @@ const requiredFiles = [
   ".changeset/README.md",
   ".changeset/config.json",
   ".gitattributes",
+  ".github/reviewed-pins.json",
   ".github/scripts/check-changeset.mjs",
   ".github/scripts/emdash-dispatch-gate.mjs",
   ".github/scripts/ensure-emdash-workflow-connection.mjs",
@@ -43,6 +44,7 @@ const requiredFiles = [
   "docs/README.md",
   "package-lock.json",
   "package.json",
+  "scripts/pin-audit.mjs",
   "scripts/release-authority-proof.mjs",
   "scripts/release-flow.mjs",
 ];
