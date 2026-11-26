@@ -1,0 +1,49 @@
+{
+  "pins": [
+    {
+      "source": "actions/attest-build-provenance",
+      "sha": "977bb373ede98d70efdf65b84cb5f73e068dcc2a",
+      "review": "baseline: already pinned on main at c38d719 when pin-audit landed; source not re-reviewed"
+    },
+    {
+      "source": "actions/checkout",
+      "sha": "9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
+      "review": "baseline: already pinned on main at c38d719 when pin-audit landed; source not re-reviewed"
+    },
+    {
+      "source": "actions/create-github-app-token",
+      "sha": "64ab729a6294000f5aa4a4bc0b73d1f32bc45510",
+      "review": "baseline: already pinned on main at c38d719 when pin-audit landed; source not re-reviewed"
+    },
+    {
+      "source": "actions/setup-node",
+      "sha": "820762786026740c76f36085b0efc47a31fe5020",
+      "review": "baseline: already pinned on main at c38d719 when pin-audit landed; source not re-reviewed"
+    },
+    {
+      "source": "actions/upload-artifact",
+      "sha": "bbbca2ddaa5d8feaa63e36b76fdaad77386f024f",
+      "review": "baseline: already pinned on main at c38d719 when pin-audit landed; source not re-reviewed"
+    },
+    {
+      "source": "dinkuskit/clawsweeper",
+      "sha": "b2dd2b5b3fe978645e954f8544612249e77e2891",
+      "review": "baseline: already pinned on main at c38d719 when pin-audit landed; source not re-reviewed"
+    },
+    {
+      "source": "emdash-cms/emdash",
+      "sha": "45b542c016d35c7a88a590dce8e600e2384c13a9",
+      "review": "baseline: already pinned on main at c38d719 when pin-audit landed; source not re-reviewed"
+    },
+    {
+      "source": "saariuslystoned/SaariusSkills",
+      "sha": "23f2bb1208b3baa7aedaa87faec00395f9bdd061",
+      "review": "baseline: already pinned on main at c38d719 when pin-audit landed; source not re-reviewed"
+    },
+    {
+      "source": "saariuslystoned/SaariusSkills",
+      "sha": "5c8476507b0a83e4aef6b54f2e5dfdca2105b6db",
+      "review": "baseline: already pinned on main at c38d719 when pin-audit landed; source not re-reviewed"
+    }
+  ]
+}
